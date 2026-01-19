@@ -13,7 +13,6 @@ import {
     Check,
     Mail,
     Copy,
-    ExternalLink,
     ChevronDown,
     Building2,
     MapPin,
@@ -106,6 +105,8 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
     const [isDragging, setIsDragging] = useState(false);
     const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
     const [selectedTemplateId, setSelectedTemplateId] = useState('initial_outreach');
+    const [editableSubject, setEditableSubject] = useState('');
+    const [editableBody, setEditableBody] = useState('');
     const [copied, setCopied] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -114,6 +115,14 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
 
     // Generate email content
     const emailContent = extractedData ? selectedTemplate.generateContent(toOfferData(extractedData)) : null;
+
+    // Sync editable state when template or data changes
+    useEffect(() => {
+        if (emailContent) {
+            setEditableSubject(emailContent.subject);
+            setEditableBody(emailContent.body);
+        }
+    }, [emailContent]);
 
     // Reset state when closing or starting over
     useEffect(() => {
@@ -195,8 +204,7 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
 
     // Copy to clipboard
     const handleCopy = async () => {
-        if (!emailContent) return;
-        const text = `Subject: ${emailContent.subject}\n\n${emailContent.body}`;
+        const text = `${editableSubject}\n\n${editableBody}`;
         await navigator.clipboard.writeText(text);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
@@ -204,8 +212,8 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
 
     // Open in email client
     const openInEmail = () => {
-        if (!emailContent || !extractedData?.email) return;
-        const mailto = `mailto:${extractedData.email}?subject=${encodeURIComponent(emailContent.subject)}&body=${encodeURIComponent(emailContent.body)}`;
+        if (!extractedData?.email) return;
+        const mailto = `mailto:${extractedData.email}?subject=${encodeURIComponent(editableSubject)}&body=${encodeURIComponent(editableBody)}`;
         window.open(mailto, '_blank');
     };
 
@@ -299,10 +307,10 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
                             onDragOver={(e) => e.preventDefault()}
                             onClick={() => fileInputRef.current?.click()}
                             className={`group relative flex flex-col items-center justify-center gap-6 border-2 border-dashed rounded-[2.5rem] p-24 transition-all duration-500 ${isDragging
-                                    ? 'border-blue-500 bg-blue-50/40 scale-[1.01] shadow-2xl shadow-blue-500/10'
-                                    : status === 'error'
-                                        ? 'border-red-300 bg-red-50/30'
-                                        : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/20 hover:shadow-xl hover:shadow-slate-200/50'
+                                ? 'border-blue-500 bg-blue-50/40 scale-[1.01] shadow-2xl shadow-blue-500/10'
+                                : status === 'error'
+                                    ? 'border-red-300 bg-red-50/30'
+                                    : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/20 hover:shadow-xl hover:shadow-slate-200/50'
                                 }`}
                         >
                             <input
@@ -502,85 +510,111 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
                                 </div>
                             </div>
 
-                            {/* Right Column: Outreach Terminal */}
+                            {/* Right Column: Premium Composition Suite */}
                             <div className="space-y-6">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-3">
                                     <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                                        Outreach Terminal
+                                        Composition Suite
                                     </h3>
-                                    <div className="h-px flex-1 bg-slate-100" />
+                                    <div className="h-px flex-1 bg-gradient-to-r from-slate-100 to-transparent" />
                                 </div>
 
-                                {/* Template Selector - Premium UI */}
+                                {/* Template Selector - Stripe Style */}
                                 <div className="space-y-3">
-                                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">Select Strategy</label>
                                     <div className="relative group">
+                                        <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400">
+                                            <Sparkles size={16} />
+                                        </div>
                                         <select
                                             value={selectedTemplateId}
                                             onChange={(e) => setSelectedTemplateId(e.target.value)}
-                                            className="w-full pl-5 pr-12 py-4 bg-white border border-slate-200 rounded-2xl text-[14px] font-bold text-slate-700 appearance-none cursor-pointer transition-all hover:border-blue-400 focus:outline-none focus:ring-4 focus:ring-blue-100"
+                                            className="w-full pl-12 pr-12 py-4 bg-slate-50/50 border border-slate-200 rounded-[1.25rem] text-[14px] font-bold text-slate-700 appearance-none cursor-pointer transition-all hover:bg-white hover:border-blue-400 focus:outline-none focus:ring-4 focus:ring-blue-100/50"
                                         >
                                             {OUTREACH_EMAIL_TEMPLATES.map(t => (
                                                 <option key={t.id} value={t.id}>{t.name}</option>
                                             ))}
                                         </select>
-                                        <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 group-hover:text-blue-500 transition-colors">
+                                        <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                                             <ChevronDown size={18} strokeWidth={2.5} />
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Preview Console */}
-                                <div className="relative flex flex-col h-[400px] bg-slate-900 rounded-[2.5rem] overflow-hidden shadow-2xl group border-4 border-slate-800">
-                                    <div className="flex items-center gap-1.5 px-6 py-4 bg-slate-800/80 border-b border-white/5">
-                                        <div className="w-2.5 h-2.5 rounded-full bg-red-400/80" />
-                                        <div className="w-2.5 h-2.5 rounded-full bg-yellow-400/80" />
-                                        <div className="w-2.5 h-2.5 rounded-full bg-green-400/80" />
-                                        <span className="ml-2 text-[10px] font-bold text-slate-500 uppercase tracking-[4px]">Email_PREVIEW</span>
-                                    </div>
-
-                                    <div className="flex-1 overflow-y-auto p-8 custom-scrollbar scroll-smooth">
-                                        <div className="space-y-6">
-                                            <div>
-                                                <p className="text-[10px] font-black text-blue-400/80 uppercase tracking-widest mb-1.5">Recipient</p>
-                                                <p className="text-sm font-bold text-slate-200">{extractedData.email || '—'}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-black text-blue-400/80 uppercase tracking-widest mb-1.5">Subject_Line</p>
-                                                <p className="text-sm font-bold text-slate-200 bg-white/5 p-3 rounded-xl border border-white/5">{emailContent.subject}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-black text-blue-400/80 uppercase tracking-widest mb-1.5">Body_Payload</p>
-                                                <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono leading-relaxed bg-white/5 p-5 rounded-2xl border border-white/5 selection:bg-blue-500/30">
-                                                    {emailContent.body}
-                                                </pre>
-                                            </div>
+                                {/* Email Composer - Jony Ive x Stripe Aesthetic */}
+                                <div className="relative flex flex-col h-[460px] bg-white rounded-[2.5rem] border border-slate-200 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] overflow-hidden">
+                                    {/* Composer Header */}
+                                    <div className="px-8 py-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Dispatch</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 opacity-40">
+                                            <div className="w-2 h-2 rounded-full bg-slate-300" />
+                                            <div className="w-2 h-2 rounded-full bg-slate-300" />
+                                            <div className="w-2 h-2 rounded-full bg-slate-300" />
                                         </div>
                                     </div>
 
-                                    {/* Action Buttons - Premium & Large */}
-                                    <div className="p-6 bg-slate-900 border-t border-white/5 flex gap-4">
+                                    {/* Scrollable Composition Area */}
+                                    <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+                                        {/* Recipient Row */}
+                                        <div className="flex items-center gap-6 group">
+                                            <label className="w-16 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Recipient</label>
+                                            <div className="flex-1 text-sm font-bold text-slate-900 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100 truncate">
+                                                {extractedData.email || '—'}
+                                            </div>
+                                        </div>
+
+                                        {/* Editable Subject */}
+                                        <div className="flex flex-col gap-3">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Subject_Line</label>
+                                            <input
+                                                type="text"
+                                                value={editableSubject}
+                                                onChange={(e) => setEditableSubject(e.target.value)}
+                                                className="w-full text-base font-bold text-slate-900 bg-white px-2 py-1 border-b border-transparent focus:border-blue-500 transition-colors focus:outline-none"
+                                                placeholder="Enter subject..."
+                                            />
+                                        </div>
+
+                                        {/* Editable Message Body */}
+                                        <div className="flex flex-col gap-3">
+                                            <div className="flex items-center justify-between pl-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Message_Body</label>
+                                                <div className="px-2 py-0.5 rounded-md bg-blue-50 text-[9px] font-black text-blue-500 uppercase tracking-tighter">AI Optimized</div>
+                                            </div>
+                                            <textarea
+                                                value={editableBody}
+                                                onChange={(e) => setEditableBody(e.target.value)}
+                                                className="w-full flex-1 min-h-[220px] text-[15px] font-medium text-slate-600 leading-relaxed bg-transparent resize-none focus:outline-none focus:ring-0 custom-scrollbar"
+                                                placeholder="Write your message..."
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Optimized Action Bar */}
+                                    <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-4">
                                         <button
                                             onClick={handleCopy}
-                                            className={`flex-1 flex items-center justify-center gap-2.5 px-6 py-4 rounded-[1.25rem] text-sm font-black uppercase tracking-widest transition-all ${copied
-                                                    ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 scale-95'
-                                                    : 'bg-white text-slate-900 hover:bg-slate-100 active:scale-95'
+                                            className={`flex-1 flex items-center justify-center gap-2.5 px-6 py-4 rounded-2xl text-[12px] font-black uppercase tracking-widest transition-all ${copied
+                                                ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                                                : 'bg-white text-slate-700 border border-slate-200 hover:border-slate-300 hover:bg-white active:scale-95 shadow-sm'
                                                 }`}
                                         >
-                                            {copied ? <Check size={18} strokeWidth={3} /> : <Copy size={18} strokeWidth={2.5} />}
-                                            {copied ? 'Captured' : 'Copy_Data'}
+                                            {copied ? <Check size={16} strokeWidth={3} /> : <Copy size={16} strokeWidth={2.5} />}
+                                            {copied ? 'Copied' : 'Copy'}
                                         </button>
                                         <button
                                             onClick={openInEmail}
                                             disabled={!extractedData.email}
-                                            className={`flex-1 flex items-center justify-center gap-2.5 px-6 py-4 rounded-[1.25rem] text-sm font-black uppercase tracking-widest transition-all ${extractedData.email
-                                                    ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-xl shadow-blue-600/20 active:scale-95'
-                                                    : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                                            className={`flex-[2] flex items-center justify-center gap-2.5 px-6 py-4 rounded-2xl text-[12px] font-black uppercase tracking-widest transition-all ${extractedData.email
+                                                ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-xl shadow-blue-600/20 active:scale-95'
+                                                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                                 }`}
                                         >
-                                            <Mail size={18} strokeWidth={2.5} />
-                                            Dispatch
-                                            <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                                            <Mail size={16} strokeWidth={2.5} />
+                                            Dispatch Now
+                                            <ArrowRight size={14} className="ml-1 opacity-70" />
                                         </button>
                                     </div>
                                 </div>
