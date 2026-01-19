@@ -128,9 +128,9 @@ Thank you!`,
     generateContent: (d) => {
       const hours =
         d.weeklyHours === 40 ? '5x8s (40 hours/week)' :
-        d.weeklyHours === 36 ? '3x12s (36 hours/week)' :
-        d.weeklyHours === 48 ? '4x12s (48 hours/week)' :
-        `${d.shiftType} (${d.weeklyHours} hours/week)`;
+          d.weeklyHours === 36 ? '3x12s (36 hours/week)' :
+            d.weeklyHours === 48 ? '4x12s (48 hours/week)' :
+              `${d.shiftType} (${d.weeklyHours} hours/week)`;
 
       const comp =
         d.weeklyStipend && d.grossWeeklyPay
@@ -196,7 +196,7 @@ Best,
     name: '📧 EMAIL: Competitive Counter Offer',
     generateContent: (d) => {
       const enhancedPay = d.grossWeeklyPay * 1.05;
-      
+
       return {
         subject: `${d.name.split(' ')[0] || ''}, we can beat that offer`,
         body: `Hi ${d.name.split(' ')[0] || ''},
@@ -257,15 +257,13 @@ Thanks!
 Facility: ${d.facility}
 Location: ${d.city}, ${d.state}
 Assignment Dates: ${formatDate(d.startDate)} – ${formatEndDate(d.endDate)}
-Shifts & Hours/Week: ${d.shiftType} (${d.hoursPerWeek || 36} hours/week)
+Shifts & Hours/Week: ${d.shiftType} (${d.weeklyHours || 36} hours/week)
 Specialty: ${d.specialty}
 
 Pay Package:
-Taxable Hourly Rate: ${currency(d.taxableHourly || 0)}/hr
-Weekly Meals Stipend: ${currency(d.mealsStipend || 0)}
-Weekly Housing Stipend: ${currency(d.housingStipend || 0)}
-Total Weekly Stipends (Meals + Housing): ${currency((d.mealsStipend || 0) + (d.housingStipend || 0))}
-Total Gross Weekly Pay for ${d.hoursPerWeek || 36} Hours Worked: ${currency(d.grossWeeklyPay)}
+Taxable Hourly Rate: ${currency(d.taxableRate || 0)}/hr
+Total Weekly Stipends: ${currency(d.weeklyStipend || 0)}
+Total Gross Weekly Pay for ${d.weeklyHours || 36} Hours Worked: ${currency(d.grossWeeklyPay)}
 
 Please let me know if you would like to be submitted or if you have any questions.`,
       };
@@ -287,7 +285,7 @@ Please let me know if you would like to be submitted or if you have any question
         if (!dateString) return 'ASAP';
         return new Date(dateString).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
       };
-      
+
       return {
         subject: 'Text Message',
         body: `${d.name.split(' ')[0] || ''} - URGENT: ${d.facility} needs ${d.specialty} by ${formatDate(d.startDate)}. ${currency(d.grossWeeklyPay)}/wk. They're deciding TODAY. Can you talk now? Call me at [phone] or reply YES.`,
@@ -490,6 +488,33 @@ Can I please have licensing information for ${d.specialty} in ${d.state}?
 Thank you!`,
     }),
   },
+
+  // Margin Approval (internal)
+  {
+    id: 'margin_approval',
+    name: '💰 OPS: Margin Approval Request',
+    generateContent: (d) => ({
+      subject: `Margin Approval Request - ${d.name} - ${d.facility}`,
+      body: `Hi Leadership,
+
+I am requesting margin approval for the following candidate:
+
+Candidate: ${d.name} (${d.candidateId || 'ID TBD'})
+Facility: ${d.facility}
+Location: ${d.city}, ${d.state}
+Specialty: ${d.specialty}
+
+Financial Breakdown:
+Gross Weekly: ${currency(d.grossWeeklyPay)}
+Taxable Hourly: ${currency(d.taxableRate)}
+Weekly Stipends: ${currency(d.weeklyStipend)}
+Hours: ${d.weeklyHours}h/week
+
+Please let me know if this is approved for submission.
+
+Thank you!`,
+    }),
+  },
 ];
 
 // ----------------------
@@ -544,9 +569,9 @@ export const EMAIL_TEMPLATES = OUTREACH_EMAIL_TEMPLATES; // legacy export (outre
 export function getTemplateById(id: string, from: TemplateCategory | 'both' = 'outreach'): EmailTemplate {
   const pools =
     from === 'outreach' ? OUTREACH_EMAIL_TEMPLATES :
-    from === 'ops' ? OPS_EMAIL_TEMPLATES :
-    from === 'response' ? RESPONSE_EMAIL_TEMPLATES :
-    [...OUTREACH_EMAIL_TEMPLATES, ...OPS_EMAIL_TEMPLATES, ...RESPONSE_EMAIL_TEMPLATES];
+      from === 'ops' ? OPS_EMAIL_TEMPLATES :
+        from === 'response' ? RESPONSE_EMAIL_TEMPLATES :
+          [...OUTREACH_EMAIL_TEMPLATES, ...OPS_EMAIL_TEMPLATES, ...RESPONSE_EMAIL_TEMPLATES];
 
   return pools.find((t) => t.id === id) || pools[0];
 }
