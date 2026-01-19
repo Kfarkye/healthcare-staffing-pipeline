@@ -101,41 +101,27 @@ Deno.serve(async (req) => {
       throw new Error('GEMINI_API_KEY is not configured or is empty in Supabase secrets');
     }
 
-    const prompt = `You are an expert data extractor for a healthcare staffing company. Analyze the provided screenshot which may be:
-1. A Nova Healthcare candidate profile page
-2. A margin calculator with pay package details
-3. A combination of both
+    const prompt = `You are a high-precision data extraction agent for a medical staffing agency. 
+Your task is to extract candidate and job details from screenshots of the "Nova Healthcare" platform.
 
-IMPORTANT: Extract ALL available fields and return them as a clean JSON object. If a field is not visible, use null.
+### SCANNING STRATEGY:
+1. **Candidate Profile Section**: Look for Name, Email, Phone, and the Candidate ID (found in the Top Bar or URL).
+2. **Job Details Section**: Look for Facility Name, City/State, Specialty, Profession, and Job ID (often labeled "Position ID" or "Job ID", usually 7 digits).
+3. **Pay Package Section (Margin Calculator)**: This is usually a table with these specific row/column labels:
+   - "Taxable Hourly" -> taxableRate
+   - "Weekly Meals" or "Meals & Incidentals" -> mealsStipend
+   - "Weekly Lodging" or "Housing Stipend" -> housingStipend
+   - "Gross Weekly" or "Total Weekly Pay" -> grossWeeklyPay
+   - "Weekly Hours" -> (e.g., 36, 40)
+   - "Start Date" and "End Date" (often in YYYY-MM-DD format).
 
-Look for these fields:
+### EXTRACTION RULES:
+- Use null if a value is not found.
+- For dates, use YYYY-MM-DD.
+- For rates/pay, extract numbers only.
+- If multiple jobs or packages are shown, extract the primary or highlighted one.
 
-**Candidate Info:**
-- candidate_id: The 6-8 digit number in the URL (e.g., nova.ayahealthcare.com/#/recruiting/candidates/4328863/...)
-- name: Full name of the candidate
-- email: Email address
-- phone: Phone number
-
-**Facility & Assignment Info:**
-- facility: Hospital/facility name
-- city: City location
-- state: 2-letter state code
-- specialty: Clinical specialty (ICU, ER, Med-Surg, etc.)
-- profession: Job title (RN, LPN, CNA, etc.)
-- shiftType: Shift type (Days, Nights, Rotating)
-- weeklyHours: Hours per week (usually 36, 40, or 48)
-- startDate: Assignment start date (YYYY-MM-DD format)
-- endDate: Assignment end date (YYYY-MM-DD format)
-
-**Pay Package Info:**
-- taxableRate: Taxable hourly rate (number only, no $)
-- mealsStipend: Weekly meals stipend (number only)
-- housingStipend: Weekly housing stipend (number only)
-- weeklyStipend: Total weekly stipend (meals + housing)
-- grossWeeklyPay: Total gross weekly pay (number only)
-- jobId: Job ID or Margin ID (usually 7 digits)
-
-Return this exact JSON structure:
+Return EXACTLY this JSON structure:
 {
   "candidate_id": number or null,
   "name": "string or null",
