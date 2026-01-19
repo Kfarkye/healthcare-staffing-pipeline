@@ -98,30 +98,65 @@ Deno.serve(async (req) => {
       throw new Error('GEMINI_API_KEY is not configured or is empty in Supabase secrets');
     }
 
-    const prompt = `You are an expert data extractor for a healthcare staffing company. Analyze the provided screenshot of a margin calculator or a candidate profile. Extract the specified fields and return them ONLY as a clean JSON object. If a field is not present, use null.
+    const prompt = `You are an expert data extractor for a healthcare staffing company. Analyze the provided screenshot which may be:
+1. A Nova Healthcare candidate profile page
+2. A margin calculator with pay package details
+3. A combination of both
 
-    The JSON object must have this exact structure:
-    {
-      "name": "string",
-      "email": "string|null",
-      "facility": "string",
-      "specialty": "string",
-      "city": "string",
-      "state": "string (2-letter abbreviation)",
-      "startDate": "YYYY-MM-DD format or null",
-      "endDate": "YYYY-MM-DD format or null",
-      "shiftType": "string",
-      "weeklyHours": number,
-      "taxableRate": number,
-      "weeklyStipend": number,
-      "grossWeeklyPay": number,
-      "jobId": "string or null",
-      "candidateId": "string or null",
-      "contractType": "New" or "Extension"
-    }`;
+IMPORTANT: Extract ALL available fields and return them as a clean JSON object. If a field is not visible, use null.
 
-    // FIXED: Using the recommended stable model name
-    const model = 'gemini-1.5-flash-latest';
+Look for these fields:
+
+**Candidate Info:**
+- candidate_id: The 6-8 digit number in the URL (e.g., nova.ayahealthcare.com/#/recruiting/candidates/4328863/...)
+- name: Full name of the candidate
+- email: Email address
+- phone: Phone number
+
+**Facility & Assignment Info:**
+- facility: Hospital/facility name
+- city: City location
+- state: 2-letter state code
+- specialty: Clinical specialty (ICU, ER, Med-Surg, etc.)
+- profession: Job title (RN, LPN, CNA, etc.)
+- shiftType: Shift type (Days, Nights, Rotating)
+- weeklyHours: Hours per week (usually 36, 40, or 48)
+- startDate: Assignment start date (YYYY-MM-DD format)
+- endDate: Assignment end date (YYYY-MM-DD format)
+
+**Pay Package Info:**
+- taxableRate: Taxable hourly rate (number only, no $)
+- mealsStipend: Weekly meals stipend (number only)
+- housingStipend: Weekly housing stipend (number only)
+- weeklyStipend: Total weekly stipend (meals + housing)
+- grossWeeklyPay: Total gross weekly pay (number only)
+- jobId: Job ID or Margin ID (usually 7 digits)
+
+Return this exact JSON structure:
+{
+  "candidate_id": number or null,
+  "name": "string or null",
+  "email": "string or null",
+  "phone": "string or null",
+  "facility": "string or null",
+  "city": "string or null",
+  "state": "2-letter string or null",
+  "specialty": "string or null",
+  "profession": "string or null",
+  "shiftType": "string or null",
+  "weeklyHours": number or null,
+  "startDate": "YYYY-MM-DD or null",
+  "endDate": "YYYY-MM-DD or null",
+  "taxableRate": number or null,
+  "mealsStipend": number or null,
+  "housingStipend": number or null,
+  "weeklyStipend": number or null,
+  "grossWeeklyPay": number or null,
+  "jobId": "string or null"
+}`;
+
+    // Using Gemini 2.0 Flash as per user preference
+    const model = 'gemini-2.0-flash';
     const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -143,11 +178,11 @@ Deno.serve(async (req) => {
 
     const aiResult = await aiResponse.json();
     const extractedText = aiResult.candidates?.[0]?.content?.parts?.[0]?.text;
-    
+
     if (!extractedText) {
       throw new Error('No data was extracted from the image. It might be unclear.');
     }
-    
+
     const extractedData = JSON.parse(extractedText);
 
     return new Response(JSON.stringify(extractedData), {
@@ -155,9 +190,9 @@ Deno.serve(async (req) => {
       headers: { "content-type": "application/json", ...corsHeaders },
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error(`Error in process-screenshot: ${error.message}`, { stack: error.stack });
-    
+
     // Clean up uploaded file on error
     if (filePath) {
       try {
@@ -166,7 +201,7 @@ Deno.serve(async (req) => {
         console.error('Failed to cleanup file:', cleanupError);
       }
     }
-    
+
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { "content-type": "application/json", ...corsHeaders },

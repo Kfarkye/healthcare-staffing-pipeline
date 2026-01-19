@@ -3,11 +3,12 @@
 // JONY IVE CLARITY: Every element earns its place
 // ============================================================================
 
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Zap } from 'lucide-react';
 import { ROUTE_CONFIG } from '../config/routes';
 import { CATEGORIES } from '../config/constants';
+import QuickOutreachModal from './QuickOutreachModal';
 
 // ============================================================================
 // DESIGN SYSTEM - Single source of truth
@@ -83,9 +84,9 @@ const ActionButton: React.FC<ActionButtonProps> = ({ id, title, href }) => (
     target={href.startsWith('http') ? '_blank' : '_self'}
     rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
     className={`
-      flex items-center justify-center w-12 h-12 ${DESIGN.radius.md} ${DESIGN.transition}
+      flex items-center justify-center w-10 h-10 ${DESIGN.radius.md} ${DESIGN.transition}
       bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 active:scale-[0.95]
-      font-semibold text-base
+      font-semibold text-sm
     `}
     aria-label={title}
     title={title}
@@ -94,9 +95,30 @@ const ActionButton: React.FC<ActionButtonProps> = ({ id, title, href }) => (
   </a>
 );
 
-const ActionBar: React.FC = () => (
+interface ActionBarProps {
+  onQuickOutreach: () => void;
+}
+
+const ActionBar: React.FC<ActionBarProps> = ({ onQuickOutreach }) => (
   <div className="px-3 py-3 border-b border-slate-200/70" role="toolbar" aria-label="Quick actions">
     <div className="flex items-center gap-2">
+      {/* Quick Outreach Button - Primary Action */}
+      <button
+        onClick={onQuickOutreach}
+        className={`
+          flex items-center gap-2 px-3 py-2.5 ${DESIGN.radius.md} ${DESIGN.transition}
+          bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700
+          text-white font-semibold text-xs shadow-md hover:shadow-lg active:scale-[0.97]
+        `}
+        aria-label="Quick Outreach"
+        title="Quick Outreach - Send pay package email"
+      >
+        <Zap size={14} strokeWidth={2.5} />
+        Quick Outreach
+      </button>
+
+      <div className="w-px h-6 bg-slate-200" />
+
       <ActionButton id="T" title="Open Teams" href="msteams:" />
       <ActionButton id="O" title="Open Outlook Calendar" href="https://outlook.office.com/calendar/" />
       <ActionButton id="R" title="Open RingCentral" href="https://app.ringcentral.com" />
@@ -201,10 +223,9 @@ const NavItem: React.FC<NavItemProps> = ({ path, label, delay }) => (
   <NavLink
     to={path}
     className={({ isActive }) =>
-      `group relative w-full flex items-center justify-between px-3 py-2.5 ${DESIGN.radius.md} text-left overflow-hidden ${DESIGN.transition} ${
-        isActive
-          ? `bg-${DESIGN.colors.primary} text-white`
-          : `${DESIGN.text.nav} hover:bg-${DESIGN.colors.primaryHover} hover:text-slate-900 active:scale-[0.98]`
+      `group relative w-full flex items-center justify-between px-3 py-2.5 ${DESIGN.radius.md} text-left overflow-hidden ${DESIGN.transition} ${isActive
+        ? `bg-${DESIGN.colors.primary} text-white`
+        : `${DESIGN.text.nav} hover:bg-${DESIGN.colors.primaryHover} hover:text-slate-900 active:scale-[0.98]`
       }`
     }
     style={{ animationDelay: `${delay}ms` }}
@@ -224,11 +245,10 @@ const NavItem: React.FC<NavItemProps> = ({ path, label, delay }) => (
 
         {/* Direction indicator - appears on hover or when active */}
         <div
-          className={`relative z-10 ${DESIGN.transition} ${
-            isActive
-              ? 'opacity-100 translate-x-0'
-              : 'opacity-0 -translate-x-2 group-hover:opacity-50 group-hover:translate-x-0'
-          }`}
+          className={`relative z-10 ${DESIGN.transition} ${isActive
+            ? 'opacity-100 translate-x-0'
+            : 'opacity-0 -translate-x-2 group-hover:opacity-50 group-hover:translate-x-0'
+            }`}
         >
           <ChevronRight size={15} strokeWidth={2.5} />
         </div>
