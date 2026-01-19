@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Search, Mail, DollarSign, ArrowUp, ArrowDown, Copy, Check, 
+  Search, Mail, DollarSign, ArrowUp, ArrowDown, Copy, Check,
   RefreshCw, Upload, Filter, X, FileUp, ExternalLink, Loader2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -137,7 +137,7 @@ interface Toast {
 // UTILITIES
 // ============================================================================
 
-const cn = (...classes: (string | boolean | undefined)[]) => 
+const cn = (...classes: (string | boolean | undefined)[]) =>
   classes.filter(Boolean).join(' ');
 
 const formatDate = (date: string | null): string => {
@@ -178,9 +178,9 @@ const formatDateTime = (date: string | null): { date: string; time: string } => 
     if (isNaN(d.getTime())) return { date: '—', time: '' };
 
     const isMidnightUTC = d.getUTCHours() === 0 &&
-                          d.getUTCMinutes() === 0 &&
-                          d.getUTCSeconds() === 0 &&
-                          d.getUTCMilliseconds() === 0;
+      d.getUTCMinutes() === 0 &&
+      d.getUTCSeconds() === 0 &&
+      d.getUTCMilliseconds() === 0;
 
     const timePart = isMidnightUTC ? '' : d.toLocaleTimeString('en-US', {
       hour: 'numeric',
@@ -204,24 +204,24 @@ const formatDateTime = (date: string | null): { date: string; time: string } => 
 
 const useDebounce = <T,>(value: T, delay: number): T => {
   const [debounced, setDebounced] = useState(value);
-  
+
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(value), delay);
     return () => clearTimeout(timer);
   }, [value, delay]);
-  
+
   return debounced;
 };
 
 const useCopy = () => {
   const [copied, setCopied] = useState<{ type: string; id: number } | null>(null);
-  
+
   const copy = useCallback((text: string, type: string, id: number) => {
     navigator.clipboard.writeText(text);
     setCopied({ type, id });
     setTimeout(() => setCopied(null), COPY_DURATION);
   }, []);
-  
+
   return { copied, copy };
 };
 
@@ -259,9 +259,9 @@ const dataService = {
         query = query.eq('recruiter_name', filters.recruiter);
       }
 
-      query = query.order(sortKey, { 
+      query = query.order(sortKey, {
         ascending: sortDir === 'asc',
-        nullsFirst: false 
+        nullsFirst: false
       });
 
       query = query.range(offset, offset + RECORDS_PER_PAGE - 1);
@@ -394,13 +394,13 @@ const dataService = {
 
     // Remove signature for Outlook
     const lines = template.body.split('\n');
-    const sigIndex = lines.findIndex(line => 
+    const sigIndex = lines.findIndex(line =>
       line.includes('Best,') || line.includes('Sincerely,') || line.includes('Regards,')
     );
 
     if (sigIndex !== -1) {
-      template.body = lines.slice(0, sigIndex).join('\n').trim() + 
-                      '\n\nLooking forward to hearing from you!';
+      template.body = lines.slice(0, sigIndex).join('\n').trim() +
+        '\n\nLooking forward to hearing from you!';
     }
 
     return template;
@@ -418,8 +418,8 @@ const Toast: React.FC<{ toast: Toast; onDismiss: () => void }> = ({ toast, onDis
   }, [onDismiss]);
 
   const Icon = toast.type === 'success' ? Check : X;
-  const bg = toast.type === 'success' ? 'bg-green-600' : 
-             toast.type === 'error' ? 'bg-red-600' : 'bg-slate-900';
+  const bg = toast.type === 'success' ? 'bg-green-600' :
+    toast.type === 'error' ? 'bg-red-600' : 'bg-slate-900';
 
   return (
     <div
@@ -459,7 +459,7 @@ const SortButton: React.FC<{
   >
     {label}
     {active && (
-      direction === 'asc' 
+      direction === 'asc'
         ? <ArrowUp size={12} strokeWidth={2.5} />
         : <ArrowDown size={12} strokeWidth={2.5} />
     )}
@@ -497,7 +497,7 @@ const ProspectRow: React.FC<{
               className="group flex items-center gap-1.5 min-w-0"
               aria-label="Copy name"
             >
-              <span 
+              <span
                 className="text-slate-900 truncate"
                 style={{ fontSize: DESIGN.text.base, fontWeight: DESIGN.weight.semibold }}
                 title={prospect.candidate_name}
@@ -546,13 +546,13 @@ const ProspectRow: React.FC<{
         <div className="w-40 flex-shrink-0">
           <div className="space-y-3">
             <div>
-              <p 
+              <p
                 className="text-slate-500 mb-1"
                 style={{ fontSize: DESIGN.text.xs }}
               >
                 Home Location
               </p>
-              <p 
+              <p
                 className={cn(
                   'font-medium truncate',
                   isLocal ? 'text-green-600' : 'text-slate-800'
@@ -563,13 +563,13 @@ const ProspectRow: React.FC<{
               </p>
             </div>
             <div>
-              <p 
+              <p
                 className="text-slate-500 mb-1"
                 style={{ fontSize: DESIGN.text.xs }}
               >
                 Facility Location
               </p>
-              <p 
+              <p
                 className={cn(
                   'font-medium truncate',
                   isLocal ? 'text-green-600' : 'text-slate-800'
@@ -586,13 +586,13 @@ const ProspectRow: React.FC<{
         <div className="w-40 flex-shrink-0">
           <div className="space-y-3">
             <div>
-              <p 
+              <p
                 className="text-slate-500 mb-1"
                 style={{ fontSize: DESIGN.text.xs }}
               >
                 Recruiter
               </p>
-              <p 
+              <p
                 className="text-slate-900 font-medium truncate"
                 style={{ fontSize: DESIGN.text.sm }}
               >
@@ -600,13 +600,13 @@ const ProspectRow: React.FC<{
               </p>
             </div>
             <div>
-              <p 
+              <p
                 className="text-slate-500 mb-1"
                 style={{ fontSize: DESIGN.text.xs }}
               >
                 Last Note By
               </p>
-              <p 
+              <p
                 className="text-slate-800 truncate"
                 style={{ fontSize: DESIGN.text.sm }}
               >
@@ -623,13 +623,13 @@ const ProspectRow: React.FC<{
         <div className="w-28 flex-shrink-0 text-right">
           <div className="space-y-3">
             <div>
-              <p 
+              <p
                 className="text-slate-500 mb-1"
                 style={{ fontSize: DESIGN.text.xs }}
               >
                 Applied
               </p>
-              <p 
+              <p
                 className="text-slate-900 font-medium"
                 style={{ fontSize: DESIGN.text.sm }}
               >
@@ -637,7 +637,7 @@ const ProspectRow: React.FC<{
               </p>
             </div>
             <div>
-              <p 
+              <p
                 className="text-slate-500 mb-1"
                 style={{ fontSize: DESIGN.text.xs }}
               >
@@ -645,14 +645,14 @@ const ProspectRow: React.FC<{
               </p>
               {noteDateTime.date !== '—' ? (
                 <>
-                  <p 
+                  <p
                     className="text-slate-900 font-medium"
                     style={{ fontSize: DESIGN.text.sm }}
                   >
                     {noteDateTime.date}
                   </p>
                   {noteDateTime.time && (
-                    <p 
+                    <p
                       className="text-slate-500"
                       style={{ fontSize: DESIGN.text.xs }}
                     >
@@ -661,7 +661,7 @@ const ProspectRow: React.FC<{
                   )}
                 </>
               ) : (
-                <p 
+                <p
                   className="text-slate-800"
                   style={{ fontSize: DESIGN.text.sm }}
                 >
@@ -684,8 +684,8 @@ const ProspectRow: React.FC<{
             aria-label="Send email"
             title="Email via Outlook"
           >
-            <Mail 
-              size={16} 
+            <Mail
+              size={16}
               strokeWidth={2}
               className={emailLoading ? 'text-slate-400' : 'text-blue-600'}
             />
@@ -734,7 +734,7 @@ const PackageModal: React.FC<{
 
   if (!prospect) return null;
 
-  const email = useMemo(() => 
+  const email = useMemo(() =>
     dataService.generateEmail(prospect, pkg),
     [prospect, pkg]
   );
@@ -751,13 +751,13 @@ const PackageModal: React.FC<{
         {/* Header */}
         <header className="p-6 border-b border-slate-200 flex justify-between items-center">
           <div>
-            <h2 
+            <h2
               className="text-slate-900 mb-1"
               style={{ fontSize: DESIGN.text.lg, fontWeight: DESIGN.weight.semibold }}
             >
               Email for {prospect.candidate_name}
             </h2>
-            <p 
+            <p
               className="text-slate-500"
               style={{ fontSize: DESIGN.text.sm }}
             >
@@ -886,7 +886,7 @@ const JobFilterModal: React.FC<{
         {/* Header */}
         <header className="p-6 border-b border-slate-200 flex justify-between items-center">
           <div>
-            <h2 
+            <h2
               className="text-slate-900 mb-1"
               style={{ fontSize: DESIGN.text.lg, fontWeight: DESIGN.weight.semibold }}
             >
@@ -942,7 +942,7 @@ const JobFilterModal: React.FC<{
               <div className="w-full border-t border-slate-200" />
             </div>
             <div className="relative flex justify-center">
-              <span 
+              <span
                 className="px-2 bg-white text-slate-500"
                 style={{ fontSize: DESIGN.text.xs }}
               >
@@ -952,7 +952,7 @@ const JobFilterModal: React.FC<{
           </div>
 
           <div>
-            <label 
+            <label
               className="block text-slate-700 mb-2"
               style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
             >
@@ -1026,6 +1026,7 @@ export default function ProspectDashboard() {
   const [showPackageUpload, setShowPackageUpload] = useState(false);
   const [uploadingPackages, setUploadingPackages] = useState(false);
   const [packageUploadStatus, setPackageUploadStatus] = useState<string>('');
+  const [uploadedJobIds, setUploadedJobIds] = useState<string[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
   const [jobIds, setJobIds] = useState<Set<string>>(new Set());
   const [showJobFilter, setShowJobFilter] = useState(false);
@@ -1056,10 +1057,11 @@ export default function ProspectDashboard() {
 
       let successCount = 0;
       let errorCount = 0;
+      const successfulJobIds: string[] = [];
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        
+
         try {
           const jobId = String(row['Job ID'] || '').trim();
           if (!jobId) continue;
@@ -1070,7 +1072,7 @@ export default function ProspectDashboard() {
 
           // Parse shift type from "Facility Bonus" column (e.g., "5x8 D" -> "5x8")
           const shiftType = String(row['Facility Bonus'] || '').split(' ')[0] || '5x8';
-          
+
           const facility = String(row['Facility'] || '').trim();
           const city = String(row['Location'] || '').trim();
           const state = String(row['State'] || '').trim();
@@ -1122,8 +1124,9 @@ export default function ProspectDashboard() {
           };
 
           await payPackageService.savePackage(calculated, clickData);
+          successfulJobIds.push(jobId);
           successCount++;
-          
+
           if ((i + 1) % 10 === 0) {
             setPackageUploadStatus(`Processed ${i + 1}/${rows.length} jobs...`);
           }
@@ -1133,9 +1136,10 @@ export default function ProspectDashboard() {
         }
       }
 
+      setUploadedJobIds(successfulJobIds);
       setPackageUploadStatus(`Complete! ${successCount} packages created, ${errorCount} errors`);
       showToast(`Uploaded ${successCount} pay packages successfully`, 'success');
-      
+
       setTimeout(() => {
         setShowPackageUpload(false);
         setPackageUploadStatus('');
@@ -1199,7 +1203,7 @@ export default function ProspectDashboard() {
   }, [prospects, jobIds, filters.localOnly]);
 
   // Unique values
-  const specialties = useMemo(() => 
+  const specialties = useMemo(() =>
     [...new Set(prospects.map(p => p.specialty))].filter(Boolean).sort(),
     [prospects]
   );
@@ -1227,13 +1231,13 @@ export default function ProspectDashboard() {
     try {
       // Try to fetch existing pay package
       let pkg = await dataService.fetchPayPackage(prospect.job_id);
-      
+
       // If no package exists, try to generate one
       if (!pkg) {
         console.log('No existing pay package found, generating new one...');
         const profession = prospect.specialty?.includes('SPT') || prospect.specialty?.includes('Sterile') ? 'SURG' :
-                         prospect.specialty?.includes('RRT') || prospect.specialty?.includes('RT') ? 'RESP' :
-                         prospect.specialty?.includes('MA') ? 'MA' : 'SURG';
+          prospect.specialty?.includes('RRT') || prospect.specialty?.includes('RT') ? 'RESP' :
+            prospect.specialty?.includes('MA') ? 'MA' : 'SURG';
 
         const grossWeekly = 2000;
 
@@ -1268,7 +1272,7 @@ export default function ProspectDashboard() {
 
       const email = dataService.generateEmail(prospect, pkg);
       const url = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(prospect.candidate_email)}&subject=${encodeURIComponent(email.subject)}&body=${encodeURIComponent(email.body)}`;
-      
+
       const win = window.open(url, '_blank');
       if (!win) {
         alert('Pop-up blocked! Please allow pop-ups.');
@@ -1324,13 +1328,13 @@ export default function ProspectDashboard() {
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl">
             <header className="p-6 border-b border-slate-200 flex justify-between items-center">
               <div>
-                <h2 
+                <h2
                   className="text-slate-900 mb-1"
                   style={{ fontSize: DESIGN.text.lg, fontWeight: DESIGN.weight.semibold }}
                 >
                   Upload Pay Packages
                 </h2>
-                <p 
+                <p
                   className="text-slate-500"
                   style={{ fontSize: DESIGN.text.sm }}
                 >
@@ -1341,6 +1345,7 @@ export default function ProspectDashboard() {
                 onClick={() => {
                   setShowPackageUpload(false);
                   setPackageUploadStatus('');
+                  setUploadedJobIds([]);
                 }}
                 disabled={uploadingPackages}
                 className="p-2 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50"
@@ -1354,7 +1359,7 @@ export default function ProspectDashboard() {
               {uploadingPackages ? (
                 <div className="text-center py-8">
                   <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-4" />
-                  <p 
+                  <p
                     className="text-slate-700"
                     style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
                   >
@@ -1364,23 +1369,37 @@ export default function ProspectDashboard() {
               ) : packageUploadStatus ? (
                 <div className="text-center py-8">
                   <Check className="w-12 h-12 text-green-600 mx-auto mb-4" strokeWidth={2} />
-                  <p 
-                    className="text-slate-700"
+                  <p
+                    className="text-slate-700 mb-4"
                     style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
                   >
                     {packageUploadStatus}
                   </p>
+                  {uploadedJobIds.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const jobIdsText = uploadedJobIds.join('\n');
+                        navigator.clipboard.writeText(jobIdsText);
+                        showToast(`Copied ${uploadedJobIds.length} job IDs to clipboard`, 'success');
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"
+                      style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
+                    >
+                      <Copy size={16} strokeWidth={2} />
+                      Copy {uploadedJobIds.length} Job IDs
+                    </button>
+                  )}
                 </div>
               ) : (
                 <label className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-all">
                   <FileUp size={32} strokeWidth={2} className="text-slate-400 mb-3" />
-                  <span 
+                  <span
                     className="text-slate-700 mb-1"
                     style={{ fontSize: DESIGN.text.base, fontWeight: DESIGN.weight.semibold }}
                   >
                     Choose Excel File
                   </span>
-                  <span 
+                  <span
                     className="text-slate-500 text-center"
                     style={{ fontSize: DESIGN.text.sm }}
                   >
@@ -1402,7 +1421,7 @@ export default function ProspectDashboard() {
 
             {!uploadingPackages && !packageUploadStatus && (
               <footer className="p-4 bg-slate-50 border-t border-slate-200 rounded-b-2xl">
-                <p 
+                <p
                   className="text-slate-600 text-center"
                   style={{ fontSize: DESIGN.text.xs }}
                 >
@@ -1420,13 +1439,13 @@ export default function ProspectDashboard() {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 
+              <h1
                 className="text-slate-900 mb-1"
                 style={{ fontSize: DESIGN.text.lg, fontWeight: DESIGN.weight.semibold }}
               >
                 Prospects
               </h1>
-              <p 
+              <p
                 className="text-slate-500"
                 style={{ fontSize: DESIGN.text.xs }}
               >
