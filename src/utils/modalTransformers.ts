@@ -20,12 +20,12 @@ export const toProspectLike = (row: ClinicianRow): Prospect => ({
   home_state: row.home_state || null,
   profession: row.primary_specialty || null,
   available_start_date: row.available_start_date || null,
-  
+
   // Template-specific fields (initialized to defaults)
   template_extracted_data: null,
   template_file_path: null,
   template_uploaded_at: null,
-  
+
   // Metadata
   status: row.raw_status || 'Outreach',
   licenses: Array.isArray(row.licenses) ? row.licenses : null,
@@ -49,12 +49,12 @@ export const toContractData = (row: ClinicianRow): Contract => ({
   status: 'Active',
   actual_margin: null,
   extension_stage: row.extension_stage || 'outreach',
-  
+
   // Combine AM/AC names into single field
-  am_ac: row.am_name 
-    ? `${row.am_name}${row.ac_name ? '; ' + row.ac_name : ''}` 
+  am_ac: row.am_name
+    ? `${row.am_name}${row.ac_name ? '; ' + row.ac_name : ''}`
     : null,
-  
+
   nova_url: row.nova_url,
   candidate_id: row.candidate_id,
   phone: row.phone,
@@ -75,13 +75,34 @@ export const assignmentToContract = (assignment: ActiveAssignment): Contract => 
   status: 'Active',
   actual_margin: assignment.actual_margin,
   extension_stage: assignment.extension_stage || 'outreach',
-  
+
   // Combine AM/AC names
   am_ac: assignment.am_name
     ? `${assignment.am_name}${assignment.ac_name ? '; ' + assignment.ac_name : ''}`
     : null,
-  
+
   nova_url: assignment.nova_url,
   candidate_id: assignment.candidate_id,
   phone: assignment.phone,
+});
+
+/**
+ * Transforms Engagement (from OffersDashboard) into Contract shape
+ * for AssignmentEmailModal.
+ */
+export const engagementToContract = (engagement: any): Contract => ({
+  id: Number(engagement.id),
+  candidate_name: engagement.candidate_name || 'Unknown',
+  candidate_email: engagement.email || null,
+  email: engagement.email || null,
+  facility_name: engagement.facility_name,
+  specialty: engagement.specialty,
+  end_date: engagement.start_date || null,
+  status: 'Active',
+  actual_margin: engagement.actual_margin || null,
+  extension_stage: 'outreach',
+  am_ac: null,
+  nova_url: `https://nova.ayahealthcare.com/#/recruiting/candidates/${engagement.candidate_id}/new-profile/about`,
+  candidate_id: String(engagement.candidate_id),
+  phone: String(engagement.phone_number || ''),
 });

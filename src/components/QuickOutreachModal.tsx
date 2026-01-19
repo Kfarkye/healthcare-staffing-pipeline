@@ -26,7 +26,7 @@ import {
     ArrowRight,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { OUTREACH_EMAIL_TEMPLATES, OPS_EMAIL_TEMPLATES, RESPONSE_EMAIL_TEMPLATES, ExtractedOfferData } from '../outreach/templates';
+import { OUTREACH_EMAIL_TEMPLATES, ExtractedOfferData } from '../outreach/templates';
 
 // ============================================================================
 // TYPES
@@ -115,7 +115,7 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Combine all templates for the selector
-    const ALL_TEMPLATES = [...OUTREACH_EMAIL_TEMPLATES, ...OPS_EMAIL_TEMPLATES, ...RESPONSE_EMAIL_TEMPLATES];
+    const ALL_TEMPLATES = [...OUTREACH_EMAIL_TEMPLATES];
 
     // Get selected template
     const selectedTemplate = ALL_TEMPLATES.find(t => t.id === selectedTemplateId) || ALL_TEMPLATES[0];
@@ -556,24 +556,6 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
                                     </div>
                                 </div>
 
-                                {/* Margin Approval Shortcut */}
-                                <button
-                                    onClick={() => setSelectedTemplateId('margin_approval')}
-                                    className="w-full flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700 shadow-xl shadow-slate-900/10 hover:shadow-slate-900/20 transition-all hover:scale-[1.01] active:scale-95 group"
-                                >
-                                    <div className="flex items-center gap-3 text-left">
-                                        <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-emerald-400 ring-1 ring-slate-700 group-hover:ring-emerald-500/30">
-                                            <DollarSign size={20} />
-                                        </div>
-                                        <div>
-                                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">Quick Action</p>
-                                            <p className="text-sm font-bold text-white mt-1">Request Margin Approval</p>
-                                        </div>
-                                    </div>
-                                    <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-500 group-hover:text-white transition-colors">
-                                        <ArrowRight size={14} />
-                                    </div>
-                                </button>
 
                                 {/* Email Composer - Jony Ive x Stripe Aesthetic */}
                                 <div className="relative flex flex-col h-[460px] bg-white rounded-[2.5rem] border border-slate-200 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] overflow-hidden">

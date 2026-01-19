@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useLivelistSync } from '../hooks/useLivelistSync';
-import { Search, RefreshCw, ExternalLink, X, ChevronDown, Phone, TriangleAlert as AlertTriangle, ArrowUpRight, Activity, TrendingUp, Zap, Target, Users, Gift, Signature as FileSignature, CircleCheck as CheckCircle2, Sparkles } from 'lucide-react';
+import { Search, RefreshCw, ExternalLink, X, ChevronDown, Phone, TriangleAlert as AlertTriangle, ArrowUpRight, Activity, TrendingUp, Zap, Target, Users, Gift, Signature as FileSignature, CircleCheck as CheckCircle2, Sparkles, DollarSign } from 'lucide-react';
+import { AssignmentEmailModal } from './AssignmentEmailModal';
+import { engagementToContract } from '../utils/modalTransformers';
+import type { ActiveEmailModal, Contract, TemplateType } from '../types/email';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -64,39 +67,39 @@ const getColorFromString = (str: string): string => {
 
 const cleanSpecialty = (specialty: string | null): string => {
   if (!specialty) return 'Specialty TBD';
-  
+
   // Remove years in parentheses and clean up the text
   let cleaned = specialty.replace(/\(\d+\s*years?\)/g, '').trim();
-  
+
   // Split by semicolon and clean each part
   const parts = cleaned.split(';').map(s => s.trim()).filter(Boolean);
-  
+
   if (parts.length === 0) return 'Specialty TBD';
-  
+
   // If all parts start with the same prefix (like RRT), just show it once
   const prefixes = parts.map(p => p.split(/[\s-]/)[0]);
   const uniquePrefixes = [...new Set(prefixes)];
-  
+
   if (uniquePrefixes.length === 1 && parts.length > 1) {
     // Common prefix scenario - show just the main specialty
     const mainPrefix = uniquePrefixes[0];
-    
+
     // Check for specific subspecialties to highlight
     const hasFloat = parts.some(p => p.toLowerCase().includes('float'));
     const hasPediatrics = parts.some(p => p.toLowerCase().includes('pediatric') || p.toLowerCase().includes('picu'));
     const hasACCS = parts.some(p => p.includes('ACCS'));
-    
+
     if (hasFloat) return `${mainPrefix} Float`;
     if (hasPediatrics) return `${mainPrefix} Pediatrics`;
     if (hasACCS) return `${mainPrefix}-ACCS`;
-    
+
     // Just return the base specialty
     return mainPrefix;
   }
-  
+
   // For different specialties, take the first one or the most specific
   const primary = parts[0];
-  
+
   // Clean up common patterns
   return primary
     .replace(/^(RRT|RN|LPN|CNA|MA|PT|OT|ST|SPT)\s+/, '$1 ') // Normalize spacing after credentials
@@ -107,39 +110,38 @@ const cleanSpecialty = (specialty: string | null): string => {
 // ============================================================================
 // UI COMPONENTS
 // ============================================================================
-const StatCard: React.FC<{ 
-  label: string; 
-  value: string; 
+const StatCard: React.FC<{
+  label: string;
+  value: string;
   icon: React.ReactNode;
   trend?: { value: number; isPositive: boolean };
   delay?: number;
   color: string;
 }> = ({ label, value, icon, trend, delay = 0, color }) => (
-  <div 
+  <div
     className="group relative bg-white rounded-2xl p-6 transition-all duration-500 hover:shadow-lg border border-gray-100 overflow-hidden"
-    style={{ 
+    style={{
       animationDelay: `${delay}ms`,
       animation: 'slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards',
       opacity: 0
     }}
   >
     <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${color}`} />
-    
+
     <div className="relative">
       <div className="flex items-start justify-between mb-4">
         <div className="p-2.5 rounded-xl bg-gray-50 group-hover:bg-gray-100 transition-colors duration-300">
           {icon}
         </div>
         {trend && (
-          <span className={`text-xs font-medium px-2 py-1 rounded-full flex items-center gap-1 ${
-            trend.isPositive ? 'text-emerald-700 bg-emerald-50' : 'text-red-700 bg-red-50'
-          }`}>
+          <span className={`text-xs font-medium px-2 py-1 rounded-full flex items-center gap-1 ${trend.isPositive ? 'text-emerald-700 bg-emerald-50' : 'text-red-700 bg-red-50'
+            }`}>
             {trend.isPositive ? <TrendingUp size={10} /> : <Activity size={10} />}
             {trend.isPositive ? '+' : ''}{trend.value}%
           </span>
         )}
       </div>
-      
+
       <div className="space-y-1">
         <p className="text-3xl font-bold text-gray-900 tabular-nums">
           {value}
@@ -191,8 +193,8 @@ const FilterBar: React.FC<{
               onClick={() => setFilterStatus(status)}
               className={`
                 relative px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
-                ${isActive 
-                  ? 'bg-white text-gray-900 shadow-sm' 
+                ${isActive
+                  ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'
                 }
               `}
@@ -213,7 +215,11 @@ const FilterBar: React.FC<{
   </div>
 );
 
-const OfferCard: React.FC<{ engagement: Engagement; index: number }> = ({ engagement, index }) => {
+const OfferCard: React.FC<{
+  engagement: Engagement;
+  index: number;
+  onMarginApproval: () => void;
+}> = ({ engagement, index, onMarginApproval }) => {
   const { candidate_name, candidate_id, facility_name, status, specialty, phone_number } = engagement;
   const profileUrl = `https://nova.ayahealthcare.com/#/recruiting/candidates/${candidate_id}/new-profile/about`;
   const cleanPhoneNumber = formatPhoneNumberForLink(phone_number);
@@ -222,9 +228,9 @@ const OfferCard: React.FC<{ engagement: Engagement; index: number }> = ({ engage
   const displaySpecialty = cleanSpecialty(specialty);
 
   return (
-    <div 
+    <div
       className="group relative bg-white rounded-2xl p-6 border border-gray-100 hover:border-gray-200 hover:shadow-lg transition-all duration-300 cursor-pointer"
-      style={{ 
+      style={{
         animationDelay: `${index * 50}ms`,
         animation: 'slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards',
         opacity: 0
@@ -287,6 +293,13 @@ const OfferCard: React.FC<{ engagement: Engagement; index: number }> = ({ engage
             <span>View Profile</span>
             <ArrowUpRight size={14} />
           </a>
+          <button
+            onClick={(e) => { e.stopPropagation(); onMarginApproval(); }}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-600 hover:text-emerald-600 bg-gray-50 hover:bg-emerald-50 rounded-lg transition-all duration-200"
+          >
+            <DollarSign size={14} />
+            <span>Margin</span>
+          </button>
         </div>
       </div>
     </div>
@@ -351,12 +364,12 @@ const QuickLinksDropdown: React.FC = () => {
       >
         <Zap size={16} />
         <span>Quick Links</span>
-        <ChevronDown 
-          size={16} 
-          className={`ml-1 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} 
+        <ChevronDown
+          size={16}
+          className={`ml-1 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
         />
       </button>
-      
+
       {isOpen && (
         <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
           {NOVA_LINKS.map((link, index) => (
@@ -389,6 +402,11 @@ export default function OffersDashboard(): JSX.Element {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
 
+  // Modal State
+  const [activeModal, setActiveModal] = useState<ActiveEmailModal>(null);
+  const [contractData, setContractData] = useState<Contract | null>(null);
+  const [emailTemplate, setEmailTemplate] = useState<TemplateType>('outreach');
+
   const fetchOffers = useCallback(async () => {
     setStatus('loading');
     try {
@@ -396,9 +414,9 @@ export default function OffersDashboard(): JSX.Element {
         .from('offers_and_signed')
         .select('*')
         .order('created_at', { ascending: false });
-      
+
       if (error) throw error;
-      
+
       setOffers(data || []);
       setStatus('success');
     } catch (err: any) {
@@ -412,22 +430,29 @@ export default function OffersDashboard(): JSX.Element {
   }, [fetchOffers]);
 
   const { startSync, isLoading: isExtracting, isSyncing } = useLivelistSync({
-    onNotification: () => {},
+    onNotification: () => { },
     onSyncComplete: fetchOffers,
   });
 
+  const openEmailModal = useCallback((engagement: Engagement, template: TemplateType = 'margin_approval') => {
+    const contract = engagementToContract(engagement);
+    setContractData(contract);
+    setEmailTemplate(template);
+    setActiveModal('assignment');
+  }, []);
+
   const filteredOffers = useMemo(() => {
     return offers.filter(offer => {
-      const statusMatch = 
-        filterStatus === 'all' || 
-        (filterStatus === 'offers' && offer.status === 'Offer Extended') || 
+      const statusMatch =
+        filterStatus === 'all' ||
+        (filterStatus === 'offers' && offer.status === 'Offer Extended') ||
         (filterStatus === 'signed' && offer.status === 'Signed');
-      
-      const searchMatch = 
-        !searchTerm || 
-        offer.candidate_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+
+      const searchMatch =
+        !searchTerm ||
+        offer.candidate_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         offer.facility_name?.toLowerCase().includes(searchTerm.toLowerCase());
-      
+
       return statusMatch && searchMatch;
     });
   }, [offers, filterStatus, searchTerm]);
@@ -451,7 +476,12 @@ export default function OffersDashboard(): JSX.Element {
         return filteredOffers.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filteredOffers.map((engagement, index) => (
-              <OfferCard key={engagement.id} engagement={engagement} index={index} />
+              <OfferCard
+                key={engagement.id}
+                engagement={engagement}
+                index={index}
+                onMarginApproval={() => openEmailModal(engagement, 'margin_approval')}
+              />
             ))}
           </div>
         ) : (
@@ -464,7 +494,7 @@ export default function OffersDashboard(): JSX.Element {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
-      <style jsx>{`
+      <style>{`
         @keyframes slideUp {
           from {
             opacity: 0;
@@ -493,7 +523,7 @@ export default function OffersDashboard(): JSX.Element {
                 Track and manage your active offers and signed contracts
               </p>
             </div>
-            
+
             <div className="flex items-center gap-3">
               <QuickLinksDropdown />
               <button
@@ -552,6 +582,13 @@ export default function OffersDashboard(): JSX.Element {
           {renderContent()}
         </main>
       </div>
+
+      <AssignmentEmailModal
+        isOpen={activeModal === 'assignment'}
+        onClose={() => setActiveModal(null)}
+        contract={contractData}
+        initialTab={emailTemplate}
+      />
     </div>
   );
 }

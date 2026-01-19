@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import {
   Search, X, Phone, Mail, CheckCircle, ExternalLink, Calendar, Zap,
-  Upload, RefreshCw, List, AlertCircle, Eye, LogOut
+  Upload, RefreshCw, List, AlertCircle, Eye, LogOut, DollarSign
 } from 'lucide-react';
 import { AssignmentEmailModal } from './AssignmentEmailModal';
 import { AssignmentDetailModal } from './AssignmentDetailModal';
@@ -67,6 +67,7 @@ const DESIGN = {
     sm: 'rounded-lg',
     md: 'rounded-xl',
     lg: 'rounded-2xl',
+    full: 'rounded-full',
   },
   transition: 'transition-all duration-150 ease-out',
 };
@@ -114,10 +115,10 @@ const getWeekBand = (daysToEnd: number): WeekBand =>
 const formatDate = (dateStr: string | null) =>
   dateStr
     ? new Date(dateStr).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      })
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    })
     : '—';
 
 // ============================================================================
@@ -192,9 +193,10 @@ const AssignmentCard: React.FC<{
   onMarkAsLooking: () => void;
   onMarkAsExiting: () => void;
   onEmail: () => void;
+  onMarginApproval: () => void;
   onClick?: () => void;
   index: number;
-}> = ({ assignment, onMarkAsLooking, onMarkAsExiting, onEmail, onClick, index }) => {
+}> = ({ assignment, onMarkAsLooking, onMarkAsExiting, onEmail, onMarginApproval, onClick, index }) => {
   const stop = (e: React.MouseEvent, fn?: () => void) => {
     e.stopPropagation();
     fn?.();
@@ -262,6 +264,15 @@ const AssignmentCard: React.FC<{
               </button>
             </Tooltip>
           )}
+          <Tooltip content="Margin Approval">
+            <button
+              onClick={e => stop(e, onMarginApproval)}
+              className={`p-1.5 ${DESIGN.radius.sm} text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 ${DESIGN.transition}`}
+              aria-label="Margin Approval"
+            >
+              <DollarSign size={14} strokeWidth={2.5} />
+            </button>
+          </Tooltip>
           {assignment.phone && (
             <Tooltip content="Call">
               <a
@@ -342,6 +353,7 @@ const KanbanColumn: React.FC<{
   onMarkAsLooking: (id: number) => void;
   onMarkAsExiting: (id: number) => void;
   onEmail: (assignment: ActiveAssignment) => void;
+  onMarginApproval: (assignment: ActiveAssignment) => void;
   onCardClick?: (assignment: ActiveAssignment) => void;
   dropTarget?: boolean;
   color?: string;
@@ -360,77 +372,79 @@ const KanbanColumn: React.FC<{
   onMarkAsLooking,
   onMarkAsExiting,
   onEmail,
+  onMarginApproval,
   onCardClick,
   color,
   showUrgencyCount = false,
   allowDragOut = true,
 }) => {
-  const urgencyCount = showUrgencyCount
-    ? assignments.filter((a) => a.days_to_end <= 49).length
-    : 0;
+    const urgencyCount = showUrgencyCount
+      ? assignments.filter((a) => a.days_to_end <= 49).length
+      : 0;
 
-  return (
-    <div className="flex flex-col h-full">
-      {/* Column Header */}
-      <div className="mb-4 bg-gradient-to-b from-slate-50 to-transparent pb-3 sticky top-0 z-10">
-        <div className="flex items-baseline gap-2 mb-1">
-          {color && <div className={cn(`w-2 h-2 ${DESIGN.radius.full} shrink-0`, color)} />}
-          <h3 className={`text-[12px] font-semibold tracking-tight text-slate-900`}>{title}</h3>
-          <span className={`${DESIGN.text.caption} font-semibold tabular-nums`}>{count}</span>
-          {showUrgencyCount && urgencyCount > 0 && (
-            <span className="ml-auto flex items-center gap-1.5 text-[10px] font-semibold text-orange-600">
-              <Zap size={10} strokeWidth={2.5} />
-              {urgencyCount}
-            </span>
+    return (
+      <div className="flex flex-col h-full">
+        {/* Column Header */}
+        <div className="mb-4 bg-gradient-to-b from-slate-50 to-transparent pb-3 sticky top-0 z-10">
+          <div className="flex items-baseline gap-2 mb-1">
+            {color && <div className={cn(`w-2 h-2 ${DESIGN.radius.full} shrink-0`, color)} />}
+            <h3 className={`text-[12px] font-semibold tracking-tight text-slate-900`}>{title}</h3>
+            <span className={`${DESIGN.text.caption} font-semibold tabular-nums`}>{count}</span>
+            {showUrgencyCount && urgencyCount > 0 && (
+              <span className="ml-auto flex items-center gap-1.5 text-[10px] font-semibold text-orange-600">
+                <Zap size={10} strokeWidth={2.5} />
+                {urgencyCount}
+              </span>
+            )}
+          </div>
+          {description && <p className={`text-[10px] text-slate-500`}>{description}</p>}
+        </div>
+
+        {/* Drop Zone */}
+        <div
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          className={cn(
+            `flex-1 space-y-3 p-2 ${DESIGN.radius.md} bg-slate-50/60 border-2 overflow-y-auto ${DESIGN.transition}`,
+            dropTarget ? 'border-blue-400 bg-blue-50/30 ring-2 ring-blue-400/20' : 'border-transparent'
+          )}
+          role="region"
+          aria-label={`${title} column`}
+        >
+          {assignments.length > 0 ? (
+            <div className="space-y-2">
+              {assignments.map((a, i) => (
+                <div
+                  key={a.id}
+                  draggable={allowDragOut}
+                  onDragStart={(e) => allowDragOut && onDragStart(e, a)}
+                  className={allowDragOut ? 'cursor-move' : ''}
+                >
+                  <AssignmentCard
+                    assignment={a}
+                    onMarkAsLooking={() => onMarkAsLooking(a.id)}
+                    onMarkAsExiting={() => onMarkAsExiting(a.id)}
+                    onEmail={() => onEmail(a)}
+                    onMarginApproval={() => onMarginApproval(a)}
+                    onClick={onCardClick ? () => onCardClick(a) : undefined}
+                    index={i}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full min-h-[150px] text-center p-4">
+              <div className={`w-full max-w-[140px] border-2 border-dashed border-${DESIGN.colors.border} ${DESIGN.radius.sm} p-4`}>
+                <p className={`${DESIGN.text.body} font-medium text-slate-400`}>Empty</p>
+                <p className={`text-[10px] text-slate-400 mt-1`}>Drag here</p>
+              </div>
+            </div>
           )}
         </div>
-        {description && <p className={`text-[10px] text-slate-500`}>{description}</p>}
       </div>
-
-      {/* Drop Zone */}
-      <div
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        className={cn(
-          `flex-1 space-y-3 p-2 ${DESIGN.radius.md} bg-slate-50/60 border-2 overflow-y-auto ${DESIGN.transition}`,
-          dropTarget ? 'border-blue-400 bg-blue-50/30 ring-2 ring-blue-400/20' : 'border-transparent'
-        )}
-        role="region"
-        aria-label={`${title} column`}
-      >
-        {assignments.length > 0 ? (
-          <div className="space-y-2">
-            {assignments.map((a, i) => (
-              <div
-                key={a.id}
-                draggable={allowDragOut}
-                onDragStart={(e) => allowDragOut && onDragStart(e, a)}
-                className={allowDragOut ? 'cursor-move' : ''}
-              >
-                <AssignmentCard
-                  assignment={a}
-                  onMarkAsLooking={() => onMarkAsLooking(a.id)}
-                  onMarkAsExiting={() => onMarkAsExiting(a.id)}
-                  onEmail={() => onEmail(a)}
-                  onClick={onCardClick ? () => onCardClick(a) : undefined}
-                  index={i}
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full min-h-[150px] text-center p-4">
-            <div className={`w-full max-w-[140px] border-2 border-dashed border-${DESIGN.colors.border} ${DESIGN.radius.sm} p-4`}>
-              <p className={`${DESIGN.text.body} font-medium text-slate-400`}>Empty</p>
-              <p className={`text-[10px] text-slate-400 mt-1`}>Drag here</p>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+    );
+  };
 
 // ============================================================================
 // TOAST
@@ -608,7 +622,7 @@ export default function ActiveAssignmentsDashboard() {
     (assignment: ActiveAssignment, template: TemplateType = 'outreach') => {
       if (activeModal !== null) return;
 
-      const contract = assignmentToContract(assignment);
+      const contract = assignmentToContract(assignment as any);
       setContractData(contract);
       setEmailTemplate(template);
       setActiveModal('assignment');
@@ -744,6 +758,7 @@ export default function ActiveAssignmentsDashboard() {
               onMarkAsLooking={(id) => handleFlagToggle(id, 'looking')}
               onMarkAsExiting={(id) => handleFlagToggle(id, 'exiting')}
               onEmail={(a) => openEmailModal(a, 'outreach')}
+              onMarginApproval={(a) => openEmailModal(a, 'margin_approval')}
               onCardClick={handleCardClick}
               allowDragOut={true}
               color="bg-slate-500"
@@ -760,6 +775,7 @@ export default function ActiveAssignmentsDashboard() {
               onMarkAsLooking={(id) => handleFlagToggle(id, 'looking')}
               onMarkAsExiting={(id) => handleFlagToggle(id, 'exiting')}
               onEmail={(a) => openEmailModal(a, 'extension_request')}
+              onMarginApproval={(a) => openEmailModal(a, 'margin_approval')}
               onCardClick={handleCardClick}
               allowDragOut={true}
               color="bg-amber-500"
@@ -783,6 +799,7 @@ export default function ActiveAssignmentsDashboard() {
               onMarkAsLooking={(id) => handleFlagToggle(id, 'looking')}
               onMarkAsExiting={(id) => handleFlagToggle(id, 'exiting')}
               onEmail={(a) => openEmailModal(a, 'outreach')}
+              onMarginApproval={(a) => openEmailModal(a, 'margin_approval')}
               onCardClick={handleCardClick}
               allowDragOut={true}
               color="bg-blue-500"
@@ -806,6 +823,7 @@ export default function ActiveAssignmentsDashboard() {
               onMarkAsLooking={(id) => handleFlagToggle(id, 'looking')}
               onMarkAsExiting={(id) => handleFlagToggle(id, 'exiting')}
               onEmail={(a) => openEmailModal(a, 'extension_request')}
+              onMarginApproval={(a) => openEmailModal(a, 'margin_approval')}
               onCardClick={handleCardClick}
               allowDragOut={true}
               color="bg-cyan-500"
@@ -828,6 +846,7 @@ export default function ActiveAssignmentsDashboard() {
                 onMarkAsLooking={(id) => handleFlagToggle(id, 'looking')}
                 onMarkAsExiting={(id) => handleFlagToggle(id, 'exiting')}
                 onEmail={(a) => openEmailModal(a, 'extension_request')}
+                onMarginApproval={(a) => openEmailModal(a, 'margin_approval')}
                 onCardClick={handleCardClick}
                 showUrgencyCount={true}
               />
@@ -880,8 +899,8 @@ export default function ActiveAssignmentsDashboard() {
               </thead>
               <tbody className={`divide-y divide-${DESIGN.colors.border}`}>
                 {listAssignments.map((a) => (
-                  <tr 
-                    key={a.id} 
+                  <tr
+                    key={a.id}
                     className={`hover:bg-${DESIGN.colors.bgSubtle} ${DESIGN.transition} group cursor-pointer`}
                     onClick={() => handleCardClick(a)}
                   >
@@ -1038,7 +1057,7 @@ export default function ActiveAssignmentsDashboard() {
           {/* Controls */}
           <div className="flex items-center justify-between">
             <ViewSwitcher viewMode={viewMode} setViewMode={setViewMode} />
-            
+
             <div className="flex items-center gap-2">
               {/* Search */}
               <div className="relative">
