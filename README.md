@@ -54,4 +54,4 @@ The application uses a token-based design system inspired by Apple, Stripe, and 
 
 ## Contributing
 
-Please follow the established design system patterns when adding new components. All new UI components should use design tokens and follow the atomic design methodology.
+Please follow the established design system patterns when adding new components. All new UI components should use design tokens and follow the atomic design methodology.# Trigger rebuild
