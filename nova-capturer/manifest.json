@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Nova Profile Capturer",
+  "version": "1.2.0",
+  "description": "Captures the full HTML of a Nova candidate profile page and saves to Supabase.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://nova.ayahealthcare.com/*",
+    "https://gzoitlkmocutzzyjlkvn.supabase.co/*"
+  ],
+  "action": {
+    "default_title": "Capture Nova Profile"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

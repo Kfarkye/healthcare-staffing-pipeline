@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Hide scrollbars completely for cleaner look */
+.column-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+.column-scroll {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
