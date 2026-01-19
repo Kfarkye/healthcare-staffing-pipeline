@@ -23,9 +23,9 @@ export interface PayPackage {
   specialty: string;
   hours_per_week: number;
   taxable_hourly_rate: number;
-  meals_stipend: number;
-  housing_stipend: number;
-  stipend: number;
+  meals_weekly: number;
+  housing_weekly: number;
+  total_stipend: number;
   gross_weekly_pay: number;
   source: string;
   created_at?: string;
@@ -42,6 +42,7 @@ export interface ClickData {
   pay_range?: string;
   shift_type?: string;
   start_date?: string;
+  end_date?: string;
 }
 
 // ============================================================================
@@ -89,7 +90,7 @@ export const payPackageService = {
    * Save calculated package to database
    */
   async savePackage(
-    pkg: PayPackageResult, 
+    pkg: PayPackageResult,
     click: ClickData
   ): Promise<PayPackage> {
     try {
@@ -101,9 +102,9 @@ export const payPackageService = {
         specialty: click.specialty,
         hours_per_week: 36,
         taxable_hourly_rate: pkg.taxable_hourly,
-        meals_stipend: pkg.meals_weekly,
-        housing_stipend: pkg.housing_weekly,
-        stipend: pkg.total_stipend,
+        meals_weekly: pkg.meals_weekly,
+        housing_weekly: pkg.housing_weekly,
+        total_stipend: pkg.total_stipend,
         gross_weekly_pay: pkg.gross_weekly,
         source: 'auto_calculated'
       };
@@ -157,10 +158,10 @@ export const payPackageService = {
   async generateFromClick(click: ClickData): Promise<PayPackage> {
     // Parse gross weekly from pay range
     const grossWeekly = this.parseGrossWeekly(click.pay_range);
-    
+
     // Determine profession from specialty
     const profession = this.determineProfession(click.specialty);
-    
+
     // Parse hours from shift type
     const hoursPerWeek = this.parseHoursPerWeek(click.shift_type);
 
@@ -212,7 +213,7 @@ export const payPackageService = {
    */
   parseGrossWeekly(payRange?: string): number {
     if (!payRange) return 0;
-    
+
     // Remove $ and commas, then parse
     const cleaned = payRange.replace(/[$,]/g, '');
     return parseFloat(cleaned) || 0;
@@ -223,9 +224,9 @@ export const payPackageService = {
    */
   determineProfession(specialty?: string): string {
     if (!specialty) return 'RESP';
-    
+
     const upper = specialty.toUpperCase();
-    
+
     if (upper.includes('RRT') || upper.includes('CRT') || upper === 'RESP') {
       return 'RESP';
     }
@@ -250,7 +251,7 @@ export const payPackageService = {
     if (upper.includes('LAB') || upper.includes('PHLEBOTOM')) {
       return 'LAB';
     }
-    
+
     return 'RESP'; // Default
   },
 
@@ -259,13 +260,13 @@ export const payPackageService = {
    */
   parseHoursPerWeek(shiftType?: string): number {
     if (!shiftType) return 36;
-    
+
     if (shiftType.includes('3x12')) return 36;
     if (shiftType.includes('4x10')) return 40;
     if (shiftType.includes('5x8')) return 40;
     if (shiftType.includes('4x12')) return 48;
     if (shiftType.includes('2x12') && shiftType.includes('3x12')) return 36;
-    
+
     return 36; // Default
   },
 
@@ -278,7 +279,7 @@ export const payPackageService = {
     pkg: PayPackage
   ): string {
     const firstName = candidateName.split(' ')[0];
-    
+
     return `Hi ${firstName},
 
 I have an excellent ${click.specialty} opportunity at ${click.facility_name} that matches your profile perfectly.
@@ -289,8 +290,8 @@ I have an excellent ${click.specialty} opportunity at ${click.facility_name} tha
 
 💰 PAY PACKAGE:
 Taxable Hourly: $${pkg.taxable_hourly_rate.toFixed(2)}/hr
-Weekly Meals: $${pkg.meals_stipend.toFixed(2)}
-Weekly Housing: $${pkg.housing_stipend.toFixed(2)}
+Weekly Meals: $${pkg.meals_weekly.toFixed(2)}
+Weekly Housing: $${pkg.housing_weekly.toFixed(2)}
 Total Weekly: $${pkg.gross_weekly_pay.toFixed(2)}
 
 This position is moving quickly - I can submit you today if you're available.
@@ -311,17 +312,17 @@ Kofi.Farkye@ayahealthcare.com`;
     pkg: PayPackage
   ): { subject: string; body: string } {
     const firstName = candidateName.split(' ')[0];
-    
+
     // Format dates
     const startDate = click.start_date || 'ASAP';
     const endDate = click.end_date || '13 weeks from start';
-    
+
     // Determine shift description
     const shiftDescription = this.getShiftDescription(click.shift_type, pkg.hours_per_week);
-    
+
     return {
       subject: `${click.specialty} - ${click.job_city}, ${click.job_state} - Job #${click.job_id}`,
-      
+
       body: `Hi ${firstName},
 
 Thanks for your interest in the ${click.specialty} position at ${click.facility_name}. Here's the full breakdown — this looks like an excellent match for your background:
@@ -333,7 +334,7 @@ Shifts & Hours: ${shiftDescription} (${pkg.hours_per_week} hours/week)
 
 Pay Package:
 Taxable Hourly Rate: $${pkg.taxable_hourly_rate.toFixed(2)}/hr
-Meals & Housing Stipend: $${pkg.stipend.toFixed(2)}/week
+Meals & Housing Stipend: $${pkg.total_stipend.toFixed(2)}/week
 Total Gross Weekly Pay: $${pkg.gross_weekly_pay.toFixed(2)}
 
 This role is moving quickly — I can get you submitted today if everything looks good.
@@ -364,13 +365,13 @@ Email: Kofi.Farkye@ayahealthcare.com`
       if (hoursPerWeek === 48) return '4x12';
       return 'Standard';
     }
-    
+
     // Clean up shift type for display
     if (shiftType.includes('3x12 N')) return '3x12 Nights';
     if (shiftType.includes('3x12 D')) return '3x12 Days';
     if (shiftType.includes('4x10')) return '4x10 Days';
     if (shiftType.includes('5x8')) return '5x8 Days';
-    
+
     return shiftType;
   }
 };
