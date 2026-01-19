@@ -69,9 +69,12 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    let base64 = body.base64;
+    // Accept both 'base64' and 'base64Data' for compatibility with different callers
+    let base64 = body.base64 || body.base64Data;
     let mimeType = body.mimeType || 'image/png';
     filePath = body.filePath;
+
+    console.log('[process-screenshot] Received keys:', Object.keys(body).join(', '));
 
     // Support both direct base64 and storage filePath
     if (base64) {
@@ -90,7 +93,7 @@ Deno.serve(async (req) => {
       base64 = arrayBufferToBase64(arrayBuffer);
       mimeType = fileData.type || 'image/png';
     } else {
-      throw new Error('Either base64 or filePath is required in the request body');
+      throw new Error('Either base64/base64Data or filePath is required in the request body');
     }
 
     const apiKey = Deno.env.get('GEMINI_API_KEY');
@@ -155,8 +158,8 @@ Return this exact JSON structure:
   "jobId": "string or null"
 }`;
 
-    // Using Gemini 2.0 Flash as per user preference
-    const model = 'gemini-2.0-flash';
+    // Using Gemini 3 Flash - latest model with best speed/accuracy for image extraction
+    const model = 'gemini-3-flash';
     const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
