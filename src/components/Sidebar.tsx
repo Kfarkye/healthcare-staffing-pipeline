@@ -307,36 +307,46 @@ const NavSection: React.FC<NavSectionProps> = ({ category, index }) => {
 // ============================================================================
 
 export function Sidebar(): JSX.Element {
+  const [showQuickOutreach, setShowQuickOutreach] = useState(false);
+
   return (
-    <aside
-      className={`w-72 bg-${DESIGN.colors.background} border-r border-${DESIGN.colors.border} flex flex-col shrink-0 animate-slideInLeft`}
-      role="navigation"
-      aria-label="Main navigation"
-    >
-      {/* Brand Header */}
-      <header className={`h-16 flex items-center px-5 border-b border-${DESIGN.colors.border}`}>
-        <div className="flex items-center gap-2.5">
-          <BrandIcon />
-          <span className={DESIGN.text.brand}>Pipeline</span>
+    <>
+      <aside
+        className={`w-72 bg-${DESIGN.colors.background} border-r border-${DESIGN.colors.border} flex flex-col shrink-0 animate-slideInLeft`}
+        role="navigation"
+        aria-label="Main navigation"
+      >
+        {/* Brand Header */}
+        <header className={`h-16 flex items-center px-5 border-b border-${DESIGN.colors.border}`}>
+          <div className="flex items-center gap-2.5">
+            <BrandIcon />
+            <span className={DESIGN.text.brand}>Pipeline</span>
+          </div>
+        </header>
+
+        {/* Action Bar - Quick actions */}
+        <ActionBar onQuickOutreach={() => setShowQuickOutreach(true)} />
+
+        {/* Navigation Sections - Scrollable content */}
+        <div className="flex-1 overflow-y-auto py-4 custom-scrollbar min-h-0">
+          {CATEGORIES.map((category, index) => (
+            <NavSection key={category} category={category} index={index} />
+          ))}
         </div>
-      </header>
 
-      {/* Action Bar - Quick actions */}
-      <ActionBar />
+        {/* Footer - Quick links and user profile - Always visible */}
+        <footer className="shrink-0 border-t border-slate-200/70 py-3 space-y-4 bg-white">
+          <QuickLinks />
+          <UserProfile />
+        </footer>
+      </aside>
 
-      {/* Navigation Sections - Scrollable content */}
-      <div className="flex-1 overflow-y-auto py-4 custom-scrollbar min-h-0">
-        {CATEGORIES.map((category, index) => (
-          <NavSection key={category} category={category} index={index} />
-        ))}
-      </div>
-
-      {/* Footer - Quick links and user profile - Always visible */}
-      <footer className="shrink-0 border-t border-slate-200/70 py-3 space-y-4 bg-white">
-        <QuickLinks />
-        <UserProfile />
-      </footer>
-    </aside>
+      {/* Quick Outreach Modal */}
+      <QuickOutreachModal
+        isOpen={showQuickOutreach}
+        onClose={() => setShowQuickOutreach(false)}
+      />
+    </>
   );
 }
 
