@@ -23,8 +23,9 @@ export interface ExtractedProspectData {
   state: string | null; // Job state fallback
   years_experience: number | null;
   certifications: string | null;
-  preferred_units: string | null;
-  shift_preference: string | null;
+  preferred_units?: string | null;
+  shift_preference?: string | null;
+  actual_margin?: number | null;
   notes: string | null;
 }
 
@@ -40,10 +41,11 @@ export interface ExtractedOfferData {
   endDate: string | null;
   taxableRate: number;
   weeklyStipend: number;
-  grossWeeklyPay: number;
+  grossWeeklyPay: number | null;
   specialty: string;
   jobId: string | null;
   candidateId: string | null;
+  actual_margin: number | null;
 }
 
 // ============================================================================
@@ -246,6 +248,7 @@ class ExtractionServiceClass {
       certifications: raw.certifications?.trim() || null,
       preferred_units: raw.preferred_units?.trim() || null,
       shift_preference: raw.shift_preference?.trim() || null,
+      actual_margin: typeof raw.actual_margin === 'number' ? raw.actual_margin : null,
       notes: raw.notes?.trim() || null,
     };
 
@@ -299,7 +302,7 @@ class ExtractionServiceClass {
                 'facility', 'city', 'state', 'shiftType',
                 'weeklyHours', 'startDate', 'endDate',
                 'taxableRate', 'weeklyStipend', 'grossWeeklyPay',
-                'specialty', 'jobId', 'candidateId',
+                'specialty', 'jobId', 'candidateId', 'actual_margin',
               ],
             },
             signal: controller.signal,
@@ -349,10 +352,11 @@ class ExtractionServiceClass {
       endDate: raw?.endDate || null,
       taxableRate: typeof raw?.taxableRate === 'number' ? raw.taxableRate : 0,
       weeklyStipend: typeof raw?.weeklyStipend === 'number' ? raw.weeklyStipend : 0,
-      grossWeeklyPay: typeof raw?.grossWeeklyPay === 'number' ? raw.grossWeeklyPay : 0,
+      grossWeeklyPay: typeof raw?.grossWeeklyPay === 'number' ? raw.grossWeeklyPay : null,
       specialty: raw?.specialty?.trim() || '',
       jobId: raw?.jobId?.trim() || null,
       candidateId: raw?.candidateId?.trim() || null,
+      actual_margin: typeof raw?.actual_margin === 'number' ? raw.actual_margin : null,
     };
   }
 }

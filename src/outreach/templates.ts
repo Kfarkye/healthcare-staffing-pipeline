@@ -18,12 +18,13 @@ export interface ExtractedOfferData {
   specialty: string;
   jobId: number | null;
   candidateId: number | null;
+  actualMargin?: number | null;
 }
 
 export interface EmailTemplate {
   id: string;
   name: string;
-  generateContent: (data: ExtractedOfferData) => { subject: string; body: string; to?: string };
+  generateContent: (data: ExtractedOfferData) => { subject: string; body: string; to?: string; cc?: string };
 }
 
 export type TemplateCategory = 'outreach' | 'ops' | 'response';
@@ -493,27 +494,29 @@ Thank you!`,
   {
     id: 'margin_approval',
     name: '💰 OPS: Margin Approval Request',
-    generateContent: (d) => ({
-      subject: `Margin Approval Request - ${d.name} - ${d.facility}`,
-      body: `Hi Leadership,
+    generateContent: (d) => {
+      const margin = d.actualMargin != null ? String(d.actualMargin) : '[XX]';
+      const signature = `Best,\nKofi Farkye\nSenior Recruiter, Fulfillment Specialist\nP: 858-529-7267 Ext: 17017`;
 
-I am requesting margin approval for the following candidate:
-
-Candidate: ${d.name} (${d.candidateId || 'ID TBD'})
-Facility: ${d.facility}
-Location: ${d.city}, ${d.state}
-Specialty: ${d.specialty}
-
-Financial Breakdown:
-Gross Weekly: ${currency(d.grossWeeklyPay)}
-Taxable Hourly: ${currency(d.taxableRate)}
-Weekly Stipends: ${currency(d.weeklyStipend)}
-Hours: ${d.weeklyHours}h/week
-
-Please let me know if this is approved for submission.
-
-Thank you!`,
-    }),
+      return {
+        to: 'Colton.Valdez@ayahealthcare.com',
+        cc: 'Tiffany.chavez@ayahealthcare.com',
+        subject: `Margin Approval – ${d.name || '[CANDIDATE]'} – ${margin}%`,
+        body: [
+          `Reason needed for approval? RFM and Fast Distro set TM% at ${margin}%.`,
+          ``,
+          `Is this a New Placement, Extension, or Change of Contract? New Placement`,
+          ``,
+          `Is premium approval needed? N`,
+          `Why? No`,
+          ``,
+          `Was this sent to Comp Info (Y/N)? N`,
+          `Distro response: N/A`,
+          '',
+          signature
+        ].join('\n'),
+      };
+    },
   },
 ];
 

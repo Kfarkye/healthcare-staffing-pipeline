@@ -58,6 +58,7 @@ interface ExtractedData {
     housingStipend: number | null;
     weeklyStipend: number | null;
     grossWeeklyPay: number | null;
+    actual_margin: number | null;
     jobId: string | null;
 }
 
@@ -93,6 +94,7 @@ const toOfferData = (data: ExtractedData): ExtractedOfferData => ({
     grossWeeklyPay: data.grossWeeklyPay || 0,
     jobId: data.jobId ? Number(data.jobId) : null,
     candidateId: data.candidate_id,
+    actualMargin: data.actual_margin,
 });
 
 // Helper functions for date formatting within templates
@@ -217,8 +219,11 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
 
     // Open in email client
     const openInEmail = () => {
-        if (!extractedData?.email) return;
-        const mailto = `mailto:${extractedData.email}?subject=${encodeURIComponent(editableSubject)}&body=${encodeURIComponent(editableBody)}`;
+        const to = emailContent?.to || extractedData?.email;
+        if (!to) return;
+
+        const cc = emailContent?.cc ? `&cc=${encodeURIComponent(emailContent.cc)}` : '';
+        const mailto = `mailto:${to}?subject=${encodeURIComponent(editableSubject)}&body=${encodeURIComponent(editableBody)}${cc}`;
         window.open(mailto, '_blank');
     };
 
@@ -585,9 +590,18 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
                                         <div className="flex items-center gap-6 group">
                                             <label className="w-16 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Recipient</label>
                                             <div className="flex-1 text-sm font-bold text-slate-900 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100 truncate">
-                                                {extractedData.email || '—'}
+                                                {emailContent?.to || extractedData.email || '—'}
                                             </div>
                                         </div>
+
+                                        {emailContent?.cc && (
+                                            <div className="flex items-center gap-6 group -mt-4">
+                                                <label className="w-16 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">CC</label>
+                                                <div className="flex-1 text-sm font-bold text-slate-900 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100 truncate">
+                                                    {emailContent.cc}
+                                                </div>
+                                            </div>
+                                        )}
 
                                         {/* Editable Subject */}
                                         <div className="flex flex-col gap-3">
@@ -630,8 +644,8 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
                                         </button>
                                         <button
                                             onClick={openInEmail}
-                                            disabled={!extractedData.email}
-                                            className={`flex-[2] flex items-center justify-center gap-2.5 px-6 py-4 rounded-2xl text-[12px] font-black uppercase tracking-widest transition-all ${extractedData.email
+                                            disabled={!(emailContent?.to || extractedData.email)}
+                                            className={`flex-[2] flex items-center justify-center gap-2.5 px-6 py-4 rounded-2xl text-[12px] font-black uppercase tracking-widest transition-all ${(emailContent?.to || extractedData.email)
                                                 ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-xl shadow-blue-600/20 active:scale-95'
                                                 : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                                 }`}

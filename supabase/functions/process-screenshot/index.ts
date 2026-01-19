@@ -116,6 +116,7 @@ Your task is to extract candidate and job details from screenshots of the "Nova 
    - "Weekly Lodging" -> housingStipend
    - "Gross Weekly" -> grossWeeklyPay
    - "Weekly Hours" -> (e.g., 36, 40)
+   - "Actual Margin" -> actual_margin (extract the highlighted percentage value near the top).
 
 ### EXTRACTION RULES:
 - Use null if a value is not found.
@@ -124,6 +125,7 @@ Your task is to extract candidate and job details from screenshots of the "Nova 
 - **home_state**: Extract the 2-letter state code for the CANDIDATE'S home address.
 - **state**: Extract the 2-letter state code for the JOB location.
 - **years_experience**: Extract as a number of years if possible (e.g., "8 yrs" -> 8).
+- **actual_margin**: Extract as a number (e.g., "11.2%" -> 11.2).
 
 Return EXACTLY this JSON structure:
 {
@@ -150,6 +152,7 @@ Return EXACTLY this JSON structure:
   "housingStipend": number or null,
   "weeklyStipend": number or null,
   "grossWeeklyPay": number or null,
+  "actual_margin": number or null,
   "jobId": "string or null",
   "notes": "string or null"
 }`;
