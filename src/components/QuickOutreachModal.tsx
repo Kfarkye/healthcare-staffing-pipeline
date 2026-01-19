@@ -217,14 +217,20 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
         setTimeout(() => setCopied(false), 2000);
     };
 
+    // Outlook integration helper
+    const buildOutlookLink = (to: string, cc: string | undefined, subject: string, body: string): string => {
+        const encode = (s: string) => encodeURIComponent(s || '');
+        return `https://outlook.office.com/mail/deeplink/compose?to=${encode(to)}${cc ? `&cc=${encode(cc)}` : ''
+            }&subject=${encode(subject)}&body=${encode(body)}`;
+    };
+
     // Open in email client
     const openInEmail = () => {
         const to = emailContent?.to || extractedData?.email;
         if (!to) return;
 
-        const cc = emailContent?.cc ? `&cc=${encodeURIComponent(emailContent.cc)}` : '';
-        const mailto = `mailto:${to}?subject=${encodeURIComponent(editableSubject)}&body=${encodeURIComponent(editableBody)}${cc}`;
-        window.open(mailto, '_blank');
+        const url = buildOutlookLink(to, emailContent?.cc, editableSubject, editableBody);
+        window.open(url, '_blank');
     };
 
     if (!isOpen) return null;

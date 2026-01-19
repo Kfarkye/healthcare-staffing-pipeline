@@ -500,18 +500,13 @@ Thank you!`,
 
       return {
         to: 'Colton.Valdez@ayahealthcare.com',
-        cc: 'Tiffany.chavez@ayahealthcare.com',
+        cc: 'Tiffany.Chavez@ayahealthcare.com',
         subject: `Margin Approval – ${d.name || '[CANDIDATE]'} – ${margin}%`,
         body: [
           `Reason needed for approval? RFM and Fast Distro set TM% at ${margin}%.`,
-          ``,
           `Is this a New Placement, Extension, or Change of Contract? New Placement`,
-          ``,
           `Is premium approval needed? N`,
-          `Why? No`,
-          ``,
           `Was this sent to Comp Info (Y/N)? N`,
-          `Distro response: N/A`,
           '',
           signature
         ].join('\n'),
