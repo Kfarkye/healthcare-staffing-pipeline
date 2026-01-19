@@ -1,0 +1,454 @@
+/* ============================================================================
+   src/styles/handbook.css
+   Editorial design system for the Stealth Traveler Handbook
+   ============================================================================ */
+
+/* Import premium fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap');
+
+/* ============================================================================
+   CSS VARIABLES - The Design System
+   ============================================================================ */
+:root {
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-serif: 'Playfair Display', Georgia, 'Times New Roman', serif;
+
+  /* Colors - Neutral, Premium Palette */
+  --color-ink: #0f172a;
+  --color-ink-muted: #475569;
+  --color-ink-subtle: #94a3b8;
+  --color-paper: #ffffff;
+  --color-paper-warm: #fdfbf7;
+  --color-paper-cool: #f8fafc;
+  --color-accent: #2563eb;
+  --color-accent-soft: #eff6ff;
+  --color-success: #059669;
+  --color-success-soft: #ecfdf5;
+  --color-warning: #d97706;
+  --color-warning-soft: #fffbeb;
+
+  /* Glassmorphism Tokens */
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.4);
+  --glass-blur: 16px;
+
+  /* Spacing */
+  --space-xs: 0.5rem;
+  --space-sm: 1rem;
+  --space-md: 1.5rem;
+  --space-lg: 2rem;
+  --space-xl: 3rem;
+  --space-2xl: 4rem;
+  --space-3xl: 8rem;
+
+  /* Layout */
+  --max-width-prose: 70ch;
+  --max-width-wide: 80rem;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 12px -2px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 12px 24px -4px rgba(15, 23, 42, 0.1);
+  --shadow-xl: 0 24px 48px -8px rgba(15, 23, 42, 0.12);
+
+  /* Transitions */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 400ms;
+  --duration-slow: 700ms;
+}
+
+/* ============================================================================
+   BASE STYLES
+   ============================================================================ */
+html {
+  scroll-behavior: smooth;
+}
+
+.handbook-page {
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  line-height: 1.8;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================================
+   HERO SECTION
+   ============================================================================ */
+.handbook-hero {
+  position: relative;
+  min-height: 85vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: var(--color-ink);
+}
+
+.handbook-hero__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.7) contrast(1.1);
+  transition: transform var(--duration-slow) var(--ease-out);
+}
+
+.handbook-hero:hover .handbook-hero__image {
+  transform: scale(1.05);
+}
+
+.handbook-hero__overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom,
+      rgba(15, 23, 42, 0.2) 0%,
+      rgba(15, 23, 42, 0.5) 60%,
+      rgba(15, 23, 42, 0.9) 100%);
+}
+
+.handbook-hero__content {
+  position: relative;
+  z-index: 10;
+  text-align: center;
+  padding: var(--space-xl);
+  max-width: var(--max-width-prose);
+}
+
+.handbook-hero__title {
+  font-family: var(--font-serif);
+  font-size: clamp(3rem, 8vw, 5rem);
+  font-weight: 700;
+  color: white;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin-bottom: var(--space-lg);
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.handbook-hero__subtitle {
+  font-size: clamp(1.125rem, 2.5vw, 1.5rem);
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 400;
+  max-width: 45ch;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+/* ============================================================================
+   CONTENT SECTIONS
+   ============================================================================ */
+.handbook-section {
+  padding: var(--space-3xl) var(--space-xl);
+  max-width: var(--max-width-wide);
+  margin: 0 auto;
+}
+
+.handbook-section--alt {
+  background: var(--color-paper-warm);
+  border-radius: 4rem;
+  margin: var(--space-lg) auto;
+}
+
+.handbook-section__header {
+  text-align: center;
+  max-width: var(--max-width-prose);
+  margin: 0 auto var(--space-3xl);
+}
+
+.handbook-section__eyebrow {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--color-accent);
+  margin-bottom: var(--space-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.handbook-section__title {
+  font-family: var(--font-serif);
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  font-weight: 600;
+  color: var(--color-ink);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-bottom: var(--space-md);
+}
+
+.handbook-section__description {
+  font-size: 1.25rem;
+  color: var(--color-ink-muted);
+  line-height: 1.6;
+}
+
+/* ============================================================================
+   RESOURCE CARDS
+   ============================================================================ */
+.resource-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-xl);
+}
+
+.resource-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-radius: 2rem;
+  padding: var(--space-xl);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--glass-border);
+  transition: all var(--duration-normal) var(--ease-out);
+  display: flex;
+  flex-direction: column;
+}
+
+.resource-card:hover {
+  transform: translateY(-8px) scale(1.01);
+  box-shadow: var(--shadow-xl);
+  border-color: rgba(37, 99, 235, 0.2);
+  background: white;
+}
+
+.resource-card__icon {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.75rem;
+  margin-bottom: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.resource-card__icon--blue {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.resource-card__icon--green {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.resource-card__icon--amber {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.resource-card__icon--indigo {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.resource-card__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-ink);
+  margin-bottom: var(--space-sm);
+  letter-spacing: -0.01em;
+}
+
+.resource-card__description {
+  font-size: 1rem;
+  color: var(--color-ink-muted);
+  line-height: 1.7;
+  margin-bottom: var(--space-xl);
+  flex: 1;
+}
+
+.resource-card__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-decoration: none;
+  transition: all var(--duration-fast) var(--ease-out);
+  padding: 0.75rem 0;
+}
+
+.resource-card__link:hover {
+  gap: 1rem;
+  color: #1d4ed8;
+}
+
+/* ============================================================================
+   CHECKLIST
+   ============================================================================ */
+.checklist {
+  max-width: var(--max-width-prose);
+  margin: 0 auto;
+  background: white;
+  padding: var(--space-2xl);
+  border-radius: 3rem;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+}
+
+.checklist__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  padding: var(--space-lg) 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.checklist__item:last-child {
+  border-bottom: none;
+}
+
+.checklist__number {
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: white;
+  font-size: 1rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+}
+
+.checklist__content {
+  flex: 1;
+}
+
+.checklist__title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-ink);
+  margin-bottom: 0.5rem;
+}
+
+.checklist__description {
+  font-size: 1rem;
+  color: var(--color-ink-muted);
+  line-height: 1.7;
+}
+
+/* ============================================================================
+   FOOTER
+   ============================================================================ */
+.handbook-footer {
+  padding: var(--space-3xl) var(--space-xl);
+  text-align: center;
+  background: var(--color-ink);
+  color: white;
+  position: relative;
+}
+
+.handbook-footer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+}
+
+.handbook-footer__signature {
+  font-size: 1.125rem;
+  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 0.05em;
+}
+
+.handbook-footer__name {
+  font-weight: 600;
+  color: white;
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 1.5rem;
+  font-family: var(--font-serif);
+}
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp var(--duration-slow) var(--ease-out) forwards;
+  opacity: 0;
+}
+
+/* Staggered delays */
+.animate-delay-1 {
+  animation-delay: 0.1s;
+}
+
+.animate-delay-2 {
+  animation-delay: 0.2s;
+}
+
+.animate-delay-3 {
+  animation-delay: 0.3s;
+}
+
+.animate-delay-4 {
+  animation-delay: 0.4s;
+}
+
+.animate-delay-5 {
+  animation-delay: 0.5s;
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+@media (max-width: 1024px) {
+  .handbook-section {
+    padding: var(--space-2xl) var(--space-lg);
+  }
+
+  .resource-grid {
+    gap: var(--space-lg);
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --space-3xl: 4rem;
+  }
+
+  .handbook-hero {
+    min-height: 60vh;
+  }
+
+  .handbook-section--alt {
+    border-radius: 2rem;
+  }
+
+  .resource-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .checklist {
+    padding: var(--space-lg);
+    border-radius: 2rem;
+  }
+}

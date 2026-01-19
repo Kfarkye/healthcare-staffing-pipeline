@@ -115,6 +115,16 @@ export const ROUTE_CONFIG: RouteConfig[] = [
 ];
 
 export const router = createBrowserRouter([
+  // Standalone public guide - bypasses RootLayout
+  {
+    path: '/guide',
+    lazy: async () => {
+      const TravelerHandbook = await import('../components/handbook/TravelerHandbook');
+      return { Component: TravelerHandbook.default };
+    },
+    errorElement: <ErrorBoundary />,
+  },
+  // Main App Routes
   {
     path: '/',
     element: <RootLayout />,
