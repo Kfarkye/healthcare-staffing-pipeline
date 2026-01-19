@@ -159,7 +159,7 @@ Return this exact JSON structure:
 }`;
 
     // Using Gemini 3 Flash - latest model with best speed/accuracy for image extraction
-    const model = 'gemini-3-flash-pre';
+    const model = 'gemini-3-flash-preview';
     const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
