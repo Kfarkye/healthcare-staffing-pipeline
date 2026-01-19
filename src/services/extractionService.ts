@@ -20,7 +20,11 @@ export interface ExtractedProspectData {
   profession: string | null;
   specialty: string | null;
   home_state: string | null;
+  state: string | null; // Job state fallback
   years_experience: number | null;
+  certifications: string | null;
+  preferred_units: string | null;
+  shift_preference: string | null;
   notes: string | null;
 }
 
@@ -71,7 +75,7 @@ const validateFile = (file: File): void => {
     const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
     throw new Error(`File too large: ${sizeMB}MB (max 10MB)`);
   }
-  
+
   if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
     throw new Error('Unsupported file type. Please upload a PNG, JPG, or WebP image.');
   }
@@ -116,7 +120,7 @@ class ExtractionServiceClass {
 
     // Create unique key for deduplication
     const fileKey = `${file.name}-${file.size}-${file.lastModified}-${file.type}`;
-    
+
     return deduplicate(fileKey, async () => {
       const traceId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -128,7 +132,7 @@ class ExtractionServiceClass {
         const arrayBuffer = await file.arrayBuffer();
         const base64 = btoa(
           new Uint8Array(arrayBuffer).reduce(
-            (data, byte) => data + String.fromCharCode(byte), 
+            (data, byte) => data + String.fromCharCode(byte),
             ''
           )
         );
@@ -159,11 +163,11 @@ class ExtractionServiceClass {
               traceId,
             },
             signal: controller.signal,
-          });
+          } as any);
 
           if (fnErr) {
             console.error('[ExtractionService] Edge function error:', fnErr);
-            
+
             if (fnErr.message?.includes('FunctionsHttpError')) {
               throw new Error('Processing service temporarily unavailable. Try again shortly.');
             }
@@ -190,7 +194,7 @@ class ExtractionServiceClass {
         if (err?.name === 'AbortError') {
           throw new Error('Processing took too long. Please try again with a clearer screenshot.');
         }
-        
+
         console.error('[ExtractionService] Error:', err);
         throw new Error(err?.message || 'Failed to extract data from screenshot');
       }
@@ -237,12 +241,16 @@ class ExtractionServiceClass {
       profession: raw.profession?.trim() || null,
       specialty: raw.specialty?.trim() || null,
       home_state,
+      state: raw.state?.trim() || null,
       years_experience,
+      certifications: raw.certifications?.trim() || null,
+      preferred_units: raw.preferred_units?.trim() || null,
+      shift_preference: raw.shift_preference?.trim() || null,
       notes: raw.notes?.trim() || null,
     };
 
     console.log('[ExtractionService] Normalized data:', cleaned);
-    
+
     return cleaned;
   }
 
@@ -254,7 +262,7 @@ class ExtractionServiceClass {
     validateFile(file);
 
     const fileKey = `offer-${file.name}-${file.size}-${file.lastModified}`;
-    
+
     return deduplicate(fileKey, async () => {
       // For offer files, we keep storage upload since these can be larger/PDFs
       const ts = Date.now();
@@ -295,12 +303,12 @@ class ExtractionServiceClass {
               ],
             },
             signal: controller.signal,
-          });
+          } as any);
 
           if (fnErr) {
             throw new Error('Failed to process assignment file. Please try again.');
           }
-          
+
           if (!data || !data.success) {
             throw new Error(data?.error || 'Failed to extract offer data from document.');
           }
@@ -309,7 +317,7 @@ class ExtractionServiceClass {
 
         } finally {
           clearTimeout(timeoutId);
-          
+
           // Cleanup uploaded file
           supabase.storage.from('screenshots')
             .remove([filePath])

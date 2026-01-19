@@ -105,21 +105,25 @@ Deno.serve(async (req) => {
 Your task is to extract candidate and job details from screenshots of the "Nova Healthcare" platform.
 
 ### SCANNING STRATEGY:
-1. **Candidate Profile Section**: Look for Name, Email, Phone, and the Candidate ID (found in the Top Bar or URL).
-2. **Job Details Section**: Look for Facility Name, City/State, Specialty, Profession, and Job ID (often labeled "Position ID" or "Job ID", usually 7 digits).
-3. **Pay Package Section (Margin Calculator)**: This is usually a table with these specific row/column labels:
+1. **Candidate Profile Section**: 
+   - Look for Name, Email, Phone, and the Candidate ID (found in Top Bar, Profile header, or URL).
+   - **Home Address**: Extract the Candidate's Home State (e.g., "Chicago, IL" -> home_state: "IL").
+   - **Qualifications**: Look for Certifications (CCRN, BLS, etc.), years of experience, and preferred unit types.
+2. **Job Details Section**: Look for Facility Name, City/State (this is the JOB state), Specialty, Profession, and Job ID (usually 7 digits).
+3. **Pay Package Section (Margin Calculator)**: This is usually a table with:
    - "Taxable Hourly" -> taxableRate
-   - "Weekly Meals" or "Meals & Incidentals" -> mealsStipend
-   - "Weekly Lodging" or "Housing Stipend" -> housingStipend
-   - "Gross Weekly" or "Total Weekly Pay" -> grossWeeklyPay
+   - "Weekly Meals" -> mealsStipend
+   - "Weekly Lodging" -> housingStipend
+   - "Gross Weekly" -> grossWeeklyPay
    - "Weekly Hours" -> (e.g., 36, 40)
-   - "Start Date" and "End Date" (often in YYYY-MM-DD format).
 
 ### EXTRACTION RULES:
 - Use null if a value is not found.
 - For dates, use YYYY-MM-DD.
 - For rates/pay, extract numbers only.
-- If multiple jobs or packages are shown, extract the primary or highlighted one.
+- **home_state**: Extract the 2-letter state code for the CANDIDATE'S home address.
+- **state**: Extract the 2-letter state code for the JOB location.
+- **years_experience**: Extract as a number of years if possible (e.g., "8 yrs" -> 8).
 
 Return EXACTLY this JSON structure:
 {
@@ -127,6 +131,11 @@ Return EXACTLY this JSON structure:
   "name": "string or null",
   "email": "string or null",
   "phone": "string or null",
+  "home_state": "2-letter string or null",
+  "certifications": "string or null",
+  "years_experience": number or null,
+  "preferred_units": "string or null",
+  "shift_preference": "string or null",
   "facility": "string or null",
   "city": "string or null",
   "state": "2-letter string or null",
@@ -141,7 +150,8 @@ Return EXACTLY this JSON structure:
   "housingStipend": number or null,
   "weeklyStipend": number or null,
   "grossWeeklyPay": number or null,
-  "jobId": "string or null"
+  "jobId": "string or null",
+  "notes": "string or null"
 }`;
 
     // Using Gemini 3 Flash - latest model with best speed/accuracy for image extraction
