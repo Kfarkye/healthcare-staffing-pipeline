@@ -176,17 +176,45 @@ Return this exact JSON structure:
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
+      console.error('[process-screenshot] AI API error:', aiResponse.status, errorText);
       throw new Error(`AI processing failed: ${aiResponse.status} - ${errorText}`);
     }
 
     const aiResult = await aiResponse.json();
-    const extractedText = aiResult.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!extractedText) {
-      throw new Error('No data was extracted from the image. It might be unclear.');
+    // Debug logging to understand response structure
+    console.log('[process-screenshot] Full AI response:', JSON.stringify(aiResult, null, 2));
+    console.log('[process-screenshot] Candidates:', aiResult.candidates?.length || 0);
+
+    // Check for various response formats
+    const candidate = aiResult.candidates?.[0];
+    if (!candidate) {
+      console.error('[process-screenshot] No candidates in response');
+      throw new Error('AI returned no candidates. The image may be unreadable.');
     }
 
+    console.log('[process-screenshot] Candidate content:', JSON.stringify(candidate.content, null, 2));
+
+    // Try to extract text from the response
+    let extractedText = candidate.content?.parts?.[0]?.text;
+
+    // Some models return in different structures
+    if (!extractedText && candidate.text) {
+      extractedText = candidate.text;
+    }
+    if (!extractedText && typeof candidate.content === 'string') {
+      extractedText = candidate.content;
+    }
+
+    if (!extractedText) {
+      console.error('[process-screenshot] No text in response. Parts:', JSON.stringify(candidate.content?.parts, null, 2));
+      throw new Error('No data was extracted from the image. It might be unclear or the AI format changed.');
+    }
+
+    console.log('[process-screenshot] Extracted text (first 500 chars):', extractedText.substring(0, 500));
+
     const extractedData = JSON.parse(extractedText);
+    console.log('[process-screenshot] Parsed data:', extractedData);
 
     return new Response(JSON.stringify(extractedData), {
       status: 200,
