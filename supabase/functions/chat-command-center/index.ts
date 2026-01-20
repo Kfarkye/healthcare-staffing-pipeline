@@ -285,11 +285,19 @@ Thank you!`
 
             // Retry wrapper with exponential backoff
             const callGeminiWithRetry = async (payload: any, maxRetries = 3): Promise<any> => {
+                const safetySettings = [
+                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_NONE" }
+                ];
+
                 for (let attempt = 0; attempt <= maxRetries; attempt++) {
                     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleApiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify({ ...payload, safetySettings })
                     });
 
                     const result = await response.json();
@@ -532,7 +540,7 @@ Thank you!`
                 return { functionResponse: { name, response: { content: resultData } } };
             }));
 
-            contents.push({ role: 'function', parts: toolResponses });
+            contents.push({ role: 'user', parts: toolResponses });
         }
 
         return new Response(JSON.stringify({
