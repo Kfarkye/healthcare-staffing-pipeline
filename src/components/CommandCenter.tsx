@@ -6,9 +6,15 @@ import {
     Loader2,
     Command,
     Zap,
-    Paperclip
+    Paperclip,
+    Copy,
+    Check,
+    Mail
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { AIService, ChatMessage } from '../services/aiService';
+import { buildOutlookLink, extractEmailFields } from '../utils/outlookUtils';
 
 // ============================================================================
 // DESIGN SYSTEM - APPLE × GEMINI INTERNAL (v2026)
@@ -46,6 +52,7 @@ export const CommandCenter: React.FC = () => {
     const [history, setHistory] = useState<ChatMessage[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
     const [attachment, setAttachment] = useState<{ file: File; base64: string; mimeType: string } | null>(null);
+    const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -142,8 +149,51 @@ export const CommandCenter: React.FC = () => {
 
                         {history.map((msg, i) => (
                             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[80%] px-4 py-3 ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-2xl rounded-br-sm' : 'bg-white/5 text-slate-200 border border-white/10 rounded-2xl rounded-bl-sm'}`}>
-                                    <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{msg.parts[0].text}</p>
+                                <div className={`group relative max-w-[85%] px-4 py-3 ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-2xl rounded-br-sm' : 'bg-slate-800/50 text-slate-200 border border-white/10 rounded-2xl rounded-bl-sm'}`}>
+                                    {msg.role === 'model' ? (
+                                        <div className="space-y-3 font-normal">
+                                            <div className="prose prose-invert prose-sm max-w-none p-0.5 pointer-events-auto selection:bg-blue-500/30">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                    {msg.parts[0]?.text || ''}
+                                                </ReactMarkdown>
+                                            </div>
+
+                                            {/* Action Bar */}
+                                            <div className="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                    onClick={() => {
+                                                        const text = msg.parts[0]?.text || '';
+                                                        navigator.clipboard.writeText(text);
+                                                        setCopiedIndex(i);
+                                                        setTimeout(() => setCopiedIndex(null), 2000);
+                                                    }}
+                                                    className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors flex items-center gap-1.5"
+                                                    title="Copy all"
+                                                >
+                                                    {copiedIndex === i ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                                                    <span className="text-[10px]">{copiedIndex === i ? 'Copied' : 'Copy'}</span>
+                                                </button>
+
+                                                {(msg.parts[0]?.text || '').toLowerCase().includes('subject:') && (
+                                                    <button
+                                                        onClick={() => {
+                                                            const text = msg.parts[0]?.text || '';
+                                                            const { to, subject, body } = extractEmailFields(text);
+                                                            const url = buildOutlookLink(to, undefined, subject, body);
+                                                            window.open(url, '_blank');
+                                                        }}
+                                                        className="p-1.5 bg-blue-500/20 hover:bg-blue-500/30 rounded-lg text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1.5"
+                                                        title="Draft in Outlook"
+                                                    >
+                                                        <Mail size={12} />
+                                                        <span className="text-[10px]">Draft in Outlook</span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{msg.parts[0].text}</p>
+                                    )}
                                 </div>
                             </div>
                         ))}
