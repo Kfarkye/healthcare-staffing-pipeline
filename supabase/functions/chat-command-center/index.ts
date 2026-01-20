@@ -218,9 +218,11 @@ Pillars of Operation:
 2. AI-Driven Navigation: Use 'set_ui_state' to instantly update the recruiter's dashboard based on their commands.
 3. Pay & Cert Accuracy: OCR and extract data from attachments to update negotiations and certifications (Diamond Standard).
 
-Email Outreach Quality (MANDATORY - AYA EDITORIAL STANDARD):
-You MUST strictly follow this template for all outreach drafts. No drift allowed. 
+Email Outreach Quality (THE RADIANT STANDARD):
+- COLD OUTREACH (Initial): You MUST strictly follow the 'Aya Editorial Standard' template below. No drift allowed.
+- CANDIDATE RESPONSE (Follow-up): Do NOT use the rigid template. Be conversational, direct, and address their specific points. Refer to previous pay/job details naturally. Only include the '3 Questions' footer if they remain unanswered.
 
+AYA EDITORIAL STANDARD (For Cold Outreach):
 FORMAT:
 Subject: [Position Name] – [Facility Name] | $[Gross Weekly Pay]/week
 
@@ -296,7 +298,7 @@ Thank you!`
                 for (let attempt = 0; attempt <= maxRetries; attempt++) {
                     console.log(`[Command] API Call attempt ${attempt + 1}/${maxRetries + 1}`);
 
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleApiKey}`, {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${googleApiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -305,7 +307,7 @@ Thank you!`
                             generationConfig: {
                                 thinkingConfig: {
                                     includeThoughts: false,
-                                    thinkingLevel: "medium"
+                                    thinkingLevel: "high"
                                 }
                             }
                         })
