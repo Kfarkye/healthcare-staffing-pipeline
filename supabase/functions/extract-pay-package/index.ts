@@ -1,3 +1,5 @@
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -9,6 +11,9 @@ Deno.serve(async (req) => {
         return new Response('ok', { headers: corsHeaders });
     }
 
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
     const googleApiKey = Deno.env.get('GEMINI_API_KEY');
 
     // Production Guard: API Key Validation
@@ -19,6 +24,8 @@ Deno.serve(async (req) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
     }
+
+    const startTime = Date.now();
 
     try {
         const { imageBase64, mimeType } = await req.json();
@@ -73,17 +80,30 @@ Deno.serve(async (req) => {
         // Production Guard: API Error Handling
         if (result.error) {
             console.error('[extract-pay-package] Gemini API Error:', result.error);
+            await supabase.from('ai_audit_logs').insert({
+                function_name: 'extract-pay-package',
+                input_metadata: { mimeType },
+                error_message: result.error.message,
+                latency_ms: Date.now() - startTime
+            });
             throw new Error(result.error.message || 'Gemini API failed');
         }
 
         // Production Guard: Null-Safety on Response Structure
         const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        const finishReason = result.candidates?.[0]?.finishReason || 'UNKNOWN';
 
         if (!textResponse) {
             // Handle safety blocks or empty responses
-            const blockReason = result.candidates?.[0]?.finishReason;
-            console.error('[extract-pay-package] Empty or blocked response:', blockReason || 'Unknown reason');
-            throw new Error(`AI could not process this image. Reason: ${blockReason || 'No content returned'}`);
+            console.error('[extract-pay-package] Empty or blocked response:', finishReason);
+            await supabase.from('ai_audit_logs').insert({
+                function_name: 'extract-pay-package',
+                input_metadata: { mimeType },
+                finish_reason: finishReason,
+                error_message: `AI could not process this image. Reason: ${finishReason}`,
+                latency_ms: Date.now() - startTime
+            });
+            throw new Error(`AI could not process this image. Reason: ${finishReason || 'No content returned'}`);
         }
 
         // Production Guard: JSON Parsing with Fallback
@@ -92,8 +112,26 @@ Deno.serve(async (req) => {
             extractedData = JSON.parse(textResponse);
         } catch (parseError) {
             console.error('[extract-pay-package] JSON Parse Error:', textResponse);
+            await supabase.from('ai_audit_logs').insert({
+                function_name: 'extract-pay-package',
+                input_metadata: { mimeType },
+                output_text: textResponse,
+                finish_reason: finishReason,
+                error_message: 'AI returned invalid JSON',
+                latency_ms: Date.now() - startTime
+            });
             throw new Error('AI returned invalid JSON. Please try a clearer image.');
         }
+
+        // Success: Log with extracted data
+        await supabase.from('ai_audit_logs').insert({
+            function_name: 'extract-pay-package',
+            input_metadata: { mimeType },
+            output_text: JSON.stringify(extractedData),
+            output_metadata: { extracted_job_id: extractedData.job_id },
+            finish_reason: finishReason,
+            latency_ms: Date.now() - startTime
+        });
 
         return new Response(JSON.stringify(extractedData), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -101,6 +139,15 @@ Deno.serve(async (req) => {
 
     } catch (error: any) {
         console.error('[extract-pay-package] Extraction Error:', error);
+        // Best-effort error logging
+        try {
+            await supabase.from('ai_audit_logs').insert({
+                function_name: 'extract-pay-package',
+                error_message: error.message,
+                error_details: { stack: error.stack },
+                latency_ms: Date.now() - startTime
+            });
+        } catch { } // Silent fail
         return new Response(JSON.stringify({ error: error.message }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },

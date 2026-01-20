@@ -33,7 +33,30 @@ Deno.serve(async (req) => {
 
     try {
         const { message, history, attachment, conversation_id: message_conversation_id, context } = await req.json();
+        const startTime = Date.now();
+        let accumulatedToolCalls: any[] = [];
         console.log(`[Command] Processing: "${message}" ${context ? '(with ambient context)' : ''}`);
+
+        // Helper to write audit log
+        const logToAudit = async (outputText: string | null, finishReason: string | null, errorMessage: string | null = null, errorDetails: any = null) => {
+            try {
+                const { data: userData } = await supabase.auth.getUser();
+                await supabase.from('ai_audit_logs').insert({
+                    user_id: userData?.user?.id || null,
+                    function_name: 'chat-command-center',
+                    input_message: message,
+                    input_metadata: { has_attachment: !!attachment, context_keys: context ? Object.keys(context) : [] },
+                    output_text: outputText,
+                    finish_reason: finishReason,
+                    tool_calls: accumulatedToolCalls,
+                    latency_ms: Date.now() - startTime,
+                    error_message: errorMessage,
+                    error_details: errorDetails
+                });
+            } catch (e) {
+                console.warn('[Audit] Failed to write audit log:', e);
+            }
+        };
 
         if (!message) throw new Error('Message is required');
 
@@ -272,6 +295,8 @@ Thank you!`
 
             const content = result.candidates[0].content;
             if (!content || !content.parts) {
+                const finishReason = result.candidates?.[0]?.finishReason || 'UNKNOWN';
+                await logToAudit(null, finishReason, 'Empty content or safety block', { finishReason });
                 return new Response(JSON.stringify({
                     role: 'model',
                     parts: [{ text: "I'm sorry, I'm unable to process that request due to my safety guidelines or a technical glitch. Could you try rephrasing?" }]
@@ -282,6 +307,8 @@ Thank you!`
             contents.push(content);
 
             const toolCalls = content.parts.filter((p: any) => p.functionCall);
+            // Log tool calls for audit
+            toolCalls.forEach((tc: any) => accumulatedToolCalls.push({ name: tc.functionCall.name, args: tc.functionCall.args }));
             if (toolCalls.length === 0) {
                 // SAVE TO CHAT HISTORY (Persistence)
                 try {
@@ -298,6 +325,10 @@ Thank you!`
                 } catch (e) {
                     console.warn('Failed to persist chat history:', e);
                 }
+
+                const outputText = content.parts?.[0]?.text || '';
+                const finishReason = result.candidates?.[0]?.finishReason || 'STOP';
+                await logToAudit(outputText, finishReason);
 
                 return new Response(JSON.stringify(content), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -490,7 +521,15 @@ Thank you!`
         });
 
     } catch (error: any) {
-        console.error('Edge Function Crash:', error);
+        console.error('[Command] Edge Function Crash:', error);
+        // Log error to audit (best effort, may fail if supabase isn't initialized)
+        try {
+            await supabase.from('ai_audit_logs').insert({
+                function_name: 'chat-command-center',
+                error_message: error.message,
+                error_details: { stack: error.stack }
+            });
+        } catch { } // Silent fail on audit log
         return new Response(JSON.stringify({ error: error.message }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },

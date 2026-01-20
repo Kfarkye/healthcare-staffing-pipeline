@@ -11,6 +11,9 @@ Deno.serve(async (req) => {
         return new Response('ok', { headers: corsHeaders });
     }
 
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
     const googleApiKey = Deno.env.get('GEMINI_API_KEY');
 
     // Production Guard: API Key Validation
@@ -21,6 +24,8 @@ Deno.serve(async (req) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
     }
+
+    const startTime = Date.now();
 
     try {
         const { message, history } = await req.json();
@@ -69,16 +74,46 @@ Deno.serve(async (req) => {
         const result = await response.json();
 
         if (result.error) {
-            console.error('Gemini Error:', result.error);
+            console.error('[research-chat] Gemini Error:', result.error);
+            await supabase.from('ai_audit_logs').insert({
+                function_name: 'research-chat',
+                input_message: message,
+                error_message: result.error.message,
+                latency_ms: Date.now() - startTime
+            });
             throw new Error(result.error.message || 'Gemini API failed');
         }
+
+        // Extract response data for logging
+        const outputText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const finishReason = result.candidates?.[0]?.finishReason || 'STOP';
+        const groundingMetadata = result.candidates?.[0]?.groundingMetadata || null;
+
+        // Audit log success
+        await supabase.from('ai_audit_logs').insert({
+            function_name: 'research-chat',
+            input_message: message,
+            output_text: outputText,
+            output_metadata: { grounding: groundingMetadata },
+            finish_reason: finishReason,
+            latency_ms: Date.now() - startTime
+        });
 
         return new Response(JSON.stringify(result), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
 
     } catch (error: any) {
-        console.error('Edge Function Crash:', error);
+        console.error('[research-chat] Edge Function Crash:', error);
+        // Best-effort error logging
+        try {
+            await supabase.from('ai_audit_logs').insert({
+                function_name: 'research-chat',
+                error_message: error.message,
+                error_details: { stack: error.stack },
+                latency_ms: Date.now() - startTime
+            });
+        } catch { } // Silent fail
         return new Response(JSON.stringify({ error: error.message }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
