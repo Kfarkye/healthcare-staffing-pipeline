@@ -28,7 +28,8 @@ Deno.serve(async (req) => {
         SAVE_CERTIFICATION: 'save_certification',
         UPDATE_NEGOTIATION: 'update_negotiation',
         GET_PIPELINE_BRIEF: 'get_pipeline_brief',
-        SET_UI_STATE: 'set_ui_state'
+        SET_UI_STATE: 'set_ui_state',
+        SEARCH_TRAVEL_LIST: 'search_travel_list'
     };
 
     try {
@@ -202,6 +203,18 @@ Deno.serve(async (req) => {
                             filter_status: { type: "string" },
                             search_term: { type: "string" },
                             view_mode: { type: "string", enum: ['kanban', 'ranking', 'list'] }
+                        }
+                    }
+                },
+                {
+                    name: ToolName.SEARCH_TRAVEL_LIST,
+                    description: "Search the recruiter's active Travel assignment book. Use this for questions about currently working travelers, their facilities, margins, or contract dates.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            facility_contains: { type: "string", description: "Search by facility name (partial match)" },
+                            candidate_name: { type: "string", description: "Search by candidate name (partial match)" },
+                            cleared_status: { type: "string", description: "Filter by compliance status" }
                         }
                     }
                 }
@@ -595,6 +608,28 @@ Thank you!`
                         case ToolName.GOOGLE_SEARCH:
                             resultData = { message: "Grounded Google Search simulating results for: " + args.query };
                             break;
+                        case ToolName.SEARCH_TRAVEL_LIST: {
+                            let query = supabase.from('travel_candidates').select('*');
+                            if (args.facility_contains) {
+                                query = query.ilike('facility', `%${args.facility_contains}%`);
+                            }
+                            if (args.candidate_name) {
+                                query = query.ilike('candidate_name', `%${args.candidate_name}%`);
+                            }
+                            if (args.cleared_status) {
+                                query = query.ilike('cleared_status', `%${args.cleared_status}%`);
+                            }
+                            const { data: travelData, error: travelError } = await query.limit(20);
+                            if (travelError) {
+                                resultData = { error: travelError.message };
+                            } else {
+                                resultData = {
+                                    count: travelData?.length || 0,
+                                    travelers: travelData || []
+                                };
+                            }
+                            break;
+                        }
                         default:
                             resultData = { error: "Tool not implemented" };
                     }

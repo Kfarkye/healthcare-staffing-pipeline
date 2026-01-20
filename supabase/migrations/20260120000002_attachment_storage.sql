@@ -7,11 +7,9 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('command-center-attachments', 'command-center-attachments', true)
 ON CONFLICT (id) DO NOTHING;
 
--- 2. Enable RLS on objects
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
-
--- 3. Create POLICIES
+-- 2. Create POLICIES
 -- Allow authenticated users to upload files to their own folder
+DROP POLICY IF EXISTS "Users can upload attachments to their own folder" ON storage.objects;
 CREATE POLICY "Users can upload attachments to their own folder"
 ON storage.objects FOR INSERT
 TO authenticated
@@ -21,6 +19,7 @@ WITH CHECK (
 );
 
 -- Allow authenticated users to read their own attachments
+DROP POLICY IF EXISTS "Users can view their own attachments" ON storage.objects;
 CREATE POLICY "Users can view their own attachments"
 ON storage.objects FOR SELECT
 TO authenticated
@@ -30,6 +29,7 @@ USING (
 );
 
 -- Allow authenticated users to delete their own attachments
+DROP POLICY IF EXISTS "Users can delete their own attachments" ON storage.objects;
 CREATE POLICY "Users can delete their own attachments"
 ON storage.objects FOR DELETE
 TO authenticated

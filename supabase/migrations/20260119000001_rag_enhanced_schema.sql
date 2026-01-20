@@ -27,6 +27,14 @@ CREATE TRIGGER update_knowledge_base_updated_at
 BEFORE UPDATE ON knowledge_base 
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- Ensure unique constraint exists for ON CONFLICT
+DO $$ 
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'knowledge_base_title_key') THEN
+    ALTER TABLE knowledge_base ADD CONSTRAINT knowledge_base_title_key UNIQUE (title);
+  END IF;
+END $$;
+
 -- Populate with extracted benefits
 INSERT INTO knowledge_base (category, title, content, keywords, source) VALUES
 (
@@ -127,8 +135,13 @@ ALTER TABLE knowledge_base ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chat_history ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Public read knowledge_base" ON knowledge_base;
 CREATE POLICY "Public read knowledge_base" ON knowledge_base FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Public read email_templates" ON email_templates;
 CREATE POLICY "Public read email_templates" ON email_templates FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can manage their own chat_history" ON chat_history;
 CREATE POLICY "Users can manage their own chat_history" ON chat_history
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
