@@ -6,12 +6,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Search, Mail, DollarSign, Copy, Check,
-  RefreshCw, Upload, Filter, X, FileUp, ExternalLink, Loader2
+  RefreshCw, Upload, Filter, X, FileUp, ExternalLink, Loader2,
+  Image, FileText
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { payPackageService } from '../services/payPackageService';
+import { AIService } from '../services/aiService';
 import InterestedClicksSync from './InterestedClicksSync';
 import { DashboardShell } from './shared/DashboardShell';
 import { PrecisionTable } from './shared/PrecisionTable';
@@ -760,8 +762,8 @@ export default function ProspectDashboard() {
   const [showSync, setShowSync] = useState(false);
   const [showPackageUpload, setShowPackageUpload] = useState(false);
   const [uploadingPackages, setUploadingPackages] = useState(false);
-  const [packageUploadStatus, setPackageUploadStatus] = useState<string>('');
   const [uploadedJobIds, setUploadedJobIds] = useState<string[]>([]);
+  const [processingQueue, setProcessingQueue] = useState<{ id: string; name: string; status: 'pending' | 'processing' | 'success' | 'error'; type: 'excel' | 'image' }[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
   const [jobIds, setJobIds] = useState<Set<string>>(new Set());
   const [showJobFilter, setShowJobFilter] = useState(false);
@@ -773,111 +775,149 @@ export default function ProspectDashboard() {
     setToast({ message, type });
   }, []);
 
-  const handlePackageUpload = useCallback(async (file: File) => {
-    if (!file.name.match(/\.(xlsx|xls)$/)) {
-      alert('Please upload an Excel file');
-      return;
-    }
-
-    setUploadingPackages(true);
-    setPackageUploadStatus('Reading file...');
+  const processImageWithAI = useCallback(async (file: File) => {
+    const queueId = Math.random().toString(36).substring(7);
+    setProcessingQueue(prev => [...prev, { id: queueId, name: file.name || 'Pasted Image', status: 'processing', type: 'image' }]);
 
     try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data, { type: 'array' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<any>(sheet);
+      // Convert image to base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1]); // Remove data:image/png;base64,
+        };
+      });
+      reader.readAsDataURL(file);
+      const base64 = await base64Promise;
 
-      setPackageUploadStatus(`Processing ${rows.length} jobs...`);
+      const extracted = await AIService.extractPayPackageFromImage(base64, file.type);
 
-      let successCount = 0;
-      let errorCount = 0;
-      const successfulJobIds: string[] = [];
-
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-
-        try {
-          const jobId = String(row['Job ID'] || '').trim();
-          if (!jobId) continue;
-
-          // Parse pay range (e.g., "$2409.60" -> 2409.60)
-          const payRangeStr = String(row['Pay Range'] || '').replace(/[$,]/g, '');
-          const grossWeekly = parseFloat(payRangeStr) || 2000;
-
-          // Parse shift type from "Facility Bonus" column (e.g., "5x8 D" -> "5x8")
-          const shiftType = String(row['Facility Bonus'] || '').split(' ')[0] || '5x8';
-
-          const facility = String(row['Facility'] || '').trim();
-          const city = String(row['Location'] || '').trim();
-          const state = String(row['State'] || '').trim();
-          const specialty = String(row['Specialty'] || '').trim();
-          const profession = String(row['Prof.'] || '').trim();
-          const startDate = String(row['Start'] || '').trim();
-
-
-          // Calculate hours per week from shift type
-          let hoursPerWeek = 40;
-          const shiftMatch = shiftType.match(/(\d+)x(\d+)/);
-          if (shiftMatch) {
-            const daysPerWeek = parseInt(shiftMatch[1]);
-            const hoursPerDay = parseInt(shiftMatch[2]);
-            hoursPerWeek = daysPerWeek * hoursPerDay;
-          }
-
-
-          // Use payPackageService to calculate full package
-          const calculated = await payPackageService.calculatePackage(
-            jobId,
-            state,
-            city,
-            profession,
-            specialty,
-            grossWeekly,
-            hoursPerWeek
-          );
-
-          // Save the package
-          const clickData = {
-            job_id: jobId,
-            facility_name: facility,
-            job_city: city,
-            job_state: state,
-            specialty: specialty,
-            start_date: startDate,
-            shift_type: shiftType,
-          };
-
-          await payPackageService.savePackage(calculated, clickData);
-          successfulJobIds.push(jobId);
-          successCount++;
-
-          if ((i + 1) % 10 === 0) {
-            setPackageUploadStatus(`Processed ${i + 1}/${rows.length} jobs...`);
-          }
-        } catch (error) {
-          console.error(`Error processing row ${i + 1}:`, error);
-          errorCount++;
-        }
+      if (!extracted || !extracted.job_id) {
+        throw new Error('Could not identify Job ID from image');
       }
 
-      setUploadedJobIds(successfulJobIds);
-      setPackageUploadStatus(`Complete! ${successCount} packages created, ${errorCount} errors`);
-      showToast(`Uploaded ${successCount} pay packages successfully`, 'success');
+      // Calculate package based on extracted gross weekly
+      const grossWeekly = payPackageService.parseGrossWeekly(extracted.pay_range);
+      const profession = payPackageService.determineProfession(extracted.specialty);
+      const hoursPerWeek = payPackageService.parseHoursPerWeek(extracted.shift_type);
 
-      setTimeout(() => {
-        setShowPackageUpload(false);
-        setPackageUploadStatus('');
-      }, 3000);
+      const calculated = await payPackageService.calculatePackage(
+        extracted.job_id,
+        extracted.job_state || 'CA',
+        extracted.job_city || 'San Diego',
+        profession,
+        extracted.specialty || 'RN',
+        grossWeekly || 2500,
+        hoursPerWeek
+      );
+
+      await payPackageService.savePackage(calculated, {
+        job_id: extracted.job_id,
+        facility_name: extracted.facility_name,
+        job_city: extracted.job_city,
+        job_state: extracted.job_state,
+        specialty: extracted.specialty,
+        shift_type: extracted.shift_type,
+        start_date: extracted.start_date,
+      });
+
+      setProcessingQueue(prev => prev.map(item => item.id === queueId ? { ...item, status: 'success' } : item));
+      setUploadedJobIds(prev => [...prev, extracted.job_id]);
+      showToast(`Extracted Job #${extracted.job_id} successfully`, 'success');
 
     } catch (error: any) {
-      console.error('Upload error:', error);
-      setPackageUploadStatus(`Error: ${error.message}`);
-      showToast('Failed to upload pay packages', 'error');
-    } finally {
-      setUploadingPackages(false);
+      console.error('AI Extraction Error:', error);
+      setProcessingQueue(prev => prev.map(item => item.id === queueId ? { ...item, status: 'error' } : item));
+      showToast(error.message || 'Failed to extract data from image', 'error');
     }
   }, [showToast]);
+
+  const handleFileUploads = useCallback(async (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+
+    setUploadingPackages(true);
+
+    for (const file of fileArray) {
+      // Handle Images (Vision)
+      if (file.type.startsWith('image/')) {
+        await processImageWithAI(file);
+        continue;
+      }
+
+      // Handle Excel
+      if (!file.name.match(/\.(xlsx|xls)$/)) {
+        showToast(`Skipping ${file.name}: Only Excel or Images supported`, 'info');
+        continue;
+      }
+
+      const queueId = Math.random().toString(36).substring(7);
+      setProcessingQueue(prev => [...prev, { id: queueId, name: file.name, status: 'processing', type: 'excel' }]);
+
+      try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<any>(sheet);
+
+        let successCount = 0;
+        for (const row of rows) {
+          try {
+            const jobId = String(row['Job ID'] || '').trim();
+            if (!jobId) continue;
+
+            const payRangeStr = String(row['Pay Range'] || '').replace(/[$,]/g, '');
+            const grossWeekly = parseFloat(payRangeStr) || 2000;
+            const shiftType = String(row['Facility Bonus'] || '').split(' ')[0] || '5x8';
+            const facility = String(row['Facility'] || '').trim();
+            const city = String(row['Location'] || '').trim();
+            const state = String(row['State'] || '').trim();
+            const specialty = String(row['Specialty'] || '').trim();
+            const profession = String(row['Prof.'] || '').trim();
+            const startDate = String(row['Start'] || '').trim();
+
+            let hoursPerWeek = 40;
+            const shiftMatch = shiftType.match(/(\d+)x(\d+)/);
+            if (shiftMatch) {
+              const daysPerWeek = parseInt(shiftMatch[1]);
+              const hoursPerDay = parseInt(shiftMatch[2]);
+              hoursPerWeek = daysPerWeek * hoursPerDay;
+            }
+
+            const calculated = await payPackageService.calculatePackage(jobId, state, city, profession, specialty, grossWeekly, hoursPerWeek);
+            await payPackageService.savePackage(calculated, { job_id: jobId, facility_name: facility, job_city: city, job_state: state, specialty, shift_type: shiftType, start_date: startDate });
+
+            setUploadedJobIds(prev => [...prev, jobId]);
+            successCount++;
+          } catch (e) {
+            console.error('Row error:', e);
+          }
+        }
+
+        setProcessingQueue(prev => prev.map(item => item.id === queueId ? { ...item, status: successCount > 0 ? 'success' : 'error' } : item));
+        showToast(`Processed ${file.name}: ${successCount} packages created`, 'success');
+      } catch (error: any) {
+        setProcessingQueue(prev => prev.map(item => item.id === queueId ? { ...item, status: 'error' } : item));
+        showToast(`Failed to process ${file.name}`, 'error');
+      }
+    }
+
+    setUploadingPackages(false);
+  }, [processImageWithAI, showToast]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const imageFiles = items
+      .filter(item => item.type.indexOf('image') !== -1)
+      .map(item => item.getAsFile())
+      .filter((file): file is File => file !== null);
+
+    if (imageFiles.length > 0) {
+      if (!showPackageUpload) setShowPackageUpload(true);
+      handleFileUploads(imageFiles);
+    }
+  }, [showPackageUpload, handleFileUploads]);
 
   // Load data
   const loadData = useCallback(async (loadMore: boolean = false) => {
@@ -1320,62 +1360,69 @@ export default function ProspectDashboard() {
           <InterestedClicksSync onClose={() => { setShowSync(false); loadData(false); }} />
         )}
         {showPackageUpload && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+            onPaste={handlePaste}
+          >
             <div className="bg-white rounded-[32px] max-w-md w-full shadow-2xl overflow-hidden border border-white/20">
               <header className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                 <div>
-                  <h2 className="text-slate-900 mb-1 text-[20px] font-bold leading-tight tracking-tight">
-                    Upload Pay Packages
+                  <h2 className="text-slate-900 mb-1 text-[20px] font-bold leading-tight tracking-tight flex items-center gap-2">
+                    <RefreshCw className={cn("text-blue-600", uploadingPackages && "animate-spin")} size={20} />
+                    Ingest Manifests
                   </h2>
                   <p className="text-slate-500 text-[13px] font-medium">
-                    Bulk create pay packages from Excel
+                    Excel, screenshots, or paste (Cmd+V)
                   </p>
                 </div>
                 <button
                   onClick={() => {
                     setShowPackageUpload(false);
-                    setPackageUploadStatus('');
                     setUploadedJobIds([]);
+                    setProcessingQueue([]);
                   }}
                   disabled={uploadingPackages}
-                  className="p-2.5 rounded-2xl hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all disabled:opacity-50 text-slate-400 hover:text-slate-900"
+                  className="p-2.5 rounded-2xl hover:bg-white hover:shadow-sm border border-transparent hover:border-200 transition-all disabled:opacity-50 text-slate-400 hover:text-slate-900"
                 >
                   <X size={20} strokeWidth={2.5} />
                 </button>
               </header>
 
               <div className="p-8">
-                {uploadingPackages ? (
-                  <div className="text-center py-10">
-                    <div className="relative inline-block mb-6">
-                      <div className="w-16 h-16 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin" />
-                    </div>
-                    <p className="text-slate-900 font-bold text-[16px] mb-2">
-                      Processing Repository
-                    </p>
-                    <p className="text-slate-500 text-[14px]">
-                      {packageUploadStatus}
-                    </p>
-                  </div>
-                ) : packageUploadStatus ? (
-                  <div className="text-center py-6">
-                    <div className="w-20 h-20 bg-green-50 text-green-600 mx-auto mb-6 rounded-[24px] flex items-center justify-center border border-green-100 shadow-sm">
-                      <Check size={40} strokeWidth={3} />
-                    </div>
-                    <p className="text-slate-900 mb-6 font-bold text-[18px]">
-                      {packageUploadStatus}
-                    </p>
-                    {uploadedJobIds.length > 0 && (
+                {processingQueue.length > 0 ? (
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                    {processingQueue.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100 group transition-all">
+                        <div className="flex items-center gap-3">
+                          <div className={cn(
+                            "w-10 h-10 rounded-xl flex items-center justify-center border shadow-sm",
+                            item.type === 'excel' ? "bg-green-50 border-green-100 text-green-600" : "bg-purple-50 border-purple-100 text-purple-600"
+                          )}>
+                            {item.type === 'excel' ? <FileText size={18} /> : <Image size={18} />}
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[13px] font-bold text-slate-900 line-clamp-1">{item.name}</span>
+                            <span className={cn(
+                              "text-[10px] uppercase tracking-wider font-bold",
+                              item.status === 'processing' ? "text-blue-500" :
+                                item.status === 'success' ? "text-green-600" : "text-red-500"
+                            )}>
+                              {item.status}
+                            </span>
+                          </div>
+                        </div>
+                        {item.status === 'processing' && <Loader2 size={16} className="animate-spin text-blue-500" />}
+                        {item.status === 'success' && <Check size={16} className="text-green-600" />}
+                        {item.status === 'error' && <X size={16} className="text-red-500" />}
+                      </div>
+                    ))}
+
+                    {!uploadingPackages && (
                       <button
-                        onClick={() => {
-                          const jobIdsText = uploadedJobIds.join('\n');
-                          navigator.clipboard.writeText(jobIdsText);
-                          showToast(`Copied ${uploadedJobIds.length} job IDs to clipboard`, 'success');
-                        }}
-                        className="w-full flex items-center justify-center gap-2.5 px-6 py-4 bg-slate-900 text-white rounded-2xl hover:bg-slate-800 transition-all active:scale-[0.98] shadow-lg shadow-slate-900/20 font-bold text-[14px]"
+                        onClick={() => setShowPackageUpload(false)}
+                        className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold text-[14px] hover:bg-slate-800 transition-all active:scale-[0.98] shadow-lg shadow-slate-900/10 mt-4"
                       >
-                        <Copy size={18} strokeWidth={2.5} />
-                        Copy {uploadedJobIds.length} Job IDs
+                        Done Processing
                       </button>
                     )}
                   </div>
@@ -1385,18 +1432,17 @@ export default function ProspectDashboard() {
                       <FileUp size={36} strokeWidth={2} className="text-slate-400 group-hover:text-blue-600" />
                     </div>
                     <span className="text-slate-900 mb-2 font-bold text-[18px] tracking-tight">
-                      Drop Excel Manifest
+                      Drop manifests
                     </span>
                     <span className="text-slate-500 text-center text-[13px] font-medium leading-relaxed max-w-[200px]">
-                      Select assignment list with pay structures
+                      Excel files, screenshots, or just paste directly
                     </span>
                     <input
                       type="file"
-                      accept=".xlsx,.xls"
+                      multiple
+                      accept=".xlsx,.xls,image/*"
                       onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handlePackageUpload(file);
-                        e.target.value = '';
+                        if (e.target.files) handleFileUploads(e.target.files);
                       }}
                       className="hidden"
                     />
@@ -1404,15 +1450,20 @@ export default function ProspectDashboard() {
                 )}
               </div>
 
-              {!uploadingPackages && !packageUploadStatus && (
-                <footer className="px-8 py-5 bg-slate-50 border-t border-slate-100">
-                  <div className="flex flex-col items-center gap-2">
-                    <span className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.1em]">Required Schema</span>
-                    <p className="text-slate-500 text-center text-[11px] font-medium leading-[1.6]">
-                      Job ID • Pay Range • Facility • Venue<br />State • Specialty • Start Date
-                    </p>
-                  </div>
-                </footer>
+              {uploadedJobIds.length > 0 && !uploadingPackages && (
+                <div className="px-8 pb-8 border-t border-slate-100 pt-6 bg-slate-50/30">
+                  <button
+                    onClick={() => {
+                      const jobIdsText = uploadedJobIds.join('\n');
+                      navigator.clipboard.writeText(jobIdsText);
+                      showToast(`Copied ${uploadedJobIds.length} job IDs to clipboard`, 'success');
+                    }}
+                    className="w-full flex items-center justify-center gap-2.5 px-6 py-4 bg-white text-slate-900 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all active:scale-[0.98] shadow-sm font-bold text-[14px]"
+                  >
+                    <Copy size={18} strokeWidth={2.5} />
+                    Copy {uploadedJobIds.length} Job IDs
+                  </button>
+                </div>
               )}
             </div>
           </div>

@@ -81,6 +81,22 @@ class AIServiceClass {
 
         return data;
     }
+
+    async extractPayPackageFromImage(imageBase64: string, mimeType: string = 'image/png'): Promise<any> {
+        const { data, error } = await supabase.functions.invoke('extract-pay-package', {
+            body: {
+                imageBase64,
+                mimeType
+            },
+        });
+
+        if (error) {
+            console.error('[AIService] Error calling extract-pay-package:', error);
+            throw new Error(error.message || 'Failed to extract data from image');
+        }
+
+        return data;
+    }
 }
 
 export const AIService = new AIServiceClass();
