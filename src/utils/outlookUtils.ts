@@ -9,8 +9,20 @@ export const buildOutlookLink = (to: string, cc: string | undefined, subject: st
 };
 
 /**
- * Extracts potential email fields from AI text to help populate the Outlook deep link.
- * Simple heuristic for POC; can be expanded.
+ * Strips basic markdown artifacts (asterisks, etc.) for clean copy-pasting.
+ */
+export const stripMarkdown = (text: string): string => {
+    return text
+        .replace(/\*\*(.*?)\*\*/g, '$1') // Bold
+        .replace(/\*(.*?)\*/g, '$1')   // Italic
+        .replace(/^\s*[-*]\s+/gm, '• ') // List items
+        .replace(/`([^`]+)`/g, '$1')   // Code
+        .trim();
+};
+
+/**
+ * Extracts potential email fields from AI text.
+ * Improved to handle text that may not have formal 'To:' or 'Subject:' labels.
  */
 export const extractEmailFields = (text: string) => {
     let to = '';
@@ -31,5 +43,30 @@ export const extractEmailFields = (text: string) => {
         body = body.replace(/Subject:\s*.*\n?/i, '').trim();
     }
 
+    // If no subject was found, but it looks like a recruiter email, set a default
+    if (!subject) {
+        if (text.toLowerCase().includes('hi ') || text.toLowerCase().includes('hello ')) {
+            subject = "Quick question / Outreach from Aya Healthcare";
+        }
+    }
+
     return { to, subject, body: body.trim() };
+};
+
+/**
+ * Heuristic to detect if a block of text is likely an email draft.
+ */
+export const isLikelyEmail = (text: string): boolean => {
+    const t = text.toLowerCase();
+    const markers = [
+        'subject:',
+        'hi ',
+        'hello ',
+        'best,',
+        'talk soon',
+        'sincerely',
+        'kofi farkye',
+        'fulfillment specialist'
+    ];
+    return markers.some(m => t.includes(m));
 };

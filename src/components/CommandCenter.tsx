@@ -14,7 +14,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AIService, ChatMessage } from '../services/aiService';
-import { buildOutlookLink, extractEmailFields } from '../utils/outlookUtils';
+import { buildOutlookLink, extractEmailFields, stripMarkdown, isLikelyEmail } from '../utils/outlookUtils';
 
 // ============================================================================
 // DESIGN SYSTEM - APPLE × GEMINI INTERNAL (v2026)
@@ -163,7 +163,7 @@ export const CommandCenter: React.FC = () => {
                                                 <button
                                                     onClick={() => {
                                                         const text = msg.parts[0]?.text || '';
-                                                        navigator.clipboard.writeText(text);
+                                                        navigator.clipboard.writeText(stripMarkdown(text));
                                                         setCopiedIndex(i);
                                                         setTimeout(() => setCopiedIndex(null), 2000);
                                                     }}
@@ -174,7 +174,7 @@ export const CommandCenter: React.FC = () => {
                                                     <span className="text-[10px]">{copiedIndex === i ? 'Copied' : 'Copy'}</span>
                                                 </button>
 
-                                                {(msg.parts[0]?.text || '').toLowerCase().includes('subject:') && (
+                                                {isLikelyEmail(msg.parts[0]?.text || '') && (
                                                     <button
                                                         onClick={() => {
                                                             const text = msg.parts[0]?.text || '';
