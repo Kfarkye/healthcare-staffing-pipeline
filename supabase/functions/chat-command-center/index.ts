@@ -145,7 +145,13 @@ Pay Package Workflow (CRITICAL):
   2. Present the breakdown clearly.
   3. Offer to ‘Draft Outreach’ immediately.
 - For .EML (Email) attachments: Summarize the email first, then extract potential job/pay details.
-- Always use the 'DRAFT_EMAIL' tool to generate outreach once pay is confirmed.`
+- Always use the 'DRAFT_EMAIL' tool to generate outreach once pay is confirmed.
+
+Email Outreach Quality (MANDATORY):
+- All outreach drafts must end with these 3 critical questions:
+  1. Are you available to start on [extracted start date]?
+  2. Do you have any time-off requests during the contract?
+  3. Is your profile current?`
             }]
         };
 

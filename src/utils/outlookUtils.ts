@@ -3,9 +3,10 @@
  */
 export const buildOutlookLink = (to: string, cc: string | undefined, subject: string, body: string): string => {
     const encodeParam = (s: string): string => encodeURIComponent(s ?? '');
+    const cleanBody = stripMarkdown(body);
 
     return `https://outlook.office.com/mail/deeplink/compose?to=${encodeParam(to)}${cc ? `&cc=${encodeParam(cc)}` : ''
-        }&subject=${encodeParam(subject)}&body=${encodeParam(body)}`;
+        }&subject=${encodeParam(subject)}&body=${encodeParam(cleanBody)}`;
 };
 
 /**
