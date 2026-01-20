@@ -37,10 +37,13 @@ Deno.serve(async (req) => {
         let accumulatedToolCalls: any[] = [];
         console.log(`[Command] Processing: "${message}" ${context ? '(with ambient context)' : ''}`);
 
+        const authHeader = req.headers.get('Authorization');
+        const token = authHeader?.replace('Bearer ', '');
+
         // Helper to write audit log
         const logToAudit = async (outputText: string | null, finishReason: string | null, errorMessage: string | null = null, errorDetails: any = null) => {
             try {
-                const { data: userData } = await supabase.auth.getUser();
+                const { data: userData } = token ? await supabase.auth.getUser(token) : { data: { user: null } };
                 await supabase.from('ai_audit_logs').insert({
                     user_id: userData?.user?.id || null,
                     function_name: 'chat-command-center',
@@ -388,7 +391,7 @@ Thank you!`
             if (toolCalls.length === 0) {
                 // SAVE TO CHAT HISTORY (Persistence)
                 try {
-                    const { data: userData } = await supabase.auth.getUser();
+                    const { data: userData } = token ? await supabase.auth.getUser(token) : { data: { user: null } };
                     if (userData?.user) {
                         const convId = attachment?.candidate_id || message_conversation_id || 'general';
                         await supabase.from('chat_history').upsert({
