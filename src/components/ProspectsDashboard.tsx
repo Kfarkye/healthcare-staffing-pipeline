@@ -8,9 +8,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { SMSModal } from './SMSModal';
-import { EmailTemplateModal } from './EmailTemplateModal';
-import { AddProspectModal } from './AddProspectModal';
-import { EditProspectModal } from './EditProspectModal';
+import { EmailTemplateModal } from './prospects/EmailTemplateModal';
+import AddProspectModal from './prospects/AddProspectModal';
+import EditProspectModal from './prospects/EditProspectModal';
 
 // ============================================================================
 // DESIGN SYSTEM - Jony Ive Infused Precision
