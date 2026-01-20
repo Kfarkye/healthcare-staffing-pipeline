@@ -171,6 +171,14 @@ Knowledge Retrieval:
             if (!result.candidates?.[0]) throw new Error('No AI response.');
 
             const content = result.candidates[0].content;
+            if (!content || !content.parts) {
+                return new Response(JSON.stringify({
+                    role: 'model',
+                    parts: [{ text: "I'm sorry, I'm unable to process that request due to my safety guidelines or a technical glitch. Could you try rephrasing?" }]
+                }), {
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                });
+            }
             contents.push(content);
 
             const toolCalls = content.parts.filter((p: any) => p.functionCall);

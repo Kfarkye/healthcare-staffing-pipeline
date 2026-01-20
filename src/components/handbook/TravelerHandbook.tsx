@@ -16,7 +16,6 @@ import React, { useEffect, useRef, useState, type FC, type ReactNode } from 'rea
 import {
     Home,
     DollarSign,
-    Clipboard,
     ArrowRight,
     MapPin,
     Clock,
