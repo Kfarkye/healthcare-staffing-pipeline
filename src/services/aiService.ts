@@ -43,7 +43,7 @@ class AIServiceClass {
         return data as TailoredReplyResponse;
     }
 
-    async sendCommand(message: string, history: ChatMessage[] = [], attachment?: { base64: string; mimeType: string }, context?: any): Promise<CommandResponse> {
+    async sendCommand(message: string, history: ChatMessage[] = [], attachment?: { base64: string; mimeType: string }, context?: any): Promise<{ text: string, history: ChatMessage[] }> {
         const { data: sessionRes } = await supabase.auth.getSession();
         const accessToken = sessionRes?.session?.access_token ?? '';
 
@@ -64,7 +64,8 @@ class AIServiceClass {
             throw new Error(error.message || 'Failed to send command');
         }
 
-        return data as CommandResponse;
+        // The edge function now returns { text, history } as its standard response format
+        return data as { text: string, history: ChatMessage[] };
     }
     async sendResearchQuery(message: string, history: ChatMessage[] = []): Promise<any> {
         const { data, error } = await supabase.functions.invoke('research-chat', {

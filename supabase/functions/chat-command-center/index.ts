@@ -294,10 +294,14 @@ Thank you!`
                 ];
 
                 for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleApiKey}`, {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${googleApiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ...payload, safetySettings })
+                        body: JSON.stringify({
+                            ...payload,
+                            safetySettings,
+                            thinking_config: { include_thoughts: true, thinking_budget: 4000 }
+                        })
                     });
 
                     const result = await response.json();
@@ -356,11 +360,14 @@ Thank you!`
                     console.warn('Failed to persist chat history:', e);
                 }
 
-                const outputText = content.parts?.[0]?.text || '';
+                const finalResponse = {
+                    text: content.parts?.[0]?.text || '',
+                    history: contents,
+                };
                 const finishReason = result.candidates?.[0]?.finishReason || 'STOP';
-                await logToAudit(outputText, finishReason);
+                await logToAudit(finalResponse.text, finishReason);
 
-                return new Response(JSON.stringify(content), {
+                return new Response(JSON.stringify(finalResponse), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 });
             }
