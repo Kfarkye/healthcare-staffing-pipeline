@@ -10,6 +10,7 @@ export interface ChatMessage {
     role: 'user' | 'model' | 'function';
     parts: {
         text?: string;
+        thought?: boolean;
         functionCall?: { name: string; args: any };
         functionResponse?: { name: string; response: any };
     }[];
@@ -64,8 +65,8 @@ class AIServiceClass {
             throw new Error(error.message || 'Failed to send command');
         }
 
-        // The edge function now returns { text, history } as its standard response format
-        return data as { text: string, history: ChatMessage[] };
+        // The edge function now returns { text, thought, history } as its standard response format
+        return data as { text: string, thought?: string, history: ChatMessage[] };
     }
     async sendResearchQuery(message: string, history: ChatMessage[] = []): Promise<any> {
         const { data, error } = await supabase.functions.invoke('research-chat', {

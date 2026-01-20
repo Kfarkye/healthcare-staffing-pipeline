@@ -300,7 +300,12 @@ Thank you!`
                         body: JSON.stringify({
                             ...payload,
                             safetySettings,
-                            thinking_config: { include_thoughts: true, thinking_budget: 4000 }
+                            generationConfig: {
+                                thinkingConfig: {
+                                    includeThoughts: true,
+                                    thinkingLevel: "high"
+                                }
+                            }
                         })
                     });
 
@@ -360,12 +365,23 @@ Thank you!`
                     console.warn('Failed to persist chat history:', e);
                 }
 
+                const parts = content.parts || [];
+                const thoughtPart = parts.find((p: any) => p.thought);
+                const textPart = parts.find((p: any) => p.text && !p.thought);
+
                 const finalResponse = {
-                    text: content.parts?.[0]?.text || '',
+                    text: textPart?.text || '',
+                    thought: thoughtPart?.text || '',
                     history: contents,
                 };
+
                 const finishReason = result.candidates?.[0]?.finishReason || 'STOP';
-                await logToAudit(finalResponse.text, finishReason);
+                const usage = result.usageMetadata || {};
+
+                await logToAudit(finalResponse.text, finishReason, null, {
+                    thought: finalResponse.thought,
+                    usage_metadata: usage
+                });
 
                 return new Response(JSON.stringify(finalResponse), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
