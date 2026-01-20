@@ -11,16 +11,23 @@ Deno.serve(async (req) => {
         return new Response('ok', { headers: corsHeaders });
     }
 
-    const googleApiKey = Deno.env.get('GEMINI_API_KEY')!;
+    const googleApiKey = Deno.env.get('GEMINI_API_KEY');
+
+    // Production Guard: API Key Validation
+    if (!googleApiKey) {
+        console.error('[research-chat] GEMINI_API_KEY not configured');
+        return new Response(JSON.stringify({ error: 'AI service not configured' }), {
+            status: 503,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+    }
 
     try {
         const { message, history } = await req.json();
 
         if (!message) throw new Error('Message is required');
 
-        // Note: Using gemini-1.5-flash or gemini-1.5-pro for stable search grounding support.
-        // The user requested 'gemini 3' which refers to the latest frontier model.
-        // In the Google AI SDK/API, this is typically accessed via 1.5-flash-002 or pro-002 currently for grounding.
+        // Using gemini-3-flash-preview for Gemini 3.0 family with search grounding.
 
         const body = {
             contents: [

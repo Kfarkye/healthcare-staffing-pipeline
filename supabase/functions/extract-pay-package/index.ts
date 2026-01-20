@@ -1,5 +1,3 @@
-import { createClient } from 'npm:@supabase/supabase-js@2';
-
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -11,7 +9,16 @@ Deno.serve(async (req) => {
         return new Response('ok', { headers: corsHeaders });
     }
 
-    const googleApiKey = Deno.env.get('GEMINI_API_KEY')!;
+    const googleApiKey = Deno.env.get('GEMINI_API_KEY');
+
+    // Production Guard: API Key Validation
+    if (!googleApiKey) {
+        console.error('[extract-pay-package] GEMINI_API_KEY not configured');
+        return new Response(JSON.stringify({ error: 'AI service not configured' }), {
+            status: 503,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+    }
 
     try {
         const { imageBase64, mimeType } = await req.json();
@@ -29,11 +36,13 @@ Deno.serve(async (req) => {
                         - Location (City, State)
                         - Profession / Specialty
                         - Pay Range (Gross Weekly)
+                        - Shift Type (e.g., 3x12, 5x8)
                         - Start Date
                         - Duration
 
                         Return the data as a clean JSON object with these keys: 
-                        job_id, facility_name, job_city, job_state, specialty, profession, pay_range, start_date, duration.`
+                        job_id, facility_name, job_city, job_state, specialty, profession, pay_range, shift_type, start_date, duration.
+                        If a field cannot be determined, set it to null.`
                     },
                     {
                         inline_data: {
@@ -48,7 +57,7 @@ Deno.serve(async (req) => {
             },
             system_instruction: {
                 parts: [{
-                    text: "You are a specialized OCR and data extraction agent for healthcare staffing. You convert screenshots of assignment manifests into accurate structured data."
+                    text: "You are a specialized OCR and data extraction agent for healthcare staffing. You convert screenshots of assignment manifests into accurate structured data. Always return valid JSON."
                 }]
             }
         };
@@ -61,21 +70,37 @@ Deno.serve(async (req) => {
 
         const result = await response.json();
 
+        // Production Guard: API Error Handling
         if (result.error) {
-            console.error('Gemini Error:', result.error);
+            console.error('[extract-pay-package] Gemini API Error:', result.error);
             throw new Error(result.error.message || 'Gemini API failed');
         }
 
-        // Parse the JSON response from Gemini
-        const textResponse = result.candidates[0].content.parts[0].text;
-        const extractedData = JSON.parse(textResponse);
+        // Production Guard: Null-Safety on Response Structure
+        const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!textResponse) {
+            // Handle safety blocks or empty responses
+            const blockReason = result.candidates?.[0]?.finishReason;
+            console.error('[extract-pay-package] Empty or blocked response:', blockReason || 'Unknown reason');
+            throw new Error(`AI could not process this image. Reason: ${blockReason || 'No content returned'}`);
+        }
+
+        // Production Guard: JSON Parsing with Fallback
+        let extractedData;
+        try {
+            extractedData = JSON.parse(textResponse);
+        } catch (parseError) {
+            console.error('[extract-pay-package] JSON Parse Error:', textResponse);
+            throw new Error('AI returned invalid JSON. Please try a clearer image.');
+        }
 
         return new Response(JSON.stringify(extractedData), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
 
     } catch (error: any) {
-        console.error('Extraction Error:', error);
+        console.error('[extract-pay-package] Extraction Error:', error);
         return new Response(JSON.stringify({ error: error.message }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
