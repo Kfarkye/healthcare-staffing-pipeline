@@ -7,7 +7,9 @@ import {
     Zap,
     Paperclip,
     Copy,
-    Mail
+    Mail,
+    Layout as LayoutIcon,
+    Monitor
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -15,6 +17,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { AIService, ChatMessage } from '../services/aiService';
 import { buildOutlookLink, extractEmailFields, stripMarkdown, isLikelyEmail } from '../utils/outlookUtils';
 import { PrecisionCard } from './shared/PrecisionCard';
+import { useLayout } from '../context/LayoutContext';
+import { cn } from '../lib/utils';
 
 // ============================================================================
 // DESIGN SYSTEM - JONY IVE PRECISION (v2026)
@@ -58,24 +62,32 @@ export interface UIState {
     view_mode?: 'kanban' | 'ranking' | 'list';
 }
 
+interface DashboardContext {
+    viewMode: string;
+    search: string;
+    stats: Record<string, number>;
+    filteredCount: number;
+}
+
 export const CommandCenter: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [isMinimized, setIsMinimized] = useState(false);
+    const { workspaceMode, setWorkspaceMode } = useLayout();
     const [inputValue, setInputValue] = useState('');
     const [history, setHistory] = useState<ChatMessage[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
     const [attachment, setAttachment] = useState<{ file: File; base64: string; mimeType: string } | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const dashboardContextRef = useRef<any>(null);
+    const dashboardContextRef = useRef<DashboardContext | null>(null);
 
     // --- AMBIENT AI SYNC ---
     useEffect(() => {
-        const handleContextUpdate = (event: any) => {
+        const handleContextUpdate = (event: CustomEvent<DashboardContext>) => {
             dashboardContextRef.current = event.detail;
         };
-        window.addEventListener('dashboard_context_update' as any, handleContextUpdate);
-        return () => window.removeEventListener('dashboard_context_update' as any, handleContextUpdate);
+        window.addEventListener('dashboard_context_update' as any, handleContextUpdate as any);
+        return () => window.removeEventListener('dashboard_context_update' as any, handleContextUpdate as any);
     }, []);
 
     useEffect(() => {
@@ -164,15 +176,19 @@ export const CommandCenter: React.FC = () => {
                     initial={{ opacity: 0, y: 40, scale: 0.95, filter: 'blur(10px)' }}
                     animate={{
                         opacity: 1,
-                        y: 0,
+                        y: workspaceMode === 'floating' ? 0 : 0,
+                        x: workspaceMode === 'floating' ? 0 : 0,
                         scale: 1,
                         filter: 'blur(0px)',
-                        height: isMinimized ? 64 : 640,
-                        width: 440
+                        height: isMinimized ? 64 : workspaceMode === 'floating' ? 640 : '100vh',
+                        width: workspaceMode === 'full' ? '100%' : workspaceMode === 'split' ? '50%' : 440,
+                        bottom: workspaceMode === 'floating' ? 32 : 0,
+                        right: workspaceMode === 'floating' ? 32 : 0,
+                        borderRadius: workspaceMode === 'floating' ? 32 : 0,
                     }}
                     exit={{ opacity: 0, y: 40, scale: 0.95, filter: 'blur(10px)' }}
                     transition={DESIGN.animation.layout}
-                    className={`fixed bottom-8 right-8 ${DESIGN.glass.obsidian} ${DESIGN.radius.base} ${DESIGN.shadow.obsidian} flex flex-col overflow-hidden z-50 ${isGenerating ? 'ambient-glow-indigo' : 'ambient-glow-emerald'}`}
+                    className={`fixed z-50 ${DESIGN.glass.obsidian} ${DESIGN.shadow.obsidian} flex flex-col overflow-hidden ${isGenerating ? 'ambient-glow-indigo' : 'ambient-glow-emerald'}`}
                 >
                     {/* Header */}
                     <header className="h-16 flex items-center justify-between px-6 border-b border-white/10 shrink-0">
@@ -190,10 +206,28 @@ export const CommandCenter: React.FC = () => {
                             </div>
                         </div>
                         <div className="flex items-center gap-1">
+                            {isOpen && !isMinimized && (
+                                <>
+                                    <button
+                                        onClick={() => setWorkspaceMode(workspaceMode === 'floating' ? 'split' : 'floating')}
+                                        className={cn("p-2 rounded-xl transition-colors", workspaceMode === 'split' ? "bg-white/20 text-white" : "hover:bg-white/10 text-slate-400 hover:text-white")}
+                                        title="Split View"
+                                    >
+                                        <LayoutIcon size={16} />
+                                    </button>
+                                    <button
+                                        onClick={() => setWorkspaceMode(workspaceMode === 'full' ? 'floating' : 'full')}
+                                        className={cn("p-2 rounded-xl transition-colors", workspaceMode === 'full' ? "bg-white/20 text-white" : "hover:bg-white/10 text-slate-400 hover:text-white")}
+                                        title="Full Workspace"
+                                    >
+                                        <Monitor size={16} />
+                                    </button>
+                                </>
+                            )}
                             <button onClick={() => setIsMinimized(!isMinimized)} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
                                 {isMinimized ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
                             </button>
-                            <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
+                            <button onClick={() => { setIsOpen(false); setWorkspaceMode('floating'); }} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
                                 <X size={16} />
                             </button>
                         </div>
