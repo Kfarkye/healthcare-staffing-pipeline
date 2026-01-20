@@ -43,7 +43,7 @@ class AIServiceClass {
         return data as TailoredReplyResponse;
     }
 
-    async sendCommand(message: string, history: ChatMessage[] = [], attachment?: { base64: string; mimeType: string }): Promise<CommandResponse> {
+    async sendCommand(message: string, history: ChatMessage[] = [], attachment?: { base64: string; mimeType: string }, context?: any): Promise<CommandResponse> {
         const { data: sessionRes } = await supabase.auth.getSession();
         const accessToken = sessionRes?.session?.access_token ?? '';
 
@@ -54,7 +54,8 @@ class AIServiceClass {
             body: {
                 message,
                 history,
-                attachment
+                attachment,
+                context
             },
         });
 

@@ -24,11 +24,16 @@ Deno.serve(async (req) => {
         DRAFT_EMAIL: 'draft_email',
         CREATE_FOLLOW_UP: 'create_follow_up',
         SEARCH_KNOWLEDGE: 'search_knowledge',
-        GOOGLE_SEARCH: 'google_search'
+        GOOGLE_SEARCH: 'google_search',
+        SAVE_CERTIFICATION: 'save_certification',
+        UPDATE_NEGOTIATION: 'update_negotiation',
+        GET_PIPELINE_BRIEF: 'get_pipeline_brief',
+        SET_UI_STATE: 'set_ui_state'
     };
 
     try {
-        const { message, history = [], attachment, conversation_id: message_conversation_id } = await req.json();
+        const { message, history, attachment, conversation_id: message_conversation_id, context } = await req.json();
+        console.log(`[Command] Processing: "${message}" ${context ? '(with ambient context)' : ''}`);
 
         if (!message) throw new Error('Message is required');
 
@@ -124,31 +129,74 @@ Deno.serve(async (req) => {
                         properties: { query: { type: "string" } },
                         required: ["query"]
                     }
+                },
+                {
+                    name: ToolName.SAVE_CERTIFICATION,
+                    description: "Save candidate certification details extracted from screenshots or documents.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            candidate_id: { type: "number" },
+                            cert_name: { type: "string", description: "CER, CRCST, CIS, BLS, etc." },
+                            hspa_id: { type: "string" },
+                            issued_at: { type: "string", description: "YYYY-MM-DD" },
+                            expires_at: { type: "string", description: "YYYY-MM-DD" },
+                            is_verified: { type: "boolean" }
+                        },
+                        required: ["candidate_id", "cert_name"]
+                    }
+                },
+                {
+                    name: ToolName.UPDATE_NEGOTIATION,
+                    description: "Update candidate negotiation details (target gross, take home, etc.).",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            candidate_id: { type: "number" },
+                            target_gross: { type: "number" },
+                            target_take_home: { type: "number" },
+                            rto_requested: { type: "boolean" },
+                            notes: { type: "string" }
+                        },
+                        required: ["candidate_id"]
+                    }
+                },
+                {
+                    name: ToolName.GET_PIPELINE_BRIEF,
+                    description: "Get an executive summary of the entire candidate pipeline (counts by status/specialty).",
+                    parameters: { type: "object", properties: {} }
+                },
+                {
+                    name: ToolName.SET_UI_STATE,
+                    description: "Update the dashboard UI state (filter by specialty, status, or search).",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            filter_specialty: { type: "string" },
+                            filter_status: { type: "string" },
+                            search_term: { type: "string" },
+                            view_mode: { type: "string", enum: ['kanban', 'ranking', 'list'] }
+                        }
+                    }
                 }
             ]
         }];
 
         const systemInstruction = {
             parts: [{
-                text: `You are the 'Pipeline Command Center' AI (Kofi Farkye, Senior Recruiter, Aya Healthcare). Professional, high-speed, direct, warm. No robotic preambles. Action-oriented.
+                text: `You are the 'Pipeline Command Center' AI (Kofi Farkye, Senior Recruiter, Aya Healthcare). 
 
-Knowledge Retrieval:
-- Use 'search_knowledge' to find corporate benefits, insurance details, and policies.
-- Do NOT guess benefits; query the database.
-- If knowledge is not found, use 'google_search' for current external info.
+AMBIENT AWARENESS:
+- You are aware of the user's dashboard view via the 'context' object (active candidate, current filters).
+- If the user asks about 'this person' or 'this list', refer to the context.
 
-Pay Package Workflow (CRITICAL):
-- When an attachment is provided (PDF, EML, Image), check if it's a pay package or job breakdown.
-- OCR/Extract: Look for 'Gross Weekly', 'Hourly Rate', 'Hours', 'Specialty', 'City/State'.
-- If details are found: 
-  1. Call 'calculate_pay' with the extracted values.
-  2. Present the breakdown clearly.
-  3. Offer to ‘Draft Outreach’ immediately.
-- For .EML (Email) attachments: Summarize the email first, then extract potential job/pay details.
-- Always use the 'DRAFT_EMAIL' tool to generate outreach once pay is confirmed.
+Pillars of Operation:
+1. Executive Reporting: Use 'get_pipeline_brief' to summarize the recruiter's entire world.
+2. AI-Driven Navigation: Use 'set_ui_state' to instantly update the recruiter's dashboard based on their commands.
+3. Pay & Cert Accuracy: OCR and extract data from attachments to update negotiations and certifications (Diamond Standard).
 
 Email Outreach Quality (MANDATORY):
-- All outreach drafts must end with these 3 critical questions:
+- All initial outreach drafts must end with these 3 critical questions:
   1. Are you available to start on [extracted start date]?
   2. Do you have any time-off requests during the contract?
   3. Is your profile current?`
@@ -277,13 +325,22 @@ Email Outreach Quality (MANDATORY):
                         }
                         case ToolName.CALCULATE_PAY: {
                             const { data, error } = await supabase.rpc('calculate_pay_package', {
+                                p_target_gross: args.target_gross,
+                                p_hours_per_week: args.hours || 36,
                                 p_state: args.state.toUpperCase(),
                                 p_city: args.city,
-                                p_profession: 'RN',
-                                p_target_gross: args.target_gross,
-                                p_hours_per_week: args.hours || 36
+                                p_profession: 'RN'
                             });
-                            resultData = error ? { error: error.message } : data;
+                            if (error) throw error;
+
+                            resultData = JSON.stringify({
+                                action: 'PAY_BREAKDOWN',
+                                data: {
+                                    ...data,
+                                    hours: args.hours || 36,
+                                    specialty: args.specialty
+                                }
+                            });
                             break;
                         }
                         case ToolName.DRAFT_EMAIL:
@@ -299,6 +356,92 @@ Email Outreach Quality (MANDATORY):
                                 notes: args.notes
                             }).select();
                             resultData = error ? { error: error.message } : data;
+                            break;
+                        }
+                        case ToolName.SAVE_CERTIFICATION: {
+                            const { data, error } = await supabase
+                                .from('certifications')
+                                .upsert([{
+                                    candidate_id: args.candidate_id,
+                                    cert_name: args.cert_name,
+                                    hspa_id: args.hspa_id,
+                                    issued_at: args.issued_at,
+                                    expires_at: args.expires_at,
+                                    is_verified: args.is_verified,
+                                    updated_at: new Date().toISOString()
+                                }]);
+                            if (error) throw error;
+
+                            // Log activity
+                            await supabase.from('candidate_activities').insert([{
+                                candidate_id: args.candidate_id,
+                                type: 'Cert Upload',
+                                content: `Verified certification saved: ${args.cert_name} (Expires: ${args.expires_at})`,
+                                metadata: { cert_name: args.cert_name, is_verified: args.is_verified }
+                            }]);
+
+                            resultData = { status: 'success', cert: args.cert_name };
+                            break;
+                        }
+                        case ToolName.UPDATE_NEGOTIATION: {
+                            const updateData: any = {};
+                            if (args.target_gross !== undefined) updateData.target_gross = args.target_gross;
+                            if (args.target_take_home !== undefined) updateData.target_take_home = args.target_take_home;
+                            if (args.rto_requested !== undefined) updateData.rto_requested = args.rto_requested;
+                            if (args.notes) updateData.notes = args.notes;
+
+                            const { data, error } = await supabase
+                                .from('prospects')
+                                .update(updateData)
+                                .eq('candidate_id', args.candidate_id);
+                            if (error) throw error;
+
+                            // Log activity
+                            await supabase.from('candidate_activities').insert([{
+                                candidate_id: args.candidate_id,
+                                type: 'Negotiation',
+                                content: `Negotiation updated: Target Take-Home: $${args.target_take_home || 'N/A'}. RTO: ${args.rto_requested ? 'Yes' : 'No'}.`,
+                                metadata: args
+                            }]);
+
+                            resultData = { status: 'success', candidate_id: args.candidate_id };
+                            break;
+                        }
+                        case ToolName.GET_PIPELINE_BRIEF: {
+                            const { data: statusCounts } = await supabase.rpc('get_prospect_status_counts');
+                            const { data: topSpecialties } = await supabase.rpc('get_top_specialties');
+
+                            let briefData;
+                            // Fallback if RPCs don't exist yet
+                            if (!statusCounts || !topSpecialties) {
+                                const { data: all } = await supabase.from('prospects').select('status, specialty');
+                                const counts: any = {};
+                                const specs: any = {};
+                                all?.forEach((p: any) => {
+                                    counts[p.status] = (counts[p.status] || 0) + 1;
+                                    specs[p.specialty] = (specs[p.specialty] || 0) + 1;
+                                });
+                                briefData = { counts, top_specialties: Object.entries(specs).sort((a: any, b: any) => b[1] - a[1]).slice(0, 5) };
+                            } else {
+                                briefData = { statusCounts, topSpecialties };
+                            }
+
+                            resultData = JSON.stringify({
+                                action: 'PIPELINE_BRIEF',
+                                data: briefData
+                            });
+                            break;
+                        }
+                        case ToolName.SET_UI_STATE: {
+                            resultData = {
+                                action: 'UI_STATE_UPDATE',
+                                state: {
+                                    filter_specialty: args.filter_specialty,
+                                    filter_status: args.filter_status,
+                                    search_term: args.search_term,
+                                    view_mode: args.view_mode
+                                }
+                            };
                             break;
                         }
                         case ToolName.GOOGLE_SEARCH:
