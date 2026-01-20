@@ -14,11 +14,14 @@ export const buildOutlookLink = (to: string, cc: string | undefined, subject: st
  */
 export const stripMarkdown = (text: string): string => {
     return text
-        .replace(/\*\*(.*?)\*\*/g, '$1') // Bold
-        .replace(/\*(.*?)\*/g, '$1')   // Italic
-        .replace(/^\s*[-*]\s+/gm, '• ') // List items
-        .replace(/`([^`]+)`/g, '$1')   // Code
-        .replace(/\n{3,}/g, '\n\n')    // Normalize excessive newlines
+        .replace(/^#{1,6}\s*/gm, '')     // Headers (# to ######)
+        .replace(/\*\*(.*?)\*\*/g, '$1') // Bold **text**
+        .replace(/\*\*([^*]+)$/gm, '$1') // Unclosed bold at line end
+        .replace(/^\*\*([^*]+)/gm, '$1') // Unclosed bold at line start
+        .replace(/\*(.*?)\*/g, '$1')     // Italic *text*
+        .replace(/^\s*[-*]\s+/gm, '• ')  // List items (- or *)
+        .replace(/`([^`]+)`/g, '$1')     // Inline code
+        .replace(/\n{3,}/g, '\n\n')      // Normalize excessive newlines
         .trim();
 };
 
