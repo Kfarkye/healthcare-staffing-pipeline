@@ -27,6 +27,7 @@ export interface PayPackage {
   housing_weekly: number;
   total_stipend: number;
   gross_weekly_pay: number;
+  shift_type?: string;
   source: string;
   created_at?: string;
   updated_at?: string;
@@ -106,6 +107,7 @@ export const payPackageService = {
         housing_weekly: pkg.housing_weekly,
         total_stipend: pkg.total_stipend,
         gross_weekly_pay: pkg.gross_weekly,
+        shift_type: click.shift_type,
         source: 'auto_calculated'
       };
 

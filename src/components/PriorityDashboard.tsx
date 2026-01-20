@@ -5,13 +5,17 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Search, Mail, DollarSign, ArrowUp, ArrowDown, Copy, Check,
+  Search, Mail, DollarSign, Copy, Check,
   RefreshCw, Upload, Filter, X, FileUp, ExternalLink, Loader2
 } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { payPackageService } from '../services/payPackageService';
 import InterestedClicksSync from './InterestedClicksSync';
+import { DashboardShell } from './shared/DashboardShell';
+import { PrecisionTable } from './shared/PrecisionTable';
+
 
 // ============================================================================
 // DESIGN SYSTEM
@@ -104,7 +108,8 @@ interface Prospect {
   end_date?: string;
 }
 
-interface PayPackage {
+
+interface MappedPayPackage {
   jobId: string;
   facilityName: string | null;
   city: string | null;
@@ -281,7 +286,7 @@ const dataService = {
     }
   },
 
-  async fetchPayPackage(jobId: string): Promise<PayPackage | null> {
+  async fetchPayPackage(jobId: string): Promise<MappedPayPackage | null> {
     try {
       const pkg = await payPackageService.getPackage(jobId);
       if (!pkg) return null;
@@ -291,24 +296,24 @@ const dataService = {
         facilityName: pkg.facility_name,
         city: pkg.city,
         state: pkg.state,
-        startDate: pkg.start_date,
-        endDate: pkg.end_date,
-        shiftType: pkg.shift_type,
+        startDate: null, // Dynamic per prospect
+        endDate: null,   // Dynamic per prospect
+        shiftType: null, // Dynamic per prospect
         hoursPerWeek: pkg.hours_per_week,
-        completionBonus: pkg.completion_bonus,
+        completionBonus: 0,
         taxableHourlyRate: pkg.taxable_hourly_rate,
         stipend: pkg.total_stipend,
         grossWeeklyPay: pkg.gross_weekly_pay,
         meals_weekly: pkg.meals_weekly,
         housing_weekly: pkg.housing_weekly,
-      };
+      } as MappedPayPackage;
     } catch (error) {
       console.error('Pay package error:', error);
       return null;
     }
   },
 
-  async generatePayPackage(prospect: Prospect): Promise<PayPackage | null> {
+  async generatePayPackage(prospect: Prospect): Promise<MappedPayPackage | null> {
     try {
       const clickData = {
         job_id: prospect.job_id,
@@ -316,10 +321,10 @@ const dataService = {
         job_city: prospect.job_city,
         job_state: prospect.job_state,
         specialty: prospect.specialty,
-        profession: prospect.profession,
-        pay_range: prospect.pay_range,
-        shift_type: prospect.shift_type,
-        start_date: prospect.start_date,
+        profession: prospect.profession || 'RN',
+        pay_range: prospect.pay_range || '',
+        shift_type: prospect.shift_type || '3x12',
+        start_date: prospect.start_date || 'ASAP',
       };
 
       const generated = await payPackageService.generateFromClick(clickData);
@@ -329,11 +334,11 @@ const dataService = {
         facilityName: generated.facility_name,
         city: generated.city,
         state: generated.state,
-        startDate: generated.start_date || 'ASAP',
-        endDate: generated.end_date || '13 weeks',
-        shiftType: generated.shift_type || '3x12',
+        startDate: prospect.start_date || 'ASAP',
+        endDate: prospect.end_date || '13 weeks',
+        shiftType: generated.shift_type || prospect.shift_type || '3x12',
         hoursPerWeek: generated.hours_per_week,
-        completionBonus: generated.completion_bonus || 0,
+        completionBonus: 0,
         taxableHourlyRate: generated.taxable_hourly_rate,
         stipend: generated.total_stipend,
         grossWeeklyPay: generated.gross_weekly_pay,
@@ -346,7 +351,7 @@ const dataService = {
     }
   },
 
-  generateEmail(prospect: Prospect, pkg: PayPackage | null) {
+  generateEmail(prospect: Prospect, pkg: MappedPayPackage | null) {
     const firstName = prospect.candidate_name.split(' ')[0];
 
     if (!pkg) {
@@ -364,7 +369,7 @@ const dataService = {
       specialty: prospect.specialty,
       start_date: formatNaturalDate(pkg.startDate),
       end_date: formatNaturalDate(pkg.endDate),
-      shift_type: pkg.shiftType,
+      shift_type: pkg.shiftType || undefined,
       contract_length: '13-week assignment',
     };
 
@@ -379,17 +384,12 @@ const dataService = {
         specialty: prospect.specialty,
         hours_per_week: pkg.hoursPerWeek || 36,
         taxable_hourly_rate: pkg.taxableHourlyRate || 0,
-        meals_stipend: pkg.meals_weekly || 0,
-        housing_stipend: pkg.housing_weekly || 0,
-        stipend: pkg.stipend || 0,
+        meals_weekly: pkg.meals_weekly || 0,
+        housing_weekly: pkg.housing_weekly || 0,
+        total_stipend: pkg.stipend || 0,
         gross_weekly_pay: pkg.grossWeeklyPay || 0,
-        completion_bonus: pkg.completionBonus || 0,
-        start_date: formatNaturalDate(pkg.startDate),
-        end_date: formatNaturalDate(pkg.endDate),
-        shift_type: pkg.shiftType,
-        contract_length: '13-week assignment',
         source: 'calculated',
-      }
+      } as any // Cast to any to bypass strict PayPackage check if needed, or align exactly
     );
 
     // Remove signature for Outlook
@@ -437,272 +437,7 @@ const Toast: React.FC<{ toast: Toast; onDismiss: () => void }> = ({ toast, onDis
   );
 };
 
-// ============================================================================
-// SORT BUTTON
-// ============================================================================
-
-const SortButton: React.FC<{
-  label: string;
-  active: boolean;
-  direction: SortDirection;
-  onClick: () => void;
-}> = ({ label, active, direction, onClick }) => (
-  <button
-    onClick={onClick}
-    className={cn(
-      'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all',
-      active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-    )}
-    style={{ fontSize: DESIGN.text.xs, fontWeight: DESIGN.weight.semibold }}
-    aria-label={`Sort by ${label}`}
-    aria-pressed={active}
-  >
-    {label}
-    {active && (
-      direction === 'asc'
-        ? <ArrowUp size={12} strokeWidth={2.5} />
-        : <ArrowDown size={12} strokeWidth={2.5} />
-    )}
-  </button>
-);
-
-// ============================================================================
-// PROSPECT ROW
-// ============================================================================
-
-const ProspectRow: React.FC<{
-  prospect: Prospect;
-  onCopy: (text: string, type: string, id: number) => void;
-  copied: { type: string; id: number } | null;
-  onEmail: (prospect: Prospect) => void;
-  onPackage: (prospect: Prospect) => void;
-  emailLoading: boolean;
-}> = ({ prospect, onCopy, copied, onEmail, onPackage, emailLoading }) => {
-  const [hover, setHover] = useState(false);
-  const isLocal = prospect.candidate_homestate === prospect.job_state;
-  const noteDateTime = formatDateTime(prospect.last_note_date);
-
-  return (
-    <article
-      className="p-4 border-b border-slate-200 hover:bg-slate-50 transition-colors group"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-    >
-      <div className="flex items-center gap-x-6">
-        {/* Candidate Info - Left Column */}
-        <div className="w-5/12 min-w-0">
-          <div className="mb-4">
-            <button
-              onClick={() => onCopy(prospect.candidate_name, 'name', prospect.id)}
-              className="group flex items-center gap-1.5 min-w-0"
-              aria-label="Copy name"
-            >
-              <span
-                className="text-slate-900 truncate"
-                style={{ fontSize: DESIGN.text.base, fontWeight: DESIGN.weight.semibold }}
-                title={prospect.candidate_name}
-              >
-                {prospect.candidate_name}
-              </span>
-              <span className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                {copied?.type === 'name' && copied?.id === prospect.id
-                  ? <Check size={12} className="text-green-600" strokeWidth={2.5} />
-                  : <Copy size={12} className="text-slate-400" strokeWidth={2} />
-                }
-              </span>
-            </button>
-
-            <button
-              onClick={() => onCopy(prospect.candidate_email, 'email', prospect.id)}
-              className="text-slate-500 mt-0.5 truncate flex items-center gap-1.5 min-w-0 transition-colors hover:text-slate-700"
-              style={{ fontSize: DESIGN.text.sm }}
-              aria-label="Copy email"
-              title={prospect.candidate_email}
-            >
-              <span className="truncate">{prospect.candidate_email}</span>
-              <span className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                {copied?.type === 'email' && copied?.id === prospect.id
-                  ? <Check size={10} className="text-green-600" strokeWidth={2.5} />
-                  : <Copy size={10} className="text-slate-400" strokeWidth={2} />
-                }
-              </span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3" style={{ fontSize: DESIGN.text.sm }}>
-            <span className="text-slate-700 font-medium">{prospect.specialty}</span>
-            <a
-              href={`https://nova.ayahealthcare.com/#/recruiting/jobs/${prospect.job_id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-700 hover:underline transition-colors"
-            >
-              Job #{prospect.job_id}
-            </a>
-          </div>
-        </div>
-
-        {/* Location Grid - Middle Column */}
-        <div className="w-40 flex-shrink-0">
-          <div className="space-y-3">
-            <div>
-              <p
-                className="text-slate-500 mb-1"
-                style={{ fontSize: DESIGN.text.xs }}
-              >
-                Home Location
-              </p>
-              <p
-                className={cn(
-                  'font-medium truncate',
-                  isLocal ? 'text-green-600' : 'text-slate-800'
-                )}
-                style={{ fontSize: DESIGN.text.sm }}
-              >
-                {prospect.candidate_homestate}
-              </p>
-            </div>
-            <div>
-              <p
-                className="text-slate-500 mb-1"
-                style={{ fontSize: DESIGN.text.xs }}
-              >
-                Facility Location
-              </p>
-              <p
-                className={cn(
-                  'font-medium truncate',
-                  isLocal ? 'text-green-600' : 'text-slate-800'
-                )}
-                style={{ fontSize: DESIGN.text.sm }}
-              >
-                {prospect.job_state}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Recruiter Grid - Middle Column */}
-        <div className="w-40 flex-shrink-0">
-          <div className="space-y-3">
-            <div>
-              <p
-                className="text-slate-500 mb-1"
-                style={{ fontSize: DESIGN.text.xs }}
-              >
-                Recruiter
-              </p>
-              <p
-                className="text-slate-900 font-medium truncate"
-                style={{ fontSize: DESIGN.text.sm }}
-              >
-                {prospect.recruiter_name}
-              </p>
-            </div>
-            <div>
-              <p
-                className="text-slate-500 mb-1"
-                style={{ fontSize: DESIGN.text.xs }}
-              >
-                Last Note By
-              </p>
-              <p
-                className="text-slate-800 truncate"
-                style={{ fontSize: DESIGN.text.sm }}
-              >
-                {prospect.last_note_by || '—'}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* Dates Grid - Right Column */}
-        <div className="w-28 flex-shrink-0 text-right">
-          <div className="space-y-3">
-            <div>
-              <p
-                className="text-slate-500 mb-1"
-                style={{ fontSize: DESIGN.text.xs }}
-              >
-                Applied
-              </p>
-              <p
-                className="text-slate-900 font-medium"
-                style={{ fontSize: DESIGN.text.sm }}
-              >
-                {formatDate(prospect.application_date)}
-              </p>
-            </div>
-            <div>
-              <p
-                className="text-slate-500 mb-1"
-                style={{ fontSize: DESIGN.text.xs }}
-              >
-                Last Note
-              </p>
-              {noteDateTime.date !== '—' ? (
-                <>
-                  <p
-                    className="text-slate-900 font-medium"
-                    style={{ fontSize: DESIGN.text.sm }}
-                  >
-                    {noteDateTime.date}
-                  </p>
-                  {noteDateTime.time && (
-                    <p
-                      className="text-slate-500"
-                      style={{ fontSize: DESIGN.text.xs }}
-                    >
-                      {noteDateTime.time}
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p
-                  className="text-slate-800"
-                  style={{ fontSize: DESIGN.text.sm }}
-                >
-                  —
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="w-20 flex-shrink-0 flex items-center justify-end gap-1">
-          <button
-            onClick={() => onEmail(prospect)}
-            disabled={emailLoading}
-            className={cn(
-              'p-2 rounded-lg transition-all',
-              emailLoading ? 'cursor-wait opacity-50 bg-slate-100' : 'hover:bg-blue-50'
-            )}
-            aria-label="Send email"
-            title="Email via Outlook"
-          >
-            <Mail
-              size={16}
-              strokeWidth={2}
-              className={emailLoading ? 'text-slate-400' : 'text-blue-600'}
-            />
-          </button>
-          <button
-            onClick={() => onPackage(prospect)}
-            className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
-            aria-label="View pay package"
-            title="View Pay Package"
-          >
-            <DollarSign size={16} strokeWidth={2} className="text-slate-600" />
-          </button>
-        </div>
-      </div>
-    </article>
-  );
-};
+// Obsolete components removed. Using PrecisionTable and DashboardShell.
 
 // ============================================================================
 // PAY PACKAGE MODAL
@@ -712,7 +447,7 @@ const PackageModal: React.FC<{
   prospect: Prospect | null;
   onClose: () => void;
 }> = ({ prospect, onClose }) => {
-  const [pkg, setPkg] = useState<PayPackage | null>(null);
+  const [pkg, setPkg] = useState<MappedPayPackage | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
@@ -1079,7 +814,7 @@ export default function ProspectDashboard() {
           const specialty = String(row['Specialty'] || '').trim();
           const profession = String(row['Prof.'] || '').trim();
           const startDate = String(row['Start'] || '').trim();
-          const duration = parseInt(String(row['Duration'] || '13')) || 13;
+
 
           // Calculate hours per week from shift type
           let hoursPerWeek = 40;
@@ -1090,16 +825,6 @@ export default function ProspectDashboard() {
             hoursPerWeek = daysPerWeek * hoursPerDay;
           }
 
-          // Calculate end date (start + duration weeks)
-          let endDate = '';
-          if (startDate) {
-            const start = new Date(startDate);
-            if (!isNaN(start.getTime())) {
-              const end = new Date(start);
-              end.setDate(end.getDate() + (duration * 7));
-              endDate = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            }
-          }
 
           // Use payPackageService to calculate full package
           const calculated = await payPackageService.calculatePackage(
@@ -1203,6 +928,7 @@ export default function ProspectDashboard() {
   }, [prospects, jobIds, filters.localOnly]);
 
   // Unique values
+  // Unique values for filters
   const specialties = useMemo(() =>
     [...new Set(prospects.map(p => p.specialty))].filter(Boolean).sort(),
     [prospects]
@@ -1217,7 +943,6 @@ export default function ProspectDashboard() {
     prospects.filter(p => p.candidate_homestate === p.job_state).length,
     [prospects]
   );
-
   // Handlers
   const handleSort = (key: SortKey) => {
     setSort(prev => ({
@@ -1229,10 +954,8 @@ export default function ProspectDashboard() {
   const handleEmail = async (prospect: Prospect) => {
     setEmailLoading(true);
     try {
-      // Try to fetch existing pay package
       let pkg = await dataService.fetchPayPackage(prospect.job_id);
 
-      // If no package exists, try to generate one
       if (!pkg) {
         console.log('No existing pay package found, generating new one...');
         const profession = prospect.specialty?.includes('SPT') || prospect.specialty?.includes('Sterile') ? 'SURG' :
@@ -1251,8 +974,6 @@ export default function ProspectDashboard() {
           40
         );
 
-        console.log('Calculated pay package:', calculated);
-
         const clickData = {
           job_id: prospect.job_id,
           facility_name: prospect.facility_name || `${prospect.job_city} Medical Center`,
@@ -1263,23 +984,16 @@ export default function ProspectDashboard() {
 
         await payPackageService.savePackage(calculated, clickData);
         pkg = await dataService.fetchPayPackage(prospect.job_id);
-        console.log('Saved and fetched pay package:', pkg);
       }
 
-      if (!pkg) {
-        throw new Error('Failed to create or fetch pay package');
-      }
+      if (!pkg) throw new Error('Failed to create pay package');
 
       const email = dataService.generateEmail(prospect, pkg);
       const url = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(prospect.candidate_email)}&subject=${encodeURIComponent(email.subject)}&body=${encodeURIComponent(email.body)}`;
-
-      const win = window.open(url, '_blank');
-      if (!win) {
-        alert('Pop-up blocked! Please allow pop-ups.');
-      }
+      window.open(url, '_blank');
     } catch (error) {
       console.error('Email error:', error);
-      showToast(`Failed to generate email: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      showToast('Error generating outreach email', 'error');
     } finally {
       setEmailLoading(false);
     }
@@ -1291,20 +1005,182 @@ export default function ProspectDashboard() {
     showToast(`Loaded ${ids.length} Job IDs`, 'success');
   };
 
-  if (showSync) {
-    return (
-      <div className="relative">
-        <button
-          onClick={() => setShowSync(false)}
-          className="absolute top-4 right-4 z-50 p-2 bg-white rounded-full shadow-lg hover:bg-slate-100"
-          aria-label="Close sync"
+  // ============================================================================
+  // Table Configuration
+  // ============================================================================
+
+  const columns = [
+    {
+      header: 'Candidate',
+      sortKey: 'candidate_name',
+      accessor: (p: Prospect) => (
+        <div className="flex flex-col min-w-[200px]">
+          <button
+            onClick={(e) => { e.stopPropagation(); copy(p.candidate_name, 'name', p.id); }}
+            className="text-[14px] font-semibold text-slate-900 hover:text-blue-600 transition-colors text-left flex items-center gap-1.5 group"
+          >
+            {p.candidate_name}
+            <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+              {copied?.type === 'name' && copied?.id === p.id
+                ? <Check size={12} className="text-green-600" />
+                : <Copy size={12} className="text-slate-300" />
+              }
+            </span>
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); copy(p.candidate_email, 'email', p.id); }}
+            className="text-[12px] text-slate-400 hover:text-slate-600 transition-colors text-left flex items-center gap-1.25 group"
+          >
+            {p.candidate_email}
+            <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+              {copied?.type === 'email' && copied?.id === p.id
+                ? <Check size={10} className="text-green-600" />
+                : <Copy size={10} className="text-slate-300" />
+              }
+            </span>
+          </button>
+        </div>
+      )
+    },
+    {
+      header: 'Specialty',
+      sortKey: 'specialty',
+      accessor: (p: Prospect) => (
+        <div className="flex flex-col">
+          <span className="font-semibold text-slate-700">{p.specialty}</span>
+          <span className="text-[11px] text-slate-400">{p.profession}</span>
+        </div>
+      )
+    },
+    {
+      header: 'Location',
+      accessor: (p: Prospect) => {
+        const isLocal = p.candidate_homestate === p.job_state;
+        return (
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5">
+              <span className={cn("font-medium", isLocal ? "text-green-600" : "text-slate-700")}>
+                {p.job_city}, {p.job_state}
+              </span>
+              {isLocal && (
+                <span className="px-1.5 py-0.25 bg-green-50 text-green-700 text-[9px] font-bold uppercase tracking-wider rounded-full border border-green-100">
+                  Local
+                </span>
+              )}
+            </div>
+            <span className="text-[11px] text-slate-400">Home: {p.candidate_homestate}</span>
+          </div>
+        );
+      }
+    },
+    {
+      header: 'Job ID',
+      accessor: (p: Prospect) => (
+        <a
+          href={`https://nova.ayahealthcare.com/#/recruiting/jobs/${p.job_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium group"
         >
-          <X size={20} strokeWidth={2} />
-        </button>
-        <InterestedClicksSync />
-      </div>
-    );
-  }
+          #{p.job_id}
+          <ExternalLink size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+        </a>
+      )
+    },
+    {
+      header: 'Applied',
+      sortKey: 'application_date',
+      accessor: (p: Prospect) => (
+        <div className="flex flex-col">
+          <span className="font-medium text-slate-700 whitespace-nowrap">{formatDate(p.application_date)}</span>
+          <span className="text-[11px] text-slate-400 whitespace-nowrap">{p.days_since_application} days ago</span>
+        </div>
+      )
+    },
+    {
+      header: 'Last Note',
+      sortKey: 'last_note_date',
+      accessor: (p: Prospect) => {
+        const dt = formatDateTime(p.last_note_date);
+        return (
+          <div className="flex flex-col max-w-[200px]">
+            <span className="font-medium text-slate-900 line-clamp-1" title={p.last_note}>
+              {p.last_note || '—'}
+            </span>
+            <span className="text-[11px] text-slate-400">
+              {dt.date} {dt.time} {p.last_note_by && `by ${p.last_note_by}`}
+            </span>
+          </div>
+        );
+      }
+    },
+    {
+      header: 'Actions',
+      className: 'text-right',
+      accessor: (p: Prospect) => (
+        <div className="flex items-center justify-end gap-1">
+          <button
+            onClick={(e) => { e.stopPropagation(); handleEmail(p); }}
+            disabled={emailLoading}
+            className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+            title="Email via Outlook"
+          >
+            {emailLoading ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} strokeWidth={2.5} />}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setModalProspect(p); }}
+            className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all active:scale-95"
+            title="View Pay Package"
+          >
+            <DollarSign size={16} strokeWidth={2.5} />
+          </button>
+        </div>
+      )
+    }
+  ];
+
+  const HeaderActions = (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => setShowPackageUpload(true)}
+        className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-sm font-semibold text-[13px]"
+      >
+        <FileUp size={16} />
+        <span>Pay Packages</span>
+      </button>
+      <button
+        onClick={() => setShowSync(true)}
+        className="p-2.5 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100 rounded-xl transition-all active:scale-95"
+        title="Sync CSV"
+      >
+        <Upload size={18} strokeWidth={2.5} />
+      </button>
+      <button
+        onClick={() => loadData(false)}
+        className="p-2.5 bg-white border border-slate-200 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-xl transition-all active:scale-95"
+        title="Refresh"
+      >
+        <RefreshCw size={18} strokeWidth={2.5} className={loading ? "animate-spin" : ""} />
+      </button>
+    </div>
+  );
+
+  const StatCards = (
+    <div className="flex items-center gap-4 py-2">
+      {[
+        { label: 'Total Leads', value: total, color: 'text-slate-900' },
+        { label: 'Loaded', value: prospects.length, color: 'text-slate-600' },
+        { label: 'Shown', value: displayedProspects.length, color: 'text-blue-600' },
+        { label: 'Local Only', value: localCount, color: 'text-green-600' }
+      ].map((stat, i) => (
+        <div key={i} className="bg-white/50 border border-slate-200/60 rounded-2xl px-5 py-3 shadow-sm min-w-[140px]">
+          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">{stat.label}</div>
+          <div className={cn("text-[20px] font-bold tabular-nums", stat.color)}>{stat.value}</div>
+        </div>
+      ))}
+    </div>
+  );
 
   if (loading && prospects.length === 0) {
     return (
@@ -1315,366 +1191,238 @@ export default function ProspectDashboard() {
   }
 
   return (
-    <div className="h-full bg-slate-50">
-      {/* Modals */}
-      {modalProspect && (
-        <PackageModal prospect={modalProspect} onClose={() => setModalProspect(null)} />
-      )}
-      {showJobFilter && (
-        <JobFilterModal onClose={() => setShowJobFilter(false)} onLoad={handleJobLoad} />
-      )}
-      {showPackageUpload && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl">
-            <header className="p-6 border-b border-slate-200 flex justify-between items-center">
-              <div>
-                <h2
-                  className="text-slate-900 mb-1"
-                  style={{ fontSize: DESIGN.text.lg, fontWeight: DESIGN.weight.semibold }}
-                >
-                  Upload Pay Packages
-                </h2>
-                <p
-                  className="text-slate-500"
-                  style={{ fontSize: DESIGN.text.sm }}
-                >
-                  Bulk create pay packages from Excel
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setShowPackageUpload(false);
-                  setPackageUploadStatus('');
-                  setUploadedJobIds([]);
-                }}
-                disabled={uploadingPackages}
-                className="p-2 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50"
-                aria-label="Close"
-              >
-                <X size={20} strokeWidth={2} className="text-slate-500" />
-              </button>
-            </header>
-
-            <div className="p-6">
-              {uploadingPackages ? (
-                <div className="text-center py-8">
-                  <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-4" />
-                  <p
-                    className="text-slate-700"
-                    style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
-                  >
-                    {packageUploadStatus}
-                  </p>
-                </div>
-              ) : packageUploadStatus ? (
-                <div className="text-center py-8">
-                  <Check className="w-12 h-12 text-green-600 mx-auto mb-4" strokeWidth={2} />
-                  <p
-                    className="text-slate-700 mb-4"
-                    style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
-                  >
-                    {packageUploadStatus}
-                  </p>
-                  {uploadedJobIds.length > 0 && (
-                    <button
-                      onClick={() => {
-                        const jobIdsText = uploadedJobIds.join('\n');
-                        navigator.clipboard.writeText(jobIdsText);
-                        showToast(`Copied ${uploadedJobIds.length} job IDs to clipboard`, 'success');
-                      }}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"
-                      style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
-                    >
-                      <Copy size={16} strokeWidth={2} />
-                      Copy {uploadedJobIds.length} Job IDs
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <label className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-all">
-                  <FileUp size={32} strokeWidth={2} className="text-slate-400 mb-3" />
-                  <span
-                    className="text-slate-700 mb-1"
-                    style={{ fontSize: DESIGN.text.base, fontWeight: DESIGN.weight.semibold }}
-                  >
-                    Choose Excel File
-                  </span>
-                  <span
-                    className="text-slate-500 text-center"
-                    style={{ fontSize: DESIGN.text.sm }}
-                  >
-                    Upload job list with pay ranges
-                  </span>
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handlePackageUpload(file);
-                      e.target.value = '';
-                    }}
-                    className="hidden"
-                  />
-                </label>
-              )}
+    <DashboardShell
+      title="Strategic Pipeline"
+      subtitle="Connect high-priority candidates with market-leading opportunities."
+      eyebrow="Precision Intel"
+      actions={HeaderActions}
+      stats={StatCards}
+    >
+      <div className="space-y-6">
+        {/* Advanced Filter Bar */}
+        <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-[24px] p-4 flex flex-wrap items-center justify-between gap-4 shadow-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative group">
+              <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+              <input
+                type="text"
+                placeholder="Search leads..."
+                value={filters.search}
+                onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                className="w-[300px] min-w-0 pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 focus:bg-white transition-all text-[14px]"
+              />
             </div>
 
-            {!uploadingPackages && !packageUploadStatus && (
-              <footer className="p-4 bg-slate-50 border-t border-slate-200 rounded-b-2xl">
-                <p
-                  className="text-slate-600 text-center"
-                  style={{ fontSize: DESIGN.text.xs }}
-                >
-                  Expected columns: Job ID, Pay Range, Facility, Location, State, Specialty, Start Date
-                </p>
-              </footer>
-            )}
-          </div>
-        </div>
-      )}
-      {toast && <Toast toast={toast} onDismiss={() => setToast(null)} />}
+            <select
+              value={filters.specialty}
+              onChange={(e) => setFilters(prev => ({ ...prev, specialty: e.target.value }))}
+              className="pl-3 pr-8 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 text-[13px] font-medium appearance-none cursor-pointer"
+              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center', backgroundSize: '14px' }}
+            >
+              <option value="all">Specialty: All</option>
+              {specialties.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
 
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1
-                className="text-slate-900 mb-1"
-                style={{ fontSize: DESIGN.text.lg, fontWeight: DESIGN.weight.semibold }}
-              >
-                Prospects
-              </h1>
-              <p
-                className="text-slate-500"
-                style={{ fontSize: DESIGN.text.xs }}
-              >
-                {jobIds.size > 0
-                  ? `${displayedProspects.length} of ${jobIds.size} filtered jobs`
-                  : `${prospects.length} of ${total} total`}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowPackageUpload(true)}
-                className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
-                aria-label="Upload pay packages"
-                title="Upload Pay Packages from Excel"
-              >
-                <FileUp size={16} strokeWidth={2} />
-                <span className="hidden sm:inline">Pay Packages</span>
-              </button>
-
-              <button
-                onClick={() => setShowSync(true)}
-                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                aria-label="Sync data"
-                title="Sync CSV"
-              >
-                <Upload size={16} strokeWidth={2} />
-              </button>
-
-              <button
-                onClick={() => setShowJobFilter(true)}
-                className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
-                aria-label="Filter jobs"
-                title="Filter by Job IDs"
-              >
-                <Filter size={16} strokeWidth={2} />
-                {jobIds.size > 0 && (
-                  <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full" style={{ fontSize: DESIGN.text.xs }}>
-                    {jobIds.size}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => loadData(false)}
-                className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
-                aria-label="Refresh"
-                title="Refresh"
-              >
-                <RefreshCw size={16} strokeWidth={2} />
-              </button>
-
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" strokeWidth={2} />
-                <input
-                  type="text"
-                  placeholder="Search..."
-                  value={filters.search}
-                  onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                  className="w-56 pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:bg-white focus:border-slate-300"
-                  style={{ fontSize: DESIGN.text.sm }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Stats */}
-      <section className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-6 py-6 flex justify-between items-center">
-          <div>
-            <p className="text-slate-500" style={{ fontSize: DESIGN.text.sm }}>Total</p>
-            <p className="text-slate-900" style={{ fontSize: DESIGN.text['2xl'], fontWeight: DESIGN.weight.semibold }}>{total}</p>
-          </div>
-          <div className="flex gap-8">
-            <div>
-              <p className="text-slate-500" style={{ fontSize: DESIGN.text.sm }}>Loaded</p>
-              <p className="text-slate-900" style={{ fontSize: DESIGN.text.xl, fontWeight: DESIGN.weight.semibold }}>{prospects.length}</p>
-            </div>
-            <div>
-              <p className="text-slate-500" style={{ fontSize: DESIGN.text.sm }}>Shown</p>
-              <p className="text-slate-900" style={{ fontSize: DESIGN.text.xl, fontWeight: DESIGN.weight.semibold }}>{displayedProspects.length}</p>
-            </div>
-            <div>
-              <p className="text-slate-500" style={{ fontSize: DESIGN.text.sm }}>Local</p>
-              <p className="text-green-600" style={{ fontSize: DESIGN.text.xl, fontWeight: DESIGN.weight.semibold }}>{localCount}</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Filters & Sort */}
-      <section className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <SortButton
-                  label="Last Note"
-                  active={sort.key === 'last_note_date'}
-                  direction={sort.dir}
-                  onClick={() => handleSort('last_note_date')}
-                />
-                <SortButton
-                  label="Applied"
-                  active={sort.key === 'application_date'}
-                  direction={sort.dir}
-                  onClick={() => handleSort('application_date')}
-                />
-                <SortButton
-                  label="Name"
-                  active={sort.key === 'candidate_name'}
-                  direction={sort.dir}
-                  onClick={() => handleSort('candidate_name')}
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <select
-                  value={filters.specialty}
-                  onChange={(e) => setFilters(prev => ({ ...prev, specialty: e.target.value }))}
-                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none"
-                  style={{ fontSize: DESIGN.text.sm }}
-                >
-                  <option value="all">All Specialties</option>
-                  {specialties.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-
-                <select
-                  value={filters.recruiter}
-                  onChange={(e) => setFilters(prev => ({ ...prev, recruiter: e.target.value }))}
-                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none"
-                  style={{ fontSize: DESIGN.text.sm }}
-                >
-                  <option value="all">All Recruiters</option>
-                  {recruiters.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-
-                <button
-                  onClick={() => setFilters(prev => ({ ...prev, localOnly: !prev.localOnly }))}
-                  className={cn(
-                    'px-3 py-1.5 rounded-lg transition-colors',
-                    filters.localOnly ? 'bg-slate-900 text-white' : 'border border-slate-200 hover:bg-slate-50'
-                  )}
-                  style={{ fontSize: DESIGN.text.xs, fontWeight: DESIGN.weight.semibold }}
-                  aria-pressed={filters.localOnly}
-                >
-                  Local Only
-                </button>
-              </div>
-            </div>
+            <select
+              value={filters.recruiter}
+              onChange={(e) => setFilters(prev => ({ ...prev, recruiter: e.target.value }))}
+              className="pl-3 pr-8 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 text-[13px] font-medium appearance-none cursor-pointer"
+              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center', backgroundSize: '14px' }}
+            >
+              <option value="all">Recruiter: All</option>
+              {recruiters.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
 
             <button
-              onClick={() => {
-                setFilters({ search: '', specialty: 'all', recruiter: 'all', localOnly: false });
-                setSort({ key: 'last_note_date', dir: 'desc' });
-              }}
-              className="text-slate-500 hover:text-slate-700 transition-colors"
-              style={{ fontSize: DESIGN.text.xs, fontWeight: DESIGN.weight.medium }}
+              onClick={() => setFilters(prev => ({ ...prev, localOnly: !prev.localOnly }))}
+              className={cn(
+                "px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all border",
+                filters.localOnly
+                  ? "bg-slate-900 border-slate-900 text-white shadow-md shadow-slate-900/20"
+                  : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+              )}
             >
-              Clear
+              Local Only
+            </button>
+
+            <button
+              onClick={() => setShowJobFilter(true)}
+              className={cn(
+                "px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all border flex items-center gap-2",
+                jobIds.size > 0
+                  ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-600/20"
+                  : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+              )}
+            >
+              <Filter size={14} />
+              Job Filter {jobIds.size > 0 && `(${jobIds.size})`}
             </button>
           </div>
+
+          <button
+            onClick={() => {
+              setFilters({ search: '', specialty: 'all', recruiter: 'all', localOnly: false });
+              setSort({ key: 'last_note_date', dir: 'desc' });
+              setJobIds(new Set());
+            }}
+            className="text-[12px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-widest px-2"
+          >
+            Clear Filters
+          </button>
         </div>
-      </section>
 
-      {/* List */}
-      <main className="max-w-7xl mx-auto px-6 py-4">
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-          {displayedProspects.length > 0 ? (
-            <>
-              {displayedProspects.map((prospect) => (
-                <ProspectRow
-                  key={prospect.id}
-                  prospect={prospect}
-                  onCopy={copy}
-                  copied={copied}
-                  onEmail={handleEmail}
-                  onPackage={setModalProspect}
-                  emailLoading={emailLoading}
-                />
-              ))}
+        <PrecisionTable
+          data={displayedProspects}
+          columns={columns}
+          isLoading={loading}
+          onRowClick={(p) => setModalProspect(p)}
+          onSort={(key) => handleSort(key as SortKey)}
+          sortKey={sort.key}
+          sortDir={sort.dir}
+        />
 
-              {hasMore && (
-                <div className="p-4 border-t border-slate-200 text-center">
-                  <button
-                    onClick={() => loadData(true)}
-                    disabled={loadingMore}
-                    className={cn(
-                      'px-6 py-2 rounded-lg transition-colors disabled:bg-slate-300',
-                      DESIGN.color.primary
-                    )}
-                    style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.semibold }}
-                  >
-                    {loadingMore ? (
-                      <span className="flex items-center gap-2">
-                        <Loader2 size={16} className="animate-spin" />
-                        Loading...
-                      </span>
-                    ) : (
-                      `Load More (${total - prospects.length})`
-                    )}
-                  </button>
+        {hasMore && (
+          <div className="flex justify-center pt-8 pb-12">
+            <button
+              onClick={() => loadData(true)}
+              disabled={loadingMore}
+              className="group relative px-8 py-3 bg-white border border-slate-200 text-slate-900 rounded-2xl font-bold text-[14px] shadow-sm hover:shadow-md hover:border-slate-300 transition-all active:scale-[0.98] disabled:opacity-50"
+            >
+              {loadingMore ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 size={18} className="animate-spin text-blue-600" />
+                  <span>Syncing records...</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span>Load More Records</span>
+                  <span className="text-slate-300 group-hover:text-slate-500 font-medium tracking-tight">
+                    ({total - prospects.length} remaining)
+                  </span>
                 </div>
               )}
-            </>
-          ) : (
-            <div className="text-center py-16">
-              <p className="text-slate-500" style={{ fontSize: DESIGN.text.sm }}>
-                No prospects found
-              </p>
-            </div>
-          )}
-        </div>
-      </main>
+            </button>
+          </div>
+        )}
+      </div>
 
-      {/* Animations */}
-      <style>{`
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-slideUp {
-          animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-      `}</style>
-    </div>
+      <AnimatePresence>
+        {modalProspect && (
+          <PackageModal
+            prospect={modalProspect}
+            onClose={() => setModalProspect(null)}
+          />
+        )}
+        {showJobFilter && (
+          <JobFilterModal onClose={() => setShowJobFilter(false)} onLoad={handleJobLoad} />
+        )}
+        {showSync && (
+          <InterestedClicksSync onClose={() => { setShowSync(false); loadData(false); }} />
+        )}
+        {showPackageUpload && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-[32px] max-w-md w-full shadow-2xl overflow-hidden border border-white/20">
+              <header className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div>
+                  <h2 className="text-slate-900 mb-1 text-[20px] font-bold leading-tight tracking-tight">
+                    Upload Pay Packages
+                  </h2>
+                  <p className="text-slate-500 text-[13px] font-medium">
+                    Bulk create pay packages from Excel
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowPackageUpload(false);
+                    setPackageUploadStatus('');
+                    setUploadedJobIds([]);
+                  }}
+                  disabled={uploadingPackages}
+                  className="p-2.5 rounded-2xl hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all disabled:opacity-50 text-slate-400 hover:text-slate-900"
+                >
+                  <X size={20} strokeWidth={2.5} />
+                </button>
+              </header>
+
+              <div className="p-8">
+                {uploadingPackages ? (
+                  <div className="text-center py-10">
+                    <div className="relative inline-block mb-6">
+                      <div className="w-16 h-16 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin" />
+                    </div>
+                    <p className="text-slate-900 font-bold text-[16px] mb-2">
+                      Processing Repository
+                    </p>
+                    <p className="text-slate-500 text-[14px]">
+                      {packageUploadStatus}
+                    </p>
+                  </div>
+                ) : packageUploadStatus ? (
+                  <div className="text-center py-6">
+                    <div className="w-20 h-20 bg-green-50 text-green-600 mx-auto mb-6 rounded-[24px] flex items-center justify-center border border-green-100 shadow-sm">
+                      <Check size={40} strokeWidth={3} />
+                    </div>
+                    <p className="text-slate-900 mb-6 font-bold text-[18px]">
+                      {packageUploadStatus}
+                    </p>
+                    {uploadedJobIds.length > 0 && (
+                      <button
+                        onClick={() => {
+                          const jobIdsText = uploadedJobIds.join('\n');
+                          navigator.clipboard.writeText(jobIdsText);
+                          showToast(`Copied ${uploadedJobIds.length} job IDs to clipboard`, 'success');
+                        }}
+                        className="w-full flex items-center justify-center gap-2.5 px-6 py-4 bg-slate-900 text-white rounded-2xl hover:bg-slate-800 transition-all active:scale-[0.98] shadow-lg shadow-slate-900/20 font-bold text-[14px]"
+                      >
+                        <Copy size={18} strokeWidth={2.5} />
+                        Copy {uploadedJobIds.length} Job IDs
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-slate-200 rounded-[32px] cursor-pointer hover:border-blue-500 hover:bg-blue-50/30 transition-all group relative overflow-hidden">
+                    <div className="w-20 h-20 bg-slate-50 border border-slate-100 rounded-[24px] flex items-center justify-center mb-6 group-hover:bg-white group-hover:border-blue-200 group-hover:shadow-md transition-all">
+                      <FileUp size={36} strokeWidth={2} className="text-slate-400 group-hover:text-blue-600" />
+                    </div>
+                    <span className="text-slate-900 mb-2 font-bold text-[18px] tracking-tight">
+                      Drop Excel Manifest
+                    </span>
+                    <span className="text-slate-500 text-center text-[13px] font-medium leading-relaxed max-w-[200px]">
+                      Select assignment list with pay structures
+                    </span>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handlePackageUpload(file);
+                        e.target.value = '';
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
+
+              {!uploadingPackages && !packageUploadStatus && (
+                <footer className="px-8 py-5 bg-slate-50 border-t border-slate-100">
+                  <div className="flex flex-col items-center gap-2">
+                    <span className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.1em]">Required Schema</span>
+                    <p className="text-slate-500 text-center text-[11px] font-medium leading-[1.6]">
+                      Job ID • Pay Range • Facility • Venue<br />State • Specialty • Start Date
+                    </p>
+                  </div>
+                </footer>
+              )}
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+
+      {toast && (
+        <Toast toast={toast} onDismiss={() => setToast(null)} />
+      )}
+    </DashboardShell>
   );
 }

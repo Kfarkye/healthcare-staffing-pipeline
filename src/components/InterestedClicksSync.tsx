@@ -73,14 +73,14 @@ const NOTE_DATE_REGEX = /\((\d{1,2}\/\d{1,2}\/\d{4})\)/;
  */
 const getMappedValue = (row: InterestedClickCSV, fieldKey: string): any => {
   const possibleKeys = FIELD_MAPPINGS[fieldKey] || [];
-  
+
   // Direct key match
   for (const key of possibleKeys) {
     if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
       return row[key];
     }
   }
-  
+
   // Case-insensitive fallback
   const rowKeys = Object.keys(row);
   for (const possibleKey of possibleKeys) {
@@ -89,7 +89,7 @@ const getMappedValue = (row: InterestedClickCSV, fieldKey: string): any => {
       return row[match];
     }
   }
-  
+
   return null;
 };
 
@@ -100,15 +100,15 @@ const parseNoteMetadata = (lastNote: string): { author: string | null; date: str
   if (!lastNote || typeof lastNote !== 'string') {
     return { author: null, date: null };
   }
-  
+
   // Updated patterns to match the actual format: "Aug 14 2025  4:10AM -- Allison Shirk"
   // Date format: "MMM DD YYYY  H:MMAM/PM"
   const datePattern = /(\w{3}\s+\d{1,2}\s+\d{4})\s+\d{1,2}:\d{2}[AP]M/;
   const authorPattern = /--\s*([^(\n]+)$/;
-  
+
   const dateMatch = lastNote.match(datePattern);
   const authorMatch = lastNote.match(authorPattern);
-  
+
   let extractedDate = null;
   if (dateMatch) {
     // Parse "Aug 14 2025" format to YYYY-MM-DD
@@ -118,7 +118,7 @@ const parseNoteMetadata = (lastNote: string): { author: string | null; date: str
       extractedDate = parsedDate.toISOString().split('T')[0];
     }
   }
-  
+
   return {
     author: authorMatch ? authorMatch[1].trim() : null,
     date: extractedDate
@@ -130,10 +130,10 @@ const parseNoteMetadata = (lastNote: string): { author: string | null; date: str
  */
 const formatDateForDB = (dateStr: string | any): string | null => {
   if (!dateStr) return null;
-  
+
   const cleaned = String(dateStr).trim();
   if (!cleaned) return null;
-  
+
   // Try standard Date parsing
   const date = new Date(cleaned);
   if (!isNaN(date.getTime())) {
@@ -143,7 +143,7 @@ const formatDateForDB = (dateStr: string | any): string | null => {
       return date.toISOString().split('T')[0];
     }
   }
-  
+
   // Manual parsing for MM/DD/YYYY format
   const mmddyyyyMatch = cleaned.match(DATE_REGEX_MMDDYYYY);
   if (mmddyyyyMatch) {
@@ -153,7 +153,7 @@ const formatDateForDB = (dateStr: string | any): string | null => {
       return parsedDate.toISOString().split('T')[0];
     }
   }
-  
+
   return null;
 };
 
@@ -181,22 +181,22 @@ const safeParseInt = (value: any): number | null => {
  * Validates and processes a single CSV row into database format
  */
 const processCSVRow = (
-  row: InterestedClickCSV, 
+  row: InterestedClickCSV,
   rowIndex: number
-): { 
-  data: ProcessedClick | null; 
-  errors: ValidationError[]; 
-  warnings: ValidationError[] 
+): {
+  data: ProcessedClick | null;
+  errors: ValidationError[];
+  warnings: ValidationError[]
 } => {
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
-  
+
   // Debug logging for first few rows to check mapping
   if (rowIndex <= 4) {
     console.log(`Row ${rowIndex} raw data:`, row);
     console.log('Column names in this row:', Object.keys(row));
   }
-  
+
   // Extract field values - Get raw values first
   // Extract field values - with explicit debugging
   const id = getMappedValue(row, 'id') || row['Id'];
@@ -205,11 +205,11 @@ const processCSVRow = (
   const email = getMappedValue(row, 'email') || row['Email'];
   const applicationDate = getMappedValue(row, 'applicationDate') || row['ApplicationDate'];
   const lastNote = row['LastNote'] || getMappedValue(row, 'lastNote') || '';
-  
+
   // CRITICAL FIX: Direct access to Recruiter column with extensive debugging
   const recruiter = row['Recruiter'] || '';
   const recruiterEmail = row['RecruiterEmail'] || '';
-  
+
   // Debug log to find where recruiter is getting lost
   if (rowIndex <= 5) {
     console.log(`\n=== ROW ${rowIndex} RECRUITER DEBUG ===`);
@@ -221,9 +221,9 @@ const processCSVRow = (
     console.log('Recruiter will be saved as:', String(recruiter).trim());
     console.log('=====================================\n');
   }
-  
+
   // === CRITICAL VALIDATIONS ===
-  
+
   // Application ID validation
   if (!id) {
     errors.push({
@@ -233,7 +233,7 @@ const processCSVRow = (
       message: 'Missing required application ID'
     });
   }
-  
+
   const applicationId = safeParseInt(id);
   if (id && !applicationId) {
     errors.push({
@@ -243,7 +243,7 @@ const processCSVRow = (
       message: 'Application ID must be a valid number'
     });
   }
-  
+
   // Candidate name validation
   if (!fullName || String(fullName).trim().length === 0) {
     errors.push({
@@ -253,9 +253,9 @@ const processCSVRow = (
       message: 'Missing required candidate name'
     });
   }
-  
+
   // === WARNINGS (non-blocking) ===
-  
+
   // Job ID warning
   if (!jobId) {
     warnings.push({
@@ -265,7 +265,7 @@ const processCSVRow = (
       message: 'Missing Job ID - record will be incomplete'
     });
   }
-  
+
   // Email format validation
   if (email && !isValidEmail(String(email).trim())) {
     warnings.push({
@@ -275,7 +275,7 @@ const processCSVRow = (
       message: 'Invalid email format'
     });
   }
-  
+
   // Date validation
   if (applicationDate && !formatDateForDB(applicationDate)) {
     warnings.push({
@@ -285,16 +285,16 @@ const processCSVRow = (
       message: 'Invalid date format - date will be empty'
     });
   }
-  
+
   // Stop processing if critical errors exist
   if (errors.length > 0) {
     return { data: null, errors, warnings };
   }
-  
+
   // === BUILD PROCESSED RECORD ===
-  
+
   const noteMetadata = parseNoteMetadata(lastNote);
-  
+
   const processedData: ProcessedClick = {
     application_id: applicationId!,
     application_date: formatDateForDB(applicationDate),
@@ -313,7 +313,7 @@ const processCSVRow = (
     last_note_date: noteMetadata.date,
     status: 'New'
   };
-  
+
   return { data: processedData, errors, warnings };
 };
 
@@ -321,7 +321,7 @@ const processCSVRow = (
 // MAIN COMPONENT
 // ============================================================================
 
-export default function InterestedClicksSync(): JSX.Element {
+export default function InterestedClicksSync({ onClose }: { onClose?: () => void }): JSX.Element {
   // State Management
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -363,7 +363,7 @@ export default function InterestedClicksSync(): JSX.Element {
     setIsProcessing(true);
     setValidationErrors([]);
     setValidationWarnings([]);
-    
+
     Papa.parse(fileToProcess, {
       header: true,
       skipEmptyLines: true,
@@ -371,7 +371,7 @@ export default function InterestedClicksSync(): JSX.Element {
       delimitersToGuess: [',', '\t', '|', ';'],
       complete: (results) => {
         const rawData = results.data as InterestedClickCSV[];
-        
+
         // CRITICAL: Log the first row to see exact column names and values
         if (rawData.length > 0) {
           console.log('=== CSV PARSING DEBUG ===');
@@ -380,20 +380,20 @@ export default function InterestedClicksSync(): JSX.Element {
           console.log('Recruiter column value:', rawData[0]['Recruiter']);
           console.log('=========================');
         }
-        
+
         const processed: ProcessedClick[] = [];
         const allErrors: ValidationError[] = [];
         const allWarnings: ValidationError[] = [];
-        
+
         // Process each row
         rawData.forEach((row, index) => {
           // Skip completely empty rows
           if (Object.values(row).every(v => v === null || v === undefined || v === '')) {
             return;
           }
-          
+
           const result = processCSVRow(row, index + 2); // +2 for header and 1-based indexing
-          
+
           if (result.data) {
             processed.push(result.data);
           }
@@ -404,7 +404,7 @@ export default function InterestedClicksSync(): JSX.Element {
             allWarnings.push(...result.warnings);
           }
         });
-        
+
         // Log what we're about to save
         if (processed.length > 0) {
           console.log('=== PROCESSED DATA DEBUG ===');
@@ -412,12 +412,12 @@ export default function InterestedClicksSync(): JSX.Element {
           console.log('Recruiter name in first record:', processed[0].recruiter_name);
           console.log('============================');
         }
-        
+
         setProcessedData(processed);
         setValidationErrors(allErrors);
         setValidationWarnings(allWarnings);
         setIsProcessing(false);
-        
+
         // Auto-show errors panel if errors exist
         if (allErrors.length > 0) {
           setShowErrors(true);
@@ -435,41 +435,41 @@ export default function InterestedClicksSync(): JSX.Element {
    */
   const handleSync = async () => {
     if (processedData.length === 0) return;
-    
+
     setIsSyncing(true);
     setSyncProgress(0);
-    
+
     try {
       // Create batches for large datasets
       const totalRecords = processedData.length;
       const batches: ProcessedClick[][] = [];
-      
+
       for (let i = 0; i < totalRecords; i += BATCH_SIZE) {
         batches.push(processedData.slice(i, Math.min(i + BATCH_SIZE, totalRecords)));
       }
-      
+
       let processedCount = 0;
-      
+
       // Process each batch
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
         const batch = batches[batchIndex];
-        
+
         // Log first record of first batch to verify data
         if (batchIndex === 0 && batch.length > 0) {
           console.log('First record being sent to database:', batch[0]);
         }
-        
+
         const { error } = await supabase
           .from('interested_clicks')
-          .upsert(batch, { 
+          .upsert(batch, {
             onConflict: 'application_id',
-            ignoreDuplicates: false 
+            ignoreDuplicates: false
           });
-        
+
         if (error) {
           // Specific error handling
           let errorMessage = 'Sync failed';
-          
+
           switch (error.code) {
             case '23505':
               errorMessage = 'Duplicate application IDs found in database';
@@ -486,21 +486,21 @@ export default function InterestedClicksSync(): JSX.Element {
             default:
               errorMessage = `Database error: ${error.message}`;
           }
-          
+
           alert(`${errorMessage}\n\nBatch ${batchIndex + 1} of ${batches.length} failed.`);
           setIsSyncing(false);
           setSyncProgress(0);
           return;
         }
-        
+
         processedCount += batch.length;
         setSyncProgress(Math.round((processedCount / totalRecords) * 100));
       }
-      
+
       // Success
       alert(`✅ Successfully synced ${totalRecords} records to database!`);
       resetState();
-      
+
     } catch (error) {
       console.error('Sync error:', error);
       alert(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -515,12 +515,12 @@ export default function InterestedClicksSync(): JSX.Element {
   const handleDrop = (e: React.DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
     const droppedFile = e.dataTransfer.files[0];
-    
+
     if (droppedFile) {
       // Validate file type
       const fileType = droppedFile.type;
       const fileName = droppedFile.name.toLowerCase();
-      
+
       if (fileType === 'text/csv' || fileName.endsWith('.csv')) {
         resetState();
         setFile(droppedFile);
@@ -536,9 +536,17 @@ export default function InterestedClicksSync(): JSX.Element {
   // ============================================================================
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="max-w-5xl w-full bg-white rounded-xl shadow-lg border border-gray-200 p-8">
-        
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="max-w-5xl w-full bg-white rounded-3xl shadow-2xl border border-white/20 p-8 relative overflow-hidden">
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="absolute top-6 right-6 p-2 rounded-xl hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-900"
+          >
+            <X size={24} strokeWidth={2.5} />
+          </button>
+        )}
+
         {/* Header */}
         <div className="text-center mb-8">
           <FileText size={48} className="mx-auto text-blue-600 mb-4" />
@@ -550,10 +558,10 @@ export default function InterestedClicksSync(): JSX.Element {
 
         {!file ? (
           /* Upload Area */
-          <label 
-            htmlFor="file-upload" 
+          <label
+            htmlFor="file-upload"
             onDrop={handleDrop}
-            onDragOver={(e) => e.preventDefault()} 
+            onDragOver={(e) => e.preventDefault()}
             className="block border-2 border-dashed border-gray-300 rounded-xl p-12 text-center hover:border-blue-400 transition-colors cursor-pointer bg-gray-50 hover:bg-blue-50"
           >
             <Upload size={40} className="mx-auto text-gray-400 mb-3" />
@@ -562,18 +570,18 @@ export default function InterestedClicksSync(): JSX.Element {
             <p className="text-xs text-gray-400 mt-4">
               Supports flexible column naming • Validates data before sync
             </p>
-            <input 
-              id="file-upload" 
-              type="file" 
-              className="sr-only" 
-              accept=".csv,text/csv" 
-              onChange={handleFileChange} 
+            <input
+              id="file-upload"
+              type="file"
+              className="sr-only"
+              accept=".csv,text/csv"
+              onChange={handleFileChange}
             />
           </label>
         ) : (
           /* Processing & Preview Area */
           <div className="space-y-6">
-            
+
             {/* File Status Bar */}
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
               <div className="flex items-center justify-between">
@@ -587,13 +595,13 @@ export default function InterestedClicksSync(): JSX.Element {
                   )}
                   <div>
                     <p className="text-sm font-medium text-gray-800">
-                      {isProcessing 
-                        ? 'Processing file...' 
+                      {isProcessing
+                        ? 'Processing file...'
                         : `${processedData.length} valid record${processedData.length !== 1 ? 's' : ''} ready`
                       }
                     </p>
                     <p className="text-xs text-gray-600 mt-0.5">
-                      {file.name} 
+                      {file.name}
                       {(validationErrors.length > 0 || validationWarnings.length > 0) && ' • '}
                       {validationErrors.length > 0 && (
                         <span className="text-red-600">{validationErrors.length} error{validationErrors.length !== 1 ? 's' : ''}</span>
@@ -605,7 +613,7 @@ export default function InterestedClicksSync(): JSX.Element {
                     </p>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={resetState}
                   className="text-gray-500 hover:text-gray-700 transition-colors"
                   title="Clear and start over"
@@ -627,7 +635,7 @@ export default function InterestedClicksSync(): JSX.Element {
                   </span>
                   <Info size={16} className={`text-gray-500 transform transition-transform ${showErrors ? 'rotate-180' : ''}`} />
                 </button>
-                
+
                 {showErrors && (
                   <div className="max-h-64 overflow-y-auto p-4 bg-white">
                     <div className="space-y-2">
@@ -642,7 +650,7 @@ export default function InterestedClicksSync(): JSX.Element {
                           )}
                         </div>
                       ))}
-                      
+
                       {/* Warnings */}
                       {validationWarnings.map((warning, idx) => (
                         <div key={`warning-${idx}`} className="text-xs p-2.5 bg-amber-50 text-amber-800 rounded-md border border-amber-200">
@@ -654,7 +662,7 @@ export default function InterestedClicksSync(): JSX.Element {
                 )}
               </div>
             )}
-            
+
             {/* Data Preview Table */}
             {processedData.length > 0 && (
               <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -729,42 +737,42 @@ export default function InterestedClicksSync(): JSX.Element {
                 )}
               </div>
             )}
-            
+
             {/* Sync Button */}
             <div className="space-y-2">
-              <button 
-                onClick={handleSync} 
-                disabled={isProcessing || isSyncing || processedData.length === 0 || validationErrors.length > 0} 
+              <button
+                onClick={handleSync}
+                disabled={isProcessing || isSyncing || processedData.length === 0 || validationErrors.length > 0}
                 className={`
                   w-full py-3.5 px-6 rounded-lg font-semibold
                   flex items-center justify-center gap-2.5
                   transition-all duration-200
                   ${(isSyncing || processedData.length === 0 || validationErrors.length > 0)
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
                   }
                 `}
               >
                 {isSyncing ? (
                   <>
-                    <Loader2 size={18} className="animate-spin" /> 
+                    <Loader2 size={18} className="animate-spin" />
                     Syncing... {syncProgress > 0 && `${syncProgress}%`}
                   </>
                 ) : (
                   <>
-                    <Zap size={18} /> 
+                    <Zap size={18} />
                     Sync {processedData.length} Record{processedData.length !== 1 ? 's' : ''} to Database
                   </>
                 )}
               </button>
-              
+
               {validationErrors.length > 0 && (
                 <p className="text-xs text-red-600 text-center font-medium">
                   ⚠️ Fix {validationErrors.length} error{validationErrors.length !== 1 ? 's' : ''} before syncing
                 </p>
               )}
             </div>
-            
+
           </div>
         )}
       </div>

@@ -23,12 +23,31 @@ import {
     Copy,
     Plus,
     Trash2,
-    Download,
-    Upload,
     FileText,
-    ExternalLink,
-    ShieldCheck
+    ShieldCheck,
+    Share2,
+    Lock,
+    Globe,
+    Search,
+    Users,
+    Target,
+    Shield,
+    Heart,
+    Award,
+    Send,
+    MessageCircle,
+    ExternalLink
 } from 'lucide-react';
+import { AIService, ChatMessage } from '../../services/aiService';
+import { supabase } from '../../lib/supabase';
+import {
+    generateKey,
+    exportKey,
+    importKey,
+    encryptData,
+    decryptData,
+    type EncryptedPackage
+} from '../../lib/crypto';
 
 // ============================================================================
 // DESIGN TOKENS
@@ -1041,6 +1060,7 @@ padding-top: ${tokens.spacing[3]};
 border-top: 1px solid rgba(0,0,0,0.05);
 }
 
+/* Form & Input Styles */
 .credential-form {
 display: grid;
 grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1067,7 +1087,7 @@ letter-spacing: 0.05em;
 }
 
 .form-input {
-padding: 8px 12px;
+padding: 10px 12px;
 font-size: 13px;
 border: 1px solid rgba(0,0,0,0.1);
 border-radius: ${tokens.radii.md};
@@ -1080,13 +1100,14 @@ outline: none;
 border-color: var(--color-accent-primary);
 }
 
+/* Button & Tool Styles */
 .btn {
 display: inline-flex;
 align-items: center;
 justify-content: center;
 gap: 8px;
-padding: 10px 16px;
-font-size: 12px;
+padding: 12px 20px;
+font-size: 13px;
 font-weight: 600;
 cursor: pointer;
 transition: all var(--transition-base);
@@ -1095,20 +1116,369 @@ border: none;
 white-space: nowrap;
 }
 
-.btn--sm { padding: 4px 8px; font-size: 10px; }
+.btn--sm { padding: 6px 12px; font-size: 11px; }
 .btn--primary { background: var(--color-accent-primary); color: white; }
 .btn--primary:hover { opacity: 0.9; transform: translateY(-1px); }
 .btn--ghost { background: transparent; color: var(--color-ink-secondary); border: 1px solid rgba(0,0,0,0.1); }
 .btn--ghost:hover { background: var(--color-surface-tertiary); color: var(--color-accent-primary); border-color: var(--color-accent-primary); }
-.btn--danger { background: #fee2e2; color: #991b1b; }
-.btn--danger:hover { background: #fecaca; }
+.btn--accent { background: var(--color-accent-highlight); color: var(--color-ink-primary); }
+.btn--accent:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(201, 169, 98, 0.2); }
 
 .tool-actions {
 display: flex;
 flex-wrap: wrap;
-gap: ${tokens.spacing[3]};
+gap: ${tokens.spacing[4]};
 padding-top: ${tokens.spacing[8]};
 border-top: 1px solid rgba(0,0,0,0.05);
+}
+
+.cloud-status {
+display: flex;
+align-items: center;
+gap: 8px;
+margin-top: ${tokens.spacing[4]};
+padding: ${tokens.spacing[3]} ${tokens.spacing[4]};
+background: #f8fafc;
+border-radius: ${tokens.radii.md};
+font-size: 12px;
+color: var(--color-ink-secondary);
+}
+
+.cloud-link-box {
+display: flex;
+align-items: center;
+gap: 8px;
+margin-top: ${tokens.spacing[4]};
+padding: ${tokens.spacing[2]};
+background: white;
+border: 1px solid var(--color-accent-highlight);
+border-radius: ${tokens.radii.md};
+}
+
+.share-url {
+flex: 1;
+font-family: var(--font-mono);
+font-size: 11px;
+color: var(--color-ink-tertiary);
+overflow: hidden;
+text-overflow: ellipsis;
+white-space: nowrap;
+}
+
+/* ========================================================================
+   RESEARCH CHAT
+   ======================================================================== */
+
+.research-chat {
+background: var(--color-surface-elevated);
+border-radius: ${tokens.radii.xl};
+box-shadow: var(--shadow-card);
+border: 1px solid rgba(0,0,0,0.04);
+overflow: hidden;
+display: flex;
+flex-direction: column;
+height: 480px;
+}
+
+.research-chat__messages {
+flex: 1;
+overflow-y: auto;
+padding: ${tokens.spacing[6]};
+display: flex;
+flex-direction: column;
+gap: ${tokens.spacing[4]};
+}
+
+.research-chat__empty {
+flex: 1;
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+text-align: center;
+color: var(--color-ink-tertiary);
+}
+
+.research-chat__suggestions {
+display: flex;
+flex-wrap: wrap;
+gap: ${tokens.spacing[2]};
+margin-top: ${tokens.spacing[4]};
+justify-content: center;
+}
+
+.research-chat__suggestions button {
+padding: 8px 14px;
+background: var(--color-surface-tertiary);
+border: 1px solid rgba(0,0,0,0.08);
+border-radius: ${tokens.radii.full};
+font-size: 12px;
+color: var(--color-ink-secondary);
+cursor: pointer;
+transition: all var(--transition-fast);
+}
+
+.research-chat__suggestions button:hover {
+background: var(--color-accent-primary);
+color: white;
+border-color: var(--color-accent-primary);
+}
+
+.research-chat__message {
+display: flex;
+}
+
+.research-chat__message--user {
+justify-content: flex-end;
+}
+
+.research-chat__message--model {
+justify-content: flex-start;
+}
+
+.research-chat__bubble {
+max-width: 85%;
+padding: ${tokens.spacing[4]};
+border-radius: ${tokens.radii.lg};
+font-size: 14px;
+line-height: 1.6;
+}
+
+.research-chat__message--user .research-chat__bubble {
+background: var(--color-accent-primary);
+color: white;
+border-bottom-right-radius: 4px;
+}
+
+.research-chat__message--model .research-chat__bubble {
+background: var(--color-surface-secondary);
+color: var(--color-ink-primary);
+border-bottom-left-radius: 4px;
+}
+
+.research-chat__bubble--loading {
+display: flex;
+gap: 6px;
+padding: 16px 20px;
+}
+
+.research-chat__dot {
+width: 8px;
+height: 8px;
+background: var(--color-ink-tertiary);
+border-radius: 50%;
+animation: pulse 1.2s ease-in-out infinite;
+}
+
+.research-chat__dot:nth-child(2) { animation-delay: 0.2s; }
+.research-chat__dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes pulse {
+0%, 100% { opacity: 0.4; transform: scale(0.8); }
+50% { opacity: 1; transform: scale(1); }
+}
+
+.research-chat__citations {
+margin-top: ${tokens.spacing[3]};
+padding-top: ${tokens.spacing[3]};
+border-top: 1px solid rgba(0,0,0,0.08);
+display: flex;
+flex-wrap: wrap;
+gap: ${tokens.spacing[2]};
+align-items: center;
+}
+
+.research-chat__citations-label {
+font-size: 10px;
+font-weight: 600;
+text-transform: uppercase;
+letter-spacing: 0.05em;
+color: var(--color-ink-tertiary);
+}
+
+.research-chat__citations a {
+display: inline-flex;
+align-items: center;
+gap: 4px;
+padding: 4px 10px;
+background: rgba(45, 90, 69, 0.1);
+color: var(--color-accent-primary);
+font-size: 11px;
+border-radius: ${tokens.radii.sm};
+text-decoration: none;
+transition: background var(--transition-fast);
+}
+
+.research-chat__citations a:hover {
+background: rgba(45, 90, 69, 0.2);
+}
+
+.research-chat__input-area {
+display: flex;
+gap: ${tokens.spacing[3]};
+padding: ${tokens.spacing[4]};
+border-top: 1px solid rgba(0,0,0,0.05);
+background: var(--color-surface-secondary);
+}
+
+.research-chat__input {
+flex: 1;
+padding: 12px 16px;
+background: white;
+border: 1px solid rgba(0,0,0,0.1);
+border-radius: ${tokens.radii.lg};
+font-size: 14px;
+transition: border-color var(--transition-fast);
+}
+
+.research-chat__input:focus {
+outline: none;
+border-color: var(--color-accent-primary);
+}
+
+.research-chat__input::placeholder {
+color: var(--color-ink-muted);
+}
+
+.research-chat__send {
+width: 48px;
+height: 48px;
+background: var(--color-accent-primary);
+color: white;
+border: none;
+border-radius: ${tokens.radii.lg};
+cursor: pointer;
+display: flex;
+align-items: center;
+justify-content: center;
+transition: all var(--transition-fast);
+}
+
+.research-chat__send:hover:not(:disabled) {
+transform: translateY(-1px);
+box-shadow: 0 4px 12px rgba(45, 90, 69, 0.3);
+}
+
+.research-chat__send:disabled {
+opacity: 0.5;
+cursor: not-allowed;
+}
+
+/* ========================================================================
+   LIFECYCLE ROADMAP
+   ======================================================================== */
+
+.lifecycle-timeline {
+display: flex;
+flex-direction: column;
+gap: ${tokens.spacing[6]};
+max-width: 800px;
+margin: 0 auto;
+padding: ${tokens.spacing[8]} 0;
+}
+
+.lifecycle-step {
+display: flex;
+gap: ${tokens.spacing[8]};
+}
+
+.lifecycle-step__marker {
+display: flex;
+flex-direction: column;
+align-items: center;
+flex-shrink: 0;
+}
+
+.lifecycle-step__icon {
+width: 48px;
+height: 48px;
+border-radius: ${tokens.radii.full};
+background: white;
+border: 4px solid var(--color-surface-secondary);
+display: flex;
+align-items: center;
+justify-content: center;
+color: white;
+z-index: 2;
+padding: 10px;
+}
+
+.lifecycle-step__line {
+flex: 1;
+width: 2px;
+background: var(--color-surface-tertiary);
+margin: ${tokens.spacing[2]} 0;
+}
+
+.lifecycle-step:last-child .lifecycle-step__line {
+display: none;
+}
+
+.lifecycle-step__content {
+flex: 1;
+background: var(--color-surface-elevated);
+padding: ${tokens.spacing[6]};
+border-radius: ${tokens.radii.xl};
+box-shadow: var(--shadow-card);
+border: 1px solid rgba(0,0,0,0.03);
+transition: transform var(--transition-normal);
+}
+
+.lifecycle-step:hover .lifecycle-step__content {
+transform: translateX(8px);
+}
+
+.lifecycle-step__phase {
+font-family: var(--font-mono);
+font-size: 10px;
+font-weight: 700;
+text-transform: uppercase;
+letter-spacing: 0.1em;
+color: var(--color-ink-tertiary);
+display: block;
+margin-bottom: ${tokens.spacing[2]};
+}
+
+.lifecycle-step__title {
+font-family: var(--font-display);
+font-size: ${tokens.typography.scale['2xl']};
+font-weight: 700;
+color: var(--color-ink-primary);
+margin-bottom: ${tokens.spacing[2]};
+}
+
+.lifecycle-step__description {
+font-size: 15px;
+color: var(--color-ink-secondary);
+margin-bottom: ${tokens.spacing[5]};
+line-height: 1.6;
+}
+
+.lifecycle-step__list {
+list-style: none;
+padding: 0;
+margin: 0;
+display: flex;
+flex-direction: column;
+gap: ${tokens.spacing[3]};
+}
+
+.lifecycle-step__item {
+display: flex;
+gap: ${tokens.spacing[3]};
+font-size: 14px;
+color: var(--color-ink-primary);
+line-height: 1.5;
+}
+
+.lifecycle-step__item-bullet {
+width: 6px;
+height: 6px;
+border-radius: ${tokens.radii.full};
+background: var(--color-accent-primary);
+margin-top: 7px;
+flex-shrink: 0;
+opacity: 0.4;
 }
 `;
 
@@ -1147,6 +1517,85 @@ interface CredentialItem {
     attachmentUrl?: string;
 }
 
+
+interface LifecycleStep {
+    id: string;
+    phase: string;
+    title: string;
+    description: string;
+    bulletPoints: string[];
+    icon: any;
+    accent: string;
+}
+
+const LIFECYCLE_STEPS: LifecycleStep[] = [
+    {
+        id: 'foundation',
+        phase: 'Phase 01',
+        title: 'The Foundation',
+        description: 'Establish your presence and build your tribe before the hunt begins.',
+        bulletPoints: [
+            'Find your agencies: Always have more than one agency and one recruiter.',
+            'Precision Profiles: Fill out profiles completely. Update applications and upload docs early.',
+            'The Referral Edge: Quality references set you apart from the crowd.',
+            'The Trust Bond: Connect with a recruiter you truly trust; you are in this together.'
+        ],
+        icon: Users,
+        accent: 'var(--color-accent-primary)'
+    },
+    {
+        id: 'acquisition',
+        phase: 'Phase 02',
+        title: 'The Acquisition',
+        description: 'Submission is a volume game backed by deep market intelligence.',
+        bulletPoints: [
+            'Volume Strategy: Usually takes 7-10 submittals for a single high-quality offer.',
+            'Market Intel: Know the facilities and cities you are submitting to.',
+            'Risk Management: One bad facility can be the difference between a long career and a short one.'
+        ],
+        icon: Target,
+        accent: 'var(--color-accent-secondary)'
+    },
+    {
+        id: 'readiness',
+        phase: 'Phase 03',
+        title: 'The Logistics',
+        description: 'Secure your fortress and finalize your readiness metrics.',
+        bulletPoints: [
+            'Compensation Clarity: Know your numbers down to the cent.',
+            'Housing Strategy: Consider a hotel for 2 weeks to "scout" before signing a lease.',
+            'Rapid Onboarding: Complete onboarding immediately. Never be at the mercy of the labs.'
+        ],
+        icon: Shield,
+        accent: 'var(--color-accent-highlight)'
+    },
+    {
+        id: 'execution',
+        phase: 'Phase 04',
+        title: 'The Execution',
+        description: 'Master the unit dynamics and establish your reputation early.',
+        bulletPoints: [
+            'Manager Rapport: Get to know your manager and scheduler on day one.',
+            'Extreme Flexibility: Being flexible early pays off significantly later.',
+            'Social Intelligence: Know your coworkers, but stay far away from the drama.'
+        ],
+        icon: Award,
+        accent: 'var(--color-ink-primary)'
+    },
+    {
+        id: 'continuity',
+        phase: 'Phase 05',
+        title: 'The Continuity',
+        description: 'Maximize your value and secure your next strategic move.',
+        bulletPoints: [
+            'The 6-Week Pivot: At week 6, connect with your recruiter about extending or moving on.',
+            'Negotiation Protocol: Always negotiate the extension; there is always money there.',
+            'Legacy Building: Build rapport with managers to establish your "Travel Home Base".'
+        ],
+        icon: Heart,
+        accent: 'var(--color-semantic-success)'
+    }
+];
 const HOUSING_RESOURCES: HousingResource[] = [
     {
         id: 'furnished-finder',
@@ -1300,10 +1749,10 @@ const AnimatedSection: FC<AnimatedSectionProps> = ({
     return (
         <div
             ref={ref as React.RefObject<HTMLDivElement>}
-            className={`${className} ${isVisible ? 'animate-fade-up' : ''}`}
+            className={`${className} ${isVisible ? 'animate-fade-up' : ''} `}
             style={{
                 opacity: isVisible ? 1 : 0,
-                animationDelay: `${delay}ms`,
+                animationDelay: `${delay} ms`,
             }}
         >
             {children}
@@ -1364,7 +1813,7 @@ const StatsBar: FC = () => (
     <AnimatedSection className="handbook-section__container">
         <div className="stats-bar">
             {STATS.map((stat, index) => (
-                <div key={stat.label} className={`stat stagger-${index + 1}`}>
+                <div key={stat.label} className={`stat stagger - ${index + 1} `}>
                     <span className="stat__value">{stat.value}</span>
                     <span className="stat__label">{stat.label}</span>
                 </div>
@@ -1380,7 +1829,7 @@ interface ResourceCardProps {
 
 const ResourceCard: FC<ResourceCardProps> = ({ resource, index }) => (
     <AnimatedSection
-        className={`resource-card resource-card--${resource.variant}`}
+        className={`resource - card resource - card--${resource.variant} `}
         delay={index * 100}
     >
         <div className="resource-card__icon">{resource.icon}</div>
@@ -1398,8 +1847,57 @@ const ResourceCard: FC<ResourceCardProps> = ({ resource, index }) => (
     </AnimatedSection>
 );
 
+const LifecycleSection: FC = () => (
+    <section id="lifecycle" className="handbook-section">
+        <div className="handbook-section__container">
+            <AnimatedSection className="handbook-section__header">
+                <p className="handbook-section__eyebrow">
+                    <Target />
+                    Professional Mastery
+                </p>
+                <h2 className="handbook-section__title">
+                    The Traveler Lifecycle
+                </h2>
+                <p className="handbook-section__description">
+                    Success in travel healthcare isn't accidental. It follows a rigorous path of
+                    preparation, strategic submittal, and reputation building. Follow this roadmap
+                    to maximize your career lifespan.
+                </p>
+            </AnimatedSection>
+
+            <div className="lifecycle-timeline">
+                {LIFECYCLE_STEPS.map((step, index) => (
+                    <AnimatedSection
+                        key={step.id}
+                        className="lifecycle-step"
+                        delay={index * 150}
+                    >
+                        <div className="lifecycle-step__marker" style={{ background: step.accent }}>
+                            <step.icon size={20} className="lifecycle-step__icon" />
+                            <div className="lifecycle-step__line" />
+                        </div>
+                        <div className="lifecycle-step__content">
+                            <span className="lifecycle-step__phase">{step.phase}</span>
+                            <h3 className="lifecycle-step__title">{step.title}</h3>
+                            <p className="lifecycle-step__description">{step.description}</p>
+                            <ul className="lifecycle-step__list">
+                                {step.bulletPoints.map((point, i) => (
+                                    <li key={i} className="lifecycle-step__item">
+                                        <div className="lifecycle-step__item-bullet" />
+                                        {point}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </AnimatedSection>
+                ))}
+            </div>
+        </div>
+    </section>
+);
+
 const HousingSection: FC = () => (
-    <section id="housing" className="handbook-section">
+    <section id="housing" className="handbook-section handbook-section--alt">
         <div className="handbook-section__container">
             <AnimatedSection className="handbook-section__header">
                 <p className="handbook-section__eyebrow">
@@ -1496,6 +1994,7 @@ const ChecklistSection: FC = () => (
                     establish operational rhythm immediately.
                 </p>
             </AnimatedSection>
+
             <div className="checklist">
                 {FIRST_48_HOURS.map((item) => (
                     <ChecklistItemCard key={item.step} item={item} />
@@ -1505,9 +2004,62 @@ const ChecklistSection: FC = () => (
     </section>
 );
 
-const CredentialSnapshotSection: FC = () => {
-    const [items, setItems] = useState<CredentialItem[]>([]);
+const CredentialPackSection: FC = () => {
+    const [items, setItems] = useState<CredentialItem[]>(() => {
+        const saved = localStorage.getItem('traveler_credentials');
+        return saved ? JSON.parse(saved) : [];
+    });
     const [newItem, setNewItem] = useState<Partial<CredentialItem>>({ type: '' });
+    const [isSharing, setIsSharing] = useState(false);
+    const [shareUrl, setShareUrl] = useState<string | null>(null);
+    const [isRecruiterView, setIsRecruiterView] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+
+    // Persist to local storage
+    useEffect(() => {
+        if (!isRecruiterView) {
+            localStorage.setItem('traveler_credentials', JSON.stringify(items));
+        }
+    }, [items, isRecruiterView]);
+
+    // Handle incoming share link
+    useEffect(() => {
+        const checkShareLink = async () => {
+            const hash = window.location.hash;
+            if (hash.includes('share=') && hash.includes('key=')) {
+                setIsLoading(true);
+                setIsRecruiterView(true);
+                try {
+                    const params = new URLSearchParams(hash.substring(1));
+                    const packId = params.get('share');
+                    const keyStr = params.get('key');
+
+                    if (!packId || !keyStr) return;
+
+                    const { data, error } = await supabase
+                        .from('credential_packs')
+                        .select('encrypted_data')
+                        .eq('id', packId)
+                        .single();
+
+                    if (error || !data) throw new Error('Pack not found or expired');
+
+                    const pkg: EncryptedPackage = JSON.parse(data.encrypted_data);
+                    const key = await importKey(keyStr);
+                    const decrypted = await decryptData(pkg, key);
+
+                    setItems(JSON.parse(decrypted));
+                } catch (err) {
+                    console.error('Decryption failed:', err);
+                    alert('This credential pack is invalid or has expired (links expire after 7 days).');
+                } finally {
+                    setIsLoading(false);
+                }
+            }
+        };
+
+        checkShareLink();
+    }, []);
 
     const getStatus = (date?: string) => {
         if (!date) return 'neutral';
@@ -1533,48 +2085,56 @@ const CredentialSnapshotSection: FC = () => {
         };
         setItems([...items, item]);
         setNewItem({ type: '' });
+        setShareUrl(null); // Reset share URL if data changes
     };
 
     const deleteItem = (id: string) => {
         setItems(items.filter(i => i.id !== id));
+        setShareUrl(null);
     };
 
-    const exportData = () => {
-        const data = JSON.stringify(items, null, 2);
-        const blob = new Blob([data], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `credential-pack-${new Date().toISOString().split('T')[0]}.json`;
-        a.click();
-    };
-
-    const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            try {
-                const data = JSON.parse(event.target?.result as string);
-                if (Array.isArray(data)) setItems(data);
-            } catch (err) {
-                alert('Invalid JSON file');
-            }
-        };
-        reader.readAsText(file);
-    };
-
-    const copyShareText = () => {
+    const generateCloudLink = async () => {
         if (items.length === 0) return;
-        const text = `CREDENTIAL READINESS SNAPSHOT\nGenerated: ${new Date().toLocaleDateString()}\n\n` +
-            items.map(i => {
-                const status = getStatus(i.expirationDate).toUpperCase();
-                return `[${status}] ${i.type}${i.issuer ? ` | ${i.issuer}` : ''}${i.expirationDate ? ` | Exp: ${i.expirationDate}` : ''}${i.attachmentUrl ? `\nLink: ${i.attachmentUrl}` : ''}`;
-            }).join('\n\n');
+        setIsSharing(true);
+        try {
+            const key = await generateKey();
+            const keyStr = await exportKey(key);
+            const encrypted = await encryptData(JSON.stringify(items), key);
 
-        navigator.clipboard.writeText(text);
-        alert('Copied to clipboard!');
+            const { data, error } = await supabase
+                .from('credential_packs')
+                .insert({
+                    encrypted_data: JSON.stringify(encrypted),
+                    pack_name: `${items.length} Credentials`
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            const url = `${window.location.origin}${window.location.pathname}#/share=${data.id}&key=${keyStr}`;
+            setShareUrl(url);
+        } catch (err) {
+            console.error('Cloud share failed:', err);
+            alert('Failed to generate secure link. Please try again.');
+        } finally {
+            setIsSharing(false);
+        }
     };
+
+    if (isLoading) {
+        return (
+            <section className="handbook-section handbook-section--alt">
+                <div className="handbook-section__container" style={{ textAlign: 'center', padding: '100px 0' }}>
+                    <div className="animate-pulse">
+                        <Lock size={48} style={{ margin: '0 auto 24px', opacity: 0.2 }} />
+                        <h2 className="handbook-section__title">Decrypting Secure Pack...</h2>
+                        <p className="handbook-section__description">Verifying zero-knowledge integrity...</p>
+                    </div>
+                </div>
+            </section>
+        );
+    }
 
     return (
         <section id="credentials" className="handbook-section handbook-section--alt">
@@ -1582,49 +2142,56 @@ const CredentialSnapshotSection: FC = () => {
                 <AnimatedSection className="handbook-section__header">
                     <p className="handbook-section__eyebrow">
                         <ShieldCheck />
-                        Compliance & Readiness
+                        {isRecruiterView ? 'Recruiter Access' : 'Compliance & Readiness'}
                     </p>
-                    <h2 className="handbook-section__title">Credential Snapshot</h2>
+                    <h2 className="handbook-section__title">
+                        {isRecruiterView ? 'Shared Credential Pack' : 'Credential Snapshot'}
+                    </h2>
                     <p className="handbook-section__description">
-                        Organize your professional identity. Track expirations locally and generate a "Share Pack" for your recruiter in seconds. No server uploads—your data stays in your browser.
+                        {isRecruiterView
+                            ? 'You are viewing a secure, end-to-end encrypted credential summary. This data was decrypted locally in your browser and is not stored on our servers in plaintext.'
+                            : 'Organize your professional identity. Track expirations locally and generate a secure, encrypted "Share Pack" for your recruiter. Zero-knowledge architecture ensures even we can\'t see your data.'
+                        }
                     </p>
                 </AnimatedSection>
 
                 <div className="credential-tool">
-                    <div className="credential-form">
-                        <div className="form-group">
-                            <label className="form-label">Type (e.g. BLS, License)</label>
-                            <input
-                                className="form-input"
-                                placeholder="State License"
-                                value={newItem.type}
-                                onChange={e => setNewItem({ ...newItem, type: e.target.value })}
-                            />
+                    {!isRecruiterView && (
+                        <div className="credential-form">
+                            <div className="form-group">
+                                <label className="form-label">Type (e.g. BLS, License)</label>
+                                <input
+                                    className="form-input"
+                                    placeholder="State License"
+                                    value={newItem.type}
+                                    onChange={e => setNewItem({ ...newItem, type: e.target.value })}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Issuer</label>
+                                <input
+                                    className="form-input"
+                                    placeholder="AHA, State Board"
+                                    value={newItem.issuer || ''}
+                                    onChange={e => setNewItem({ ...newItem, issuer: e.target.value })}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Expiration</label>
+                                <input
+                                    className="form-input"
+                                    type="date"
+                                    value={newItem.expirationDate || ''}
+                                    onChange={e => setNewItem({ ...newItem, expirationDate: e.target.value })}
+                                />
+                            </div>
+                            <div className="form-group" style={{ justifyContent: 'end' }}>
+                                <button className="btn btn--primary" onClick={addItem}>
+                                    <Plus size={16} /> Add to Pack
+                                </button>
+                            </div>
                         </div>
-                        <div className="form-group">
-                            <label className="form-label">Issuer</label>
-                            <input
-                                className="form-input"
-                                placeholder="AHA, State Board"
-                                value={newItem.issuer || ''}
-                                onChange={e => setNewItem({ ...newItem, issuer: e.target.value })}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Expiration</label>
-                            <input
-                                className="form-input"
-                                type="date"
-                                value={newItem.expirationDate || ''}
-                                onChange={e => setNewItem({ ...newItem, expirationDate: e.target.value })}
-                            />
-                        </div>
-                        <div className="form-group" style={{ justifyContent: 'end' }}>
-                            <button className="btn btn--primary" onClick={addItem}>
-                                <Plus size={16} /> Add to Pack
-                            </button>
-                        </div>
-                    </div>
+                    )}
 
                     <div className="credential-grid">
                         {items.length === 0 && (
@@ -1650,40 +2217,203 @@ const CredentialSnapshotSection: FC = () => {
                                             </span>
                                         )}
                                     </div>
-                                    <div className="credential-card__actions">
-                                        <button className="btn btn--ghost btn--sm" onClick={() => deleteItem(item.id)}>
-                                            <Trash2 size={12} /> Remove
-                                        </button>
-                                        {item.attachmentUrl && (
-                                            <a href={item.attachmentUrl} target="_blank" rel="noopener noreferrer" className="btn btn--ghost btn--sm">
-                                                <ExternalLink size={12} /> View
-                                            </a>
-                                        )}
-                                    </div>
+                                    {!isRecruiterView && (
+                                        <div className="credential-card__actions">
+                                            <button className="btn btn--ghost btn--sm" onClick={() => deleteItem(item.id)}>
+                                                <Trash2 size={12} /> Remove
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}
                     </div>
 
                     <div className="tool-actions">
-                        <button className="btn btn--primary" onClick={copyShareText} disabled={items.length === 0}>
-                            <Copy size={16} /> Copy Share Pack
-                        </button>
-                        <button className="btn btn--ghost" onClick={exportData} disabled={items.length === 0}>
-                            <Download size={16} /> Export JSON
-                        </button>
-                        <div style={{ position: 'relative' }}>
-                            <button className="btn btn--ghost" onClick={() => document.getElementById('import-json')?.click()}>
-                                <Upload size={16} /> Import JSON
+                        {!isRecruiterView ? (
+                            <>
+                                <button
+                                    className="btn btn--accent"
+                                    onClick={generateCloudLink}
+                                    disabled={items.length === 0 || isSharing}
+                                >
+                                    <Share2 size={16} /> {isSharing ? 'Encrypting...' : 'Generate Share Link'}
+                                </button>
+                                <button className="btn btn--ghost" onClick={() => {
+                                    const text = items.map(i => `${i.type}: ${getStatus(i.expirationDate).toUpperCase()}`).join('\n');
+                                    navigator.clipboard.writeText(text);
+                                    alert('Summary copied!');
+                                }}>
+                                    <Copy size={16} /> Copy Text Summary
+                                </button>
+                            </>
+                        ) : (
+                            <div className="cloud-status">
+                                <Globe size={16} />
+                                <span>This is a temporary, encrypted view. Links expire after 7 days.</span>
+                                <button className="btn btn--primary btn--sm" onClick={() => {
+                                    window.location.hash = '';
+                                    window.location.reload();
+                                }} style={{ marginLeft: 'auto' }}>
+                                    Create My Own Pack
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {shareUrl && (
+                        <div className="cloud-link-box animate-fade-up">
+                            <span className="share-url">{shareUrl}</span>
+                            <button className="btn btn--primary btn--sm" onClick={() => {
+                                navigator.clipboard.writeText(shareUrl);
+                                alert('Encrypted link copied to clipboard!');
+                            }}>
+                                <Copy size={12} /> Copy
                             </button>
-                            <input
-                                id="import-json"
-                                type="file"
-                                accept=".json"
-                                style={{ display: 'none' }}
-                                onChange={handleImport}
-                            />
                         </div>
+                    )}
+                </div>
+            </div>
+        </section>
+    );
+};
+
+const ResearchChatSection: FC = () => {
+    const [messages, setMessages] = useState<{ role: 'user' | 'model'; text: string; citations?: any[] }[]>([]);
+    const [input, setInput] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [history, setHistory] = useState<ChatMessage[]>([]);
+    const scrollRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+    }, [messages]);
+
+    const handleSend = async () => {
+        if (!input.trim() || isLoading) return;
+
+        const userInput = input.trim();
+        setInput('');
+        setMessages(prev => [...prev, { role: 'user', text: userInput }]);
+        setIsLoading(true);
+
+        try {
+            const result = await AIService.sendResearchQuery(userInput, history);
+
+            const candidate = result?.candidates?.[0];
+            const text = candidate?.content?.parts?.[0]?.text || 'I couldn\'t find an answer. Please try rephrasing.';
+            const groundingMeta = candidate?.groundingMetadata;
+            const citations = groundingMeta?.groundingChunks?.map((c: any) => ({
+                title: c.web?.title || 'Source',
+                uri: c.web?.uri || '#'
+            })) || [];
+
+            // Update history for context
+            setHistory(prev => [
+                ...prev,
+                { role: 'user', parts: [{ text: userInput }] },
+                { role: 'model', parts: [{ text }] }
+            ]);
+
+            setMessages(prev => [...prev, { role: 'model', text, citations }]);
+        } catch (err) {
+            console.error('Research chat error:', err);
+            setMessages(prev => [...prev, { role: 'model', text: 'Connection failed. Please try again.' }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSend();
+        }
+    };
+
+    return (
+        <section id="research" className="handbook-section">
+            <div className="handbook-section__container">
+                <AnimatedSection className="handbook-section__header">
+                    <p className="handbook-section__eyebrow">
+                        <Search />
+                        Licensing & Facility Intel
+                    </p>
+                    <h2 className="handbook-section__title">
+                        Ask the Research AI
+                    </h2>
+                    <p className="handbook-section__description">
+                        Get instant, cited answers about state licensing timelines, compact states,
+                        facility details, and market trends. Powered by grounded web search.
+                    </p>
+                </AnimatedSection>
+
+                <div className="research-chat">
+                    <div ref={scrollRef} className="research-chat__messages">
+                        {messages.length === 0 && (
+                            <div className="research-chat__empty">
+                                <MessageCircle size={40} style={{ opacity: 0.2, marginBottom: '16px' }} />
+                                <p>Ask a question to get started</p>
+                                <div className="research-chat__suggestions">
+                                    <button onClick={() => setInput('How long does it take to get a California RN license?')}>
+                                        CA license timeline?
+                                    </button>
+                                    <button onClick={() => setInput('What are the compact nursing states?')}>
+                                        NLC compact states?
+                                    </button>
+                                    <button onClick={() => setInput('Tell me about Cedars-Sinai Medical Center')}>
+                                        Cedars-Sinai info?
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        {messages.map((msg, i) => (
+                            <div key={i} className={`research-chat__message research-chat__message--${msg.role}`}>
+                                <div className="research-chat__bubble">
+                                    <p>{msg.text}</p>
+                                    {msg.citations && msg.citations.length > 0 && (
+                                        <div className="research-chat__citations">
+                                            <span className="research-chat__citations-label">Sources:</span>
+                                            {msg.citations.map((c, j) => (
+                                                <a key={j} href={c.uri} target="_blank" rel="noopener noreferrer">
+                                                    <ExternalLink size={10} /> {c.title}
+                                                </a>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                        {isLoading && (
+                            <div className="research-chat__message research-chat__message--model">
+                                <div className="research-chat__bubble research-chat__bubble--loading">
+                                    <span className="research-chat__dot" />
+                                    <span className="research-chat__dot" />
+                                    <span className="research-chat__dot" />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="research-chat__input-area">
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={e => setInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Ask about licensing, facilities, or market trends..."
+                            className="research-chat__input"
+                            disabled={isLoading}
+                        />
+                        <button
+                            onClick={handleSend}
+                            disabled={!input.trim() || isLoading}
+                            className="research-chat__send"
+                        >
+                            <Send size={18} />
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1712,10 +2442,12 @@ export default function TravelerHandbook(): JSX.Element {
             <div style={{ padding: `${tokens.spacing[12]} ${tokens.spacing[6]}` }}>
                 <StatsBar />
             </div>
+            <ResearchChatSection />
+            <LifecycleSection />
             <HousingSection />
             <MoneySection />
             <ChecklistSection />
-            <CredentialSnapshotSection />
+            <CredentialPackSection />
             <Footer />
         </div>
     );

@@ -66,6 +66,21 @@ class AIServiceClass {
 
         return data as CommandResponse;
     }
+    async sendResearchQuery(message: string, history: ChatMessage[] = []): Promise<any> {
+        const { data, error } = await supabase.functions.invoke('research-chat', {
+            body: {
+                message,
+                history
+            },
+        });
+
+        if (error) {
+            console.error('[AIService] Error calling research-chat:', error);
+            throw new Error(error.message || 'Failed to perform research');
+        }
+
+        return data;
+    }
 }
 
 export const AIService = new AIServiceClass();
