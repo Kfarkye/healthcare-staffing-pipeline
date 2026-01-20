@@ -23,11 +23,12 @@ Deno.serve(async (req) => {
         LIST_EMAIL_TEMPLATES: 'list_email_templates',
         DRAFT_EMAIL: 'draft_email',
         CREATE_FOLLOW_UP: 'create_follow_up',
+        SEARCH_KNOWLEDGE: 'search_knowledge',
         GOOGLE_SEARCH: 'google_search'
     };
 
     try {
-        const { message, history = [], attachment } = await req.json();
+        const { message, history = [], attachment, conversation_id: message_conversation_id } = await req.json();
 
         if (!message) throw new Error('Message is required');
 
@@ -104,6 +105,18 @@ Deno.serve(async (req) => {
                     }
                 },
                 {
+                    name: ToolName.SEARCH_KNOWLEDGE,
+                    description: "Search corporate knowledge (benefits, insurance, policies, FAQs).",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            query: { type: "string", description: "The benefit or policy to look up." },
+                            category: { type: "string", enum: ['benefits', 'faq', 'policies'] }
+                        },
+                        required: ["query"]
+                    }
+                },
+                {
                     name: ToolName.GOOGLE_SEARCH,
                     description: "Web search for grounding.",
                     parameters: {
@@ -117,7 +130,12 @@ Deno.serve(async (req) => {
 
         const systemInstruction = {
             parts: [{
-                text: `You are the 'Pipeline Command Center' AI (Kofi Farkye). Professional, high-speed, direct, warm. No robotic preambles. Action-oriented.`
+                text: `You are the 'Pipeline Command Center' AI (Kofi Farkye, Senior Recruiter, Aya Healthcare). Professional, high-speed, direct, warm. No robotic preambles. Action-oriented.
+
+Knowledge Retrieval:
+- Use 'search_knowledge' to find corporate benefits, insurance details, and policies.
+- Do NOT guess benefits; query the database.
+- If knowledge is not found, use 'google_search' for current external info.`
             }]
         };
 
@@ -157,6 +175,22 @@ Deno.serve(async (req) => {
 
             const toolCalls = content.parts.filter((p: any) => p.functionCall);
             if (toolCalls.length === 0) {
+                // SAVE TO CHAT HISTORY (Persistence)
+                try {
+                    const { data: userData } = await supabase.auth.getUser();
+                    if (userData?.user) {
+                        const convId = attachment?.candidate_id || message_conversation_id || 'general';
+                        await supabase.from('chat_history').upsert({
+                            user_id: userData.user.id,
+                            conversation_id: String(convId),
+                            messages: contents,
+                            last_message_at: new Date().toISOString()
+                        }, { onConflict: 'user_id, conversation_id' });
+                    }
+                } catch (e) {
+                    console.warn('Failed to persist chat history:', e);
+                }
+
                 return new Response(JSON.stringify(content), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 });
@@ -187,12 +221,23 @@ Deno.serve(async (req) => {
                             resultData = error ? { error: error.message } : (data || { message: "Not found" });
                             break;
                         }
-                        case ToolName.LIST_EMAIL_TEMPLATES:
-                            resultData = [
+                        case ToolName.LIST_EMAIL_TEMPLATES: {
+                            const { data, error } = await supabase.from('email_templates').select('id, name, category, description').eq('is_active', true);
+                            resultData = error ? { error: error.message } : (data?.length ? data : [
                                 { id: 'initial_outreach', description: 'Initial outreach' },
                                 { id: 'reengagement', description: 'Check-in' }
-                            ];
+                            ]);
                             break;
+                        }
+                        case ToolName.SEARCH_KNOWLEDGE: {
+                            const { data, error } = await supabase
+                                .from('knowledge_base')
+                                .select('*')
+                                .or(`title.ilike.%${args.query}%,content.ilike.%${args.query}%`)
+                                .limit(5);
+                            resultData = error ? { error: error.message } : (data?.length ? data : { message: "No relevant knowledge found. Try using google_search for external info." });
+                            break;
+                        }
                         case ToolName.CALCULATE_PAY: {
                             const { data, error } = await supabase.rpc('calculate_pay_package', {
                                 p_state: args.state.toUpperCase(),
