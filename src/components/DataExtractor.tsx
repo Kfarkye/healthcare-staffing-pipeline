@@ -45,13 +45,13 @@ class OutlookIntegrationService {
     outlookUrl.searchParams.append('to', emailData.to);
     outlookUrl.searchParams.append('subject', emailData.subject);
     outlookUrl.searchParams.append('body', emailData.body);
-    
+
     const finalUrl = outlookUrl.toString().replace(/\+/g, '%20');
     window.open(finalUrl, '_blank');
-    
+
     return true;
   }
-  
+
   static downloadEMLFile(emailData: { to: string; subject: string; body: string; htmlBody?: string }, filename = 'outreach-email.eml') {
     const emlContent = `To: ${emailData.to}
 Subject: ${emailData.subject}
@@ -69,7 +69,7 @@ ${emailData.htmlBody || emailData.body.replace(/\n/g, '<br>')}`;
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
-  
+
   static async copyTextToClipboard(text: string) {
     await navigator.clipboard.writeText(text);
   }
@@ -87,16 +87,16 @@ interface ToastProps {
 
 const Toast: React.FC<ToastProps> = ({ message, show, type = 'success' }) => {
   if (!show) return null;
-  
+
   const styles = {
     success: { bg: 'bg-green-50', border: 'border-green-200', icon: 'text-green-600', text: 'text-green-900' },
     error: { bg: 'bg-red-50', border: 'border-red-200', icon: 'text-red-600', text: 'text-red-900' },
     info: { bg: 'bg-blue-50', border: 'border-blue-200', icon: 'text-blue-600', text: 'text-blue-900' },
   };
-  
+
   const style = styles[type];
   const Icon = type === 'error' ? AlertCircle : CheckCircle;
-  
+
   return (
     <div className="fixed top-6 right-6 z-50 animate-in slide-in-from-top-2 fade-in duration-200">
       <div className={`${style.bg} px-4 py-3 rounded-lg shadow-lg border ${style.border} flex items-center gap-3 max-w-md`}>
@@ -257,16 +257,16 @@ export default function ProspectOutreachGenerator(): JSX.Element {
         showToast('File size must be less than 10MB', 'error');
         return;
       }
-      
+
       setImageFile(file);
       setExtractedData(null);
       setEditedData(null);
       setIsEditing(false);
-      
+
       const reader = new FileReader();
       reader.onload = (e) => setImagePreview(e.target?.result as string);
       reader.readAsDataURL(file);
-      
+
       showToast('Image uploaded successfully');
     }
   };
@@ -328,14 +328,14 @@ export default function ProspectOutreachGenerator(): JSX.Element {
   const handleOpenInOutlook = () => {
     const data = editedData || extractedData;
     if (!data) return;
-    
+
     const emailContent = generateEmailContent(data);
     const emailData = {
       to: data.email || '',
       subject: emailContent.subject,
       body: emailContent.body
     };
-    
+
     OutlookIntegrationService.openInOutlookWeb(emailData);
     showToast('Opening in Outlook Web...');
   };
@@ -343,7 +343,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
   const handleDownloadEmail = () => {
     const data = editedData || extractedData;
     if (!data) return;
-    
+
     const emailContent = generateEmailContent(data);
     const emailData = {
       to: data.email || '',
@@ -351,7 +351,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
       body: emailContent.body,
       htmlBody: emailContent.htmlBody
     };
-    
+
     const filename = `outreach-${data.name.replace(/\s+/g, '-').toLowerCase()}.eml`;
     OutlookIntegrationService.downloadEMLFile(emailData, filename);
     showToast('Email file downloaded successfully');
@@ -362,15 +362,15 @@ export default function ProspectOutreachGenerator(): JSX.Element {
       showToast('Please select a screenshot file first', 'error');
       return;
     }
-    
+
     setIsLoading(true);
-    
+
     try {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (!apiKey) throw new Error("Gemini API key not configured. Check your .env file.");
 
       const base64Image = await fileToBase64(imageFile);
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`;
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
       const payload = {
         contents: [{
           parts: [
@@ -380,41 +380,41 @@ export default function ProspectOutreachGenerator(): JSX.Element {
         }],
         generationConfig: { responseMimeType: "application/json" }
       };
-      
+
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      
+
       if (!response.ok) {
-         const errorBody = await response.json();
-         console.error("API Error Response:", errorBody);
-         throw new Error(`API request failed: ${response.status} - ${errorBody.error?.message || 'Unknown error'}`);
+        const errorBody = await response.json();
+        console.error("API Error Response:", errorBody);
+        throw new Error(`API request failed: ${response.status} - ${errorBody.error?.message || 'Unknown error'}`);
       }
 
       const result = await response.json();
       const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!textResponse) throw new Error("No content found in API response");
-      
+
       const data: ExtractedOfferData = JSON.parse(textResponse);
       setExtractedData(data);
-      
+
       const emailContent = generateEmailContent(data);
-      
+
       if (data.jobId) {
         await supabase.from('outreach_templates').upsert({
-            job_id: data.jobId,
-            facility_name: data.facility,
-            specialty: data.specialty,
-            location: `${data.city}, ${data.state}`,
-            gross_weekly_pay: data.grossWeeklyPay,
-            email_subject: emailContent.subject,
-            email_body: emailContent.body,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'job_id' });
+          job_id: data.jobId,
+          facility_name: data.facility,
+          specialty: data.specialty,
+          location: `${data.city}, ${data.state}`,
+          gross_weekly_pay: data.grossWeeklyPay,
+          email_subject: emailContent.subject,
+          email_body: emailContent.body,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'job_id' });
       }
-      
+
       if (data.candidateId && data.jobId) {
         // First, try to find existing engagement
         const { data: existingEngagement } = await supabase
@@ -488,8 +488,8 @@ export default function ProspectOutreachGenerator(): JSX.Element {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <Toast {...toast} onClose={() => {}} />
-      
+      <Toast {...toast} onClose={() => { }} />
+
       <header className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
@@ -521,7 +521,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
               <FileImage className="w-5 h-5 text-gray-600" />
               Upload Screenshot
             </h2>
-            
+
             <input
               ref={fileInputRef}
               type="file"
@@ -530,14 +530,13 @@ export default function ProspectOutreachGenerator(): JSX.Element {
               onChange={handleFileChange}
               className="hidden"
             />
-            
+
             <label
               htmlFor="file-upload"
               onDrop={handleDrop}
               onDragOver={handleDragOver}
-              className={`block w-full p-12 border-2 border-dashed ${
-                imageFile ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
-              } text-center cursor-pointer transition-all duration-200 rounded-lg relative overflow-hidden group`}
+              className={`block w-full p-12 border-2 border-dashed ${imageFile ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+                } text-center cursor-pointer transition-all duration-200 rounded-lg relative overflow-hidden group`}
             >
               {imagePreview ? (
                 <div className="relative">
@@ -557,15 +556,14 @@ export default function ProspectOutreachGenerator(): JSX.Element {
                 </>
               )}
             </label>
-            
+
             <button
               onClick={processAndGenerate}
               disabled={!imageFile || isLoading}
-              className={`w-full mt-6 px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2 ${
-                !imageFile || isLoading
+              className={`w-full mt-6 px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2 ${!imageFile || isLoading
                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                   : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 shadow-md hover:shadow-lg transform hover:-translate-y-0.5'
-              }`}
+                }`}
             >
               {isLoading ? (
                 <>
@@ -610,7 +608,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
                     </div>
                   )}
                 </div>
-                
+
                 <div className="space-y-3">
                   {Object.entries(displayData).map(([key, value]) => (
                     <div key={key} className="group">
@@ -629,7 +627,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
                       ) : (
                         <div className="flex items-center justify-between mt-1">
                           {key === 'jobId' && value ? (
-                            <a 
+                            <a
                               href={`https://nova.ayahealthcare.com/jobs/${value}`}
                               target="_blank"
                               rel="noopener noreferrer"
@@ -639,7 +637,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
                               <ExternalLink className="w-3 h-3" />
                             </a>
                           ) : key === 'candidateId' && value ? (
-                            <a 
+                            <a
                               href={`https://nova.ayahealthcare.com/recruiting/profile/${value}`}
                               target="_blank"
                               rel="noopener noreferrer"
@@ -653,8 +651,8 @@ export default function ProspectOutreachGenerator(): JSX.Element {
                               {key.includes('Rate') || key.includes('Pay') || key.includes('Stipend')
                                 ? formatCurrency(Number(value))
                                 : key.includes('Date')
-                                ? formatDate(value as string)
-                                : String(value) || '—'}
+                                  ? formatDate(value as string)
+                                  : String(value) || '—'}
                             </p>
                           )}
                           <button
@@ -687,34 +685,33 @@ export default function ProspectOutreachGenerator(): JSX.Element {
                     {showFullPreview ? 'Collapse' : 'Expand'}
                   </button>
                 </div>
-                
+
                 <div className="bg-gray-50 rounded-lg p-4 mb-4">
                   <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mb-2">Subject</p>
                   <p className="text-sm font-medium text-gray-900">
                     {generateEmailContent(displayData).subject}
                   </p>
                 </div>
-                
+
                 <div className="bg-gray-50 rounded-lg p-4 relative">
-                  <pre className={`text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed ${
-                    !showFullPreview ? 'max-h-96 overflow-hidden' : ''
-                  }`}>
+                  <pre className={`text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed ${!showFullPreview ? 'max-h-96 overflow-hidden' : ''
+                    }`}>
                     {generateEmailContent(displayData).body}
                   </pre>
                   {!showFullPreview && (
                     <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-gray-50 to-transparent pointer-events-none" />
                   )}
                 </div>
-                
+
                 <div className="flex gap-3 mt-6">
-                  <button 
+                  <button
                     onClick={handleOpenInOutlook}
                     className="flex-1 bg-gray-900 text-white font-medium py-2.5 px-4 rounded-lg hover:bg-gray-700 transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                   >
                     <ExternalLink className="w-4 h-4" />
                     Open in Outlook
                   </button>
-                  
+
                   <button
                     onClick={handleDownloadEmail}
                     className="bg-white border border-gray-300 text-gray-700 font-medium py-2.5 px-4 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
@@ -722,7 +719,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
                     <Download className="w-4 h-4" />
                     Download
                   </button>
-                  
+
                   <button
                     onClick={copyEmailContent}
                     className="bg-white border border-gray-300 text-gray-700 font-medium py-2.5 px-4 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
@@ -740,7 +737,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
                     )}
                   </button>
                 </div>
-                
+
                 <div className="text-xs text-center text-gray-500 pt-4 mt-4 border-t border-gray-100">
                   <p>
                     <strong>Tip:</strong> Click "Open in Outlook" to compose directly in Outlook 365, or "Download" for an .eml file with formatted content.

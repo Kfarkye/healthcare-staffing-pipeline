@@ -82,8 +82,8 @@ const FileUploadZone: React.FC<{
             )}
             {!isLoading && previewUrl && file && (
                 <div>
-                     <img src={previewUrl} alt="Screenshot Preview" className="max-h-32 mx-auto rounded-md mb-3" />
-                     <p className="text-xs text-gray-500">{file.name}</p>
+                    <img src={previewUrl} alt="Screenshot Preview" className="max-h-32 mx-auto rounded-md mb-3" />
+                    <p className="text-xs text-gray-500">{file.name}</p>
                 </div>
             )}
             {!isLoading && !previewUrl && (
@@ -118,7 +118,7 @@ export default function MarginDataSync(): JSX.Element {
     const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
     const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState<string>('');
     const { toast, showToast } = useToast();
-    
+
     // --- DATA PROCESSING LOGIC ---
 
     const processAndSync = useCallback(async (extractionPromise: Promise<MarginDetails | null>) => {
@@ -176,7 +176,7 @@ export default function MarginDataSync(): JSX.Element {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (!apiKey) throw new Error("API key is not configured.");
 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`;
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
         const payload = {
             contents: [{ parts: [{ text: HTML_EXTRACTION_PROMPT }, { text: bodyHtml }] }],
             generationConfig: { response_mime_type: "application/json", temperature: 0.1 }
@@ -196,11 +196,11 @@ export default function MarginDataSync(): JSX.Element {
             reader.readAsDataURL(file);
         });
         const base64Data = fileAsBase64.split(',')[1];
-        
+
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (!apiKey) throw new Error("API key is not configured.");
 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`;
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
         const payload = {
             contents: [{ parts: [{ text: SCREENSHOT_EXTRACTION_PROMPT }, { inline_data: { mime_type: file.type, data: base64Data } }] }],
             generationConfig: { response_mime_type: "application/json", temperature: 0.1 }
@@ -237,12 +237,12 @@ export default function MarginDataSync(): JSX.Element {
             processAndSync(extractDataFromScreenshot(file));
         }
     };
-    
+
     const isLoading = isHtmlLoading || isScreenshotLoading || isSyncing;
 
     return (
         <div className="bg-white p-8 rounded-lg shadow-md">
-            <Toast {...toast} onClose={() => {}} />
+            <Toast {...toast} onClose={() => { }} />
             <h1 className="text-2xl font-bold text-gray-800">Margin Data Sync</h1>
             <p className="text-sm text-gray-500 mt-1 mb-6">
                 Enrich engagement records using either the HTML bookmarklet or a screenshot.
@@ -250,7 +250,7 @@ export default function MarginDataSync(): JSX.Element {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
                 {/* --- HTML SYNC METHOD --- */}
                 <div className="text-center border-2 border-dashed border-gray-300 rounded-lg p-12">
-                    <Clipboard size={48} className="mx-auto text-gray-400"/>
+                    <Clipboard size={48} className="mx-auto text-gray-400" />
                     <h2 className="mt-4 text-xl font-semibold text-gray-700">Power User: Sync via HTML</h2>
                     <p className="mt-2 text-sm text-gray-500">
                         Use your bookmarklet on a margin page, then click below. Fastest and most accurate.
@@ -265,7 +265,7 @@ export default function MarginDataSync(): JSX.Element {
                 </div>
 
                 {/* --- SCREENSHOT SYNC METHOD --- */}
-                <FileUploadZone 
+                <FileUploadZone
                     file={screenshotFile}
                     previewUrl={screenshotPreviewUrl}
                     isLoading={isScreenshotLoading}
