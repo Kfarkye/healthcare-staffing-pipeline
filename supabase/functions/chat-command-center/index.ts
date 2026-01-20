@@ -344,12 +344,36 @@ Thank you!`
             if (!result.candidates?.[0]) throw new Error('No AI response.');
 
             const content = result.candidates[0].content;
+            const finishReason = result.candidates[0]?.finishReason || 'UNKNOWN';
+
+            // Handle known problematic finish reasons
+            if (finishReason === 'MALFORMED_FUNCTION_CALL') {
+                console.error('[Command] MALFORMED_FUNCTION_CALL detected. Content:', JSON.stringify(content, null, 2));
+                await logToAudit(null, finishReason, 'Model attempted malformed function call', { content });
+                return new Response(JSON.stringify({
+                    text: "I tried to call a tool but encountered an issue. Could you rephrase your request with more details? For example, try 'Draft reply for [Candidate Name]'.",
+                    history: contents,
+                }), {
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                });
+            }
+
+            if (finishReason === 'SAFETY' || finishReason === 'RECITATION') {
+                console.warn(`[Command] Response blocked: ${finishReason}`);
+                await logToAudit(null, finishReason, `Response blocked: ${finishReason}`, {});
+                return new Response(JSON.stringify({
+                    text: "I couldn't complete that request due to content guidelines. Please try rephrasing.",
+                    history: contents,
+                }), {
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                });
+            }
+
             if (!content || !content.parts) {
-                const finishReason = result.candidates?.[0]?.finishReason || 'UNKNOWN';
                 await logToAudit(null, finishReason, 'Empty content or safety block', { finishReason });
                 return new Response(JSON.stringify({
-                    role: 'model',
-                    parts: [{ text: "I'm sorry, I'm unable to process that request due to my safety guidelines or a technical glitch. Could you try rephrasing?" }]
+                    text: "I'm sorry, I'm unable to process that request due to my safety guidelines or a technical glitch. Could you try rephrasing?",
+                    history: contents,
                 }), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 });
