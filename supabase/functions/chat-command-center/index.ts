@@ -294,6 +294,8 @@ Thank you!`
                 ];
 
                 for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                    console.log(`[Command] API Call attempt ${attempt + 1}/${maxRetries + 1}`);
+
                     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${googleApiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -309,7 +311,16 @@ Thank you!`
                         })
                     });
 
+                    console.log(`[Command] API Response Status: ${response.status} ${response.statusText}`);
+
                     const result = await response.json();
+
+                    // Log full response structure for debugging
+                    if (result.error) {
+                        console.error(`[Command] API Error:`, JSON.stringify(result.error, null, 2));
+                    } else {
+                        console.log(`[Command] API Success - Candidates: ${result.candidates?.length || 0}, FinishReason: ${result.candidates?.[0]?.finishReason || 'N/A'}`);
+                    }
 
                     // Check for retryable errors
                     const isOverloaded = result.error?.message?.includes('overloaded') ||

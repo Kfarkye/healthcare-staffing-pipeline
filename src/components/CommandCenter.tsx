@@ -96,7 +96,7 @@ export const CommandCenter: React.FC = () => {
         setHistory(newHistory);
 
         try {
-            const { text, history: updatedHistory } = await AIService.sendCommand(
+            const response = await AIService.sendCommand(
                 userMessage,
                 history,
                 currentAttachment ? {
@@ -105,13 +105,16 @@ export const CommandCenter: React.FC = () => {
                 } : undefined
             );
 
-            // Handle UI State updates from tool responses
-            updatedHistory.forEach(msg => {
+            const text = response?.text || '';
+            const updatedHistory = response?.history || [...newHistory, { role: 'model' as const, parts: [{ text }] }];
+
+            // Handle UI State updates from tool responses (with null-safety)
+            updatedHistory?.forEach(msg => {
                 if (msg.role === 'function') {
-                    msg.parts.forEach(part => {
+                    msg.parts?.forEach(part => {
                         if (part.functionResponse?.name === 'set_ui_state') {
-                            const state = part.functionResponse.response.content;
-                            window.dispatchEvent(new CustomEvent('set_dashboard_ui_state', { detail: state }));
+                            const state = part.functionResponse.response?.content;
+                            if (state) window.dispatchEvent(new CustomEvent('set_dashboard_ui_state', { detail: state }));
                         }
                     });
                 }
