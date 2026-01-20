@@ -9,7 +9,9 @@ import {
     Copy,
     Mail,
     Layout as LayoutIcon,
-    Monitor
+    Monitor,
+    ChevronDown,
+    ChevronUp
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -76,6 +78,7 @@ export const CommandCenter: React.FC = () => {
     const [inputValue, setInputValue] = useState('');
     const [history, setHistory] = useState<ChatMessage[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
     const [attachment, setAttachment] = useState<{ file: File; base64: string; mimeType: string } | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -322,6 +325,8 @@ export const CommandCenter: React.FC = () => {
 
                                                             if (isLikelyEmail(text)) {
                                                                 const { subject, body } = extractEmailFields(text);
+                                                                const cardIndex = i;
+                                                                const isExpanded = expandedCards.has(cardIndex);
                                                                 return (
                                                                     <div className="bg-black/20 rounded-2xl border border-white/5 overflow-hidden">
                                                                         <div className="px-4 py-3 bg-white/5 border-b border-white/5 flex items-center justify-between">
@@ -336,9 +341,26 @@ export const CommandCenter: React.FC = () => {
                                                                         </div>
                                                                         <div className="p-4 space-y-3">
                                                                             <div className="text-[13px] font-bold text-white leading-tight">{subject}</div>
-                                                                            <div className="prose prose-invert prose-sm opacity-80 overflow-hidden line-clamp-6">
+                                                                            <div className={cn(
+                                                                                "prose prose-invert prose-sm opacity-80 overflow-hidden transition-all",
+                                                                                !isExpanded && "line-clamp-6"
+                                                                            )}>
                                                                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
                                                                             </div>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setExpandedCards(prev => {
+                                                                                        const next = new Set(prev);
+                                                                                        if (next.has(cardIndex)) next.delete(cardIndex);
+                                                                                        else next.add(cardIndex);
+                                                                                        return next;
+                                                                                    });
+                                                                                }}
+                                                                                className="flex items-center gap-1.5 text-[10px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+                                                                            >
+                                                                                {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                                                                {isExpanded ? 'Show less' : 'Show more'}
+                                                                            </button>
                                                                         </div>
                                                                     </div>
                                                                 );
