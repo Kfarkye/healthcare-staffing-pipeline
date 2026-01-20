@@ -166,11 +166,13 @@ export const CommandCenter: React.FC = () => {
                                                                     setTimeout(() => setCopiedIndex(null), 2000);
                                                                 }}
                                                                 className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors flex items-center gap-1.5"
-                                                                title="Copy all"
+                                                                title="Copy to clipboard"
+                                                                aria-label="Copy email to clipboard"
                                                             >
                                                                 {copiedIndex === i ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
                                                                 <span className="text-[10px]">{copiedIndex === i ? 'Copied' : 'Copy'}</span>
                                                             </button>
+                                                            <div className="w-px h-3 bg-white/10" />
                                                             <button
                                                                 onClick={() => {
                                                                     const text = msg.parts[0]?.text || '';
@@ -178,10 +180,12 @@ export const CommandCenter: React.FC = () => {
                                                                     const url = buildOutlookLink(to, undefined, subject, body);
                                                                     window.open(url, '_blank');
                                                                 }}
-                                                                className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors"
-                                                                title="Open in email"
+                                                                className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors flex items-center gap-1.5"
+                                                                title="Open in Outlook"
+                                                                aria-label="Open in Outlook"
                                                             >
                                                                 <Mail size={12} />
+                                                                <span className="text-[10px]">Open in email</span>
                                                             </button>
                                                         </div>
                                                     </div>

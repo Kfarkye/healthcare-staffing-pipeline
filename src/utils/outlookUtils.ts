@@ -17,6 +17,7 @@ export const stripMarkdown = (text: string): string => {
         .replace(/\*(.*?)\*/g, '$1')   // Italic
         .replace(/^\s*[-*]\s+/gm, '• ') // List items
         .replace(/`([^`]+)`/g, '$1')   // Code
+        .replace(/\n{3,}/g, '\n\n')    // Normalize excessive newlines
         .trim();
 };
 
