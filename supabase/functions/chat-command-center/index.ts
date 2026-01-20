@@ -29,7 +29,8 @@ Deno.serve(async (req) => {
         UPDATE_NEGOTIATION: 'update_negotiation',
         GET_PIPELINE_BRIEF: 'get_pipeline_brief',
         SET_UI_STATE: 'set_ui_state',
-        SEARCH_TRAVEL_LIST: 'search_travel_list'
+        SEARCH_TRAVEL_LIST: 'search_travel_list',
+        GET_TEMPLATE: 'get_template'
     };
 
     try {
@@ -217,13 +218,25 @@ Deno.serve(async (req) => {
                             cleared_status: { type: "string", description: "Filter by compliance status" }
                         }
                     }
+                },
+                {
+                    name: ToolName.GET_TEMPLATE,
+                    description: "Retrieve an editorial template from the Template Registry. Use this when the user asks to 'draft' or 'send' a standard communication like Extension Request, Margin Approval, or Cold Outreach.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            category: { type: "string", enum: ['active', 'prospect', 'retention'], description: "Template category based on candidate status." },
+                            template_name: { type: "string", description: "E.g., 'extension_request', 'margin_approval', 'cold_outreach'." }
+                        },
+                        required: ["category", "template_name"]
+                    }
                 }
             ]
         }];
 
         const systemInstruction = {
             parts: [{
-                text: `You are the 'Pipeline Command Center' AI (Kofi Farkye, Senior Recruiter, Aya Healthcare). 
+                text: `You are the 'Pipeline Command Center' AI (Kofi Farkye, Senior Recruiter, Fulfillment Specialist, P: 858-529-7267 Ext: 17017, Aya Healthcare). 
 
 AMBIENT AWARENESS:
 - You are aware of the user's dashboard view via the 'context' object (active candidate, current filters).
@@ -232,38 +245,24 @@ AMBIENT AWARENESS:
 Pillars of Operation:
 1. Executive Reporting: Use 'get_pipeline_brief' to summarize the recruiter's entire world.
 2. AI-Driven Navigation: Use 'set_ui_state' to instantly update the recruiter's dashboard based on their commands.
-3. Pay & Cert Accuracy: OCR and extract data from attachments to update negotiations and certifications (Diamond Standard).
+3. Rapid Extension: You are the master of the "Working List". When asked about extensions, use the 'search_travel_list' tool.
 
-Email Outreach Quality (THE RADIANT STANDARD):
-- COLD OUTREACH (Initial): You MUST strictly follow the 'Aya Editorial Standard' template below. No drift allowed.
-- CANDIDATE RESPONSE (Follow-up): Do NOT use the rigid template. Be conversational, direct, and address their specific points. Refer to previous pay/job details naturally. Only include the '3 Questions' footer if they remain unanswered.
+DYNAMIC TEMPLATE GROUNDING:
+When the user asks to draft, send, or compose ANY standard communication, you MUST:
+1. Call 'get_template' with the appropriate category ('active', 'prospect', 'retention') and template_name (e.g., 'extension_request', 'margin_approval', 'cold_outreach').
+2. Call 'search_travel_list' or 'get_prospect_details' to fetch the REAL candidate data.
+3. Replace all {{placeholders}} in the template with the real data you retrieved.
+4. Present the FULLY POPULATED template to the user. DO NOT ask them for data you can look up.
 
-AYA EDITORIAL STANDARD (For Cold Outreach):
-FORMAT:
-Subject: [Position Name] – [Facility Name] | $[Gross Weekly Pay]/week
+Available Templates:
+- extension_request (active): For candidates wanting to extend contracts.
+- margin_approval (active): For low-margin or custom pay package requests.
+- cold_outreach (prospect): For initial candidate outreach.
 
-Hi [Candidate First Name],
-
-[Hook - e.g., Thanks for your interest in the position at Facility Name. Here's the full breakdown — this looks like an excellent match for your background:]
-
-Facility: [Facility Name]
-Location: [City, State]
-Assignment Dates: [Start Date] – [End Date]
-Shifts & Hours: [Shift - e.g., Day/Night/Mid] ([Hours] hours/week)
-
-Pay Package:
-Taxable Hourly Rate: $[Rate]/hr
-Meals & Housing Stipend: $[Stipend]/week
-Total Gross Weekly Pay: $[Gross Weekly]
-
-[Closing - e.g., This role is moving quickly — I can get you submitted today if everything looks good.]
-
-To move forward, just confirm:
-- Are you available to start [Start Date]?
-- Do you have any time-off requests during the contract?
-- Is your Aya profile current (work history, certs, skills checklist)?
-
-Thank you!`
+SIGNATURE:
+Best,
+Kofi Farkye
+Senior Recruiter, Fulfillment Specialist`
             }]
         };
 
@@ -626,6 +625,33 @@ Thank you!`
                                 resultData = {
                                     count: travelData?.length || 0,
                                     travelers: travelData || []
+                                };
+                            }
+                            break;
+                        }
+                        case ToolName.GET_TEMPLATE: {
+                            const { data: templateData, error: templateError } = await supabase
+                                .from('communication_templates')
+                                .select('subject_template, body_template, required_variables, description')
+                                .eq('category', args.category)
+                                .eq('name', args.template_name)
+                                .eq('is_active', true)
+                                .maybeSingle();
+
+                            if (templateError) {
+                                resultData = { error: templateError.message };
+                            } else if (!templateData) {
+                                resultData = { error: `Template '${args.template_name}' not found in category '${args.category}'.` };
+                            } else {
+                                resultData = {
+                                    action: 'TEMPLATE_RETRIEVED',
+                                    template: {
+                                        subject: templateData.subject_template,
+                                        body: templateData.body_template,
+                                        required_variables: templateData.required_variables,
+                                        description: templateData.description
+                                    },
+                                    instructions: 'Populate the {{placeholders}} using data from search_travel_list or get_prospect_details tools. Do NOT ask the user for data you can look up.'
                                 };
                             }
                             break;

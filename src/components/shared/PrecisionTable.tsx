@@ -32,9 +32,9 @@ export function PrecisionTable<T extends { id: string | number }>({
 }: PrecisionTableProps<T>): JSX.Element {
     return (
         <div className={cn("inline-block min-w-full align-middle", className)}>
-            <div className="overflow-hidden border border-slate-200/60 rounded-[20px] bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.03),0_2px_4px_rgba(0,0,0,0.02)]">
+            <div className="radiant-card overflow-hidden">
                 <table className="min-w-full divide-y divide-slate-100">
-                    <thead className="bg-slate-50/50">
+                    <thead className="bg-[#F9F9FB]">
                         <tr>
                             {columns.map((column, idx) => {
                                 const isSorted = sortKey && column.sortKey === sortKey;
@@ -43,23 +43,23 @@ export function PrecisionTable<T extends { id: string | number }>({
                                         key={idx}
                                         scope="col"
                                         className={cn(
-                                            "px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap",
-                                            onSort && column.sortKey ? "cursor-pointer hover:text-slate-600 transition-colors" : "",
+                                            "px-6 py-4 text-left editorial-caption whitespace-nowrap",
+                                            onSort && column.sortKey ? "cursor-pointer hover:text-slate-900 transition-colors" : "",
                                             column.className
                                         )}
                                         style={column.width ? { width: column.width } : undefined}
                                         onClick={() => (onSort && column.sortKey) ? onSort(column.sortKey) : undefined}
                                     >
-                                        <div className="flex items-center gap-1.5">
+                                        <div className="flex items-center gap-2">
                                             {column.header}
                                             {onSort && column.sortKey && (
-                                                <div className={cn("flex flex-col opacity-0 group-hover:opacity-100 transition-opacity", isSorted && "opacity-100")}>
+                                                <div className={cn("flex flex-col opacity-0 group-hover:opacity-100 transition-all duration-200", isSorted && "opacity-100")}>
                                                     {isSorted && sortDir === 'asc' ? (
-                                                        <ArrowUp size={10} strokeWidth={3} className="text-blue-600" />
+                                                        <ArrowUp size={11} strokeWidth={3} className="text-blue-600" />
                                                     ) : isSorted && sortDir === 'desc' ? (
-                                                        <ArrowDown size={10} strokeWidth={3} className="text-blue-600" />
+                                                        <ArrowDown size={11} strokeWidth={3} className="text-blue-600" />
                                                     ) : (
-                                                        <div className="w-[10px]" />
+                                                        <ArrowUp size={11} strokeWidth={3} className="text-slate-200" />
                                                     )}
                                                 </div>
                                             )}
@@ -71,18 +71,22 @@ export function PrecisionTable<T extends { id: string | number }>({
                     </thead>
                     <tbody className="divide-y divide-slate-50 bg-white">
                         {isLoading ? (
-                            <tr>
-                                <td colSpan={columns.length} className="px-6 py-12 text-center">
-                                    <div className="flex flex-col items-center gap-2">
-                                        <div className="w-5 h-5 border-2 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
-                                        <span className="text-[13px] text-slate-400 font-medium">Refining data...</span>
-                                    </div>
-                                </td>
-                            </tr>
+                            Array.from({ length: 5 }).map((_, i) => (
+                                <tr key={i} className="animate-pulse">
+                                    {columns.map((_, idx) => (
+                                        <td key={idx} className="px-6 py-5">
+                                            <div className="h-4 bg-slate-100 rounded-full w-24" />
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))
                         ) : data.length === 0 ? (
                             <tr>
-                                <td colSpan={columns.length} className="px-6 py-12 text-center text-slate-400 text-[13px]">
-                                    No records found.
+                                <td colSpan={columns.length} className="px-6 py-20 text-center">
+                                    <div className="flex flex-col items-center gap-3">
+                                        <div className="editorial-caption text-slate-300">No signals found</div>
+                                        <p className="text-[13px] text-slate-400 font-medium">Try broadening your search criteria.</p>
+                                    </div>
                                 </td>
                             </tr>
                         ) : (
@@ -91,15 +95,15 @@ export function PrecisionTable<T extends { id: string | number }>({
                                     key={row.id}
                                     onClick={() => onRowClick?.(row)}
                                     className={cn(
-                                        "group transition-colors",
-                                        onRowClick ? "cursor-pointer hover:bg-slate-50/80" : ""
+                                        "group transition-all duration-200",
+                                        onRowClick ? "cursor-pointer hover:bg-slate-50/50 hover:translate-x-0.5" : ""
                                     )}
                                 >
                                     {columns.map((column, idx) => (
                                         <td
                                             key={idx}
                                             className={cn(
-                                                "px-4 py-3.5 text-[13px] text-slate-600 whitespace-nowrap",
+                                                "px-6 py-5 text-[13px] text-slate-600 font-medium whitespace-nowrap tabular-nums tracking-tight",
                                                 column.className
                                             )}
                                         >

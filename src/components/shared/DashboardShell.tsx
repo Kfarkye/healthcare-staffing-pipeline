@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import { ChevronRight } from 'lucide-react';
 
@@ -24,46 +24,54 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
 }) => {
     return (
         <div className={cn("flex flex-col h-full bg-[#F9F9FB] overflow-hidden", className)}>
-            {/* Header Area */}
-            <header className="shrink-0 bg-white/70 backdrop-blur-xl border-b border-slate-200/60 sticky top-0 z-30 px-8 py-6">
-                <div className="max-w-[1600px] mx-auto flex justify-between items-end">
-                    <div className="space-y-1">
-                        {eyebrow && (
-                            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-blue-600 mb-1">
-                                {eyebrow}
+            {/* Radiant Header */}
+            <header className="shrink-0 bg-white/40 backdrop-blur-2xl border-b border-slate-200/50 sticky top-0 z-30 px-10 py-8">
+                <div className="max-w-[1600px] mx-auto flex flex-col gap-6">
+                    <div className="flex justify-between items-start">
+                        <div className="space-y-1.5">
+                            {eyebrow && (
+                                <div className="editorial-caption text-blue-600 mb-2">
+                                    {eyebrow}
+                                </div>
+                            )}
+                            <h1 className="editorial-title">
+                                {title}
+                            </h1>
+                            {subtitle && (
+                                <p className="text-[14px] text-slate-500 font-medium tracking-tight">
+                                    {subtitle}
+                                </p>
+                            )}
+                        </div>
+
+                        {actions && (
+                            <div className="flex items-center gap-2.5">
+                                {actions}
                             </div>
                         )}
-                        <h1 className="text-[28px] font-bold tracking-tight text-slate-900 leading-none">
-                            {title}
-                        </h1>
-                        {subtitle && (
-                            <p className="text-[14px] text-slate-500 font-medium">
-                                {subtitle}
-                            </p>
+                    </div>
+
+                    <AnimatePresence>
+                        {stats && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="flex items-center gap-6 pt-2"
+                            >
+                                {stats}
+                            </motion.div>
                         )}
-                    </div>
-
-                    {actions && (
-                        <div className="flex items-center gap-3 pb-1">
-                            {actions}
-                        </div>
-                    )}
+                    </AnimatePresence>
                 </div>
-
-                {stats && (
-                    <div className="max-w-[1600px] mx-auto mt-8 flex items-center gap-4">
-                        {stats}
-                    </div>
-                )}
             </header>
 
             {/* Main Content Area */}
-            <main className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 page-transition-container">
+            <main className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 no-scrollbar">
                 <motion.div
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-                    className="max-w-[1600px] mx-auto px-8 py-8"
+                    transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                    className="max-w-[1600px] mx-auto px-10 py-10"
                 >
                     {children}
                 </motion.div>

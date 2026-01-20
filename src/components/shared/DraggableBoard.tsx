@@ -62,7 +62,7 @@ const SortableCard: React.FC<{
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.3 : 1,
   };
 
   return (
@@ -71,7 +71,7 @@ const SortableCard: React.FC<{
       style={style}
       {...attributes}
       {...listeners}
-      className={`cursor-move ${isDragging ? 'z-50' : ''}`}
+      className={`cursor-grab active:cursor-grabbing ${isDragging ? 'z-50' : ''}`}
     >
       {renderCard(item, isDragging)}
     </div>
@@ -86,26 +86,24 @@ const DroppableColumn: React.FC<{
   return (
     <div
       className={`
-        flex-1 min-w-[280px] max-w-[380px]
-        ${isDropTarget ? 'ring-2 ring-blue-500 ring-opacity-50 bg-blue-50/10' : ''}
-        transition-all duration-200
+        flex-1 min-w-[320px] max-w-[400px] h-full
+        ${isDropTarget ? 'bg-blue-50/20' : ''}
+        transition-all duration-300 rounded-[28px]
       `}
     >
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 h-full">
-        <div className="p-4 border-b border-slate-100">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-sm text-slate-900">
-              {column.title}
-            </h3>
-            <span className="text-xs font-medium px-2 py-1 bg-slate-100 text-slate-600 rounded-full">
-              {column.items.length}
-            </span>
-          </div>
+      <div className="flex flex-col h-full">
+        <div className="px-6 py-5 flex items-center justify-between">
+          <h3 className="editorial-caption text-slate-400">
+            {column.title}
+          </h3>
+          <span className="text-[11px] font-bold px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full tabular-nums">
+            {column.items.length}
+          </span>
         </div>
-        <div className="p-2 space-y-2 min-h-[200px] max-h-[calc(100vh-300px)] overflow-y-auto">
+        <div className="flex-1 px-3 pb-6 space-y-3 min-h-[300px] overflow-y-auto no-scrollbar scroll-smooth">
           {column.items.length === 0 ? (
-            <div className="text-center py-8 text-slate-400 text-sm">
-              Drop items here
+            <div className="h-full flex items-center justify-center border-2 border-dashed border-slate-100 rounded-[24px] py-16">
+              <span className="editorial-caption text-slate-300">Drop here</span>
             </div>
           ) : (
             children
@@ -180,7 +178,7 @@ export const DraggableBoard: React.FC<DraggableBoardProps> = ({
     if (activeColumn && overColumn && activeItem) {
       if (activeColumn.id !== overColumn.id) {
         if (overColumn.acceptsItemsFrom &&
-            !overColumn.acceptsItemsFrom.includes(activeColumn.id)) {
+          !overColumn.acceptsItemsFrom.includes(activeColumn.id)) {
           setActiveId(null);
           setOverId(null);
           return;
@@ -218,7 +216,7 @@ export const DraggableBoard: React.FC<DraggableBoardProps> = ({
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <div className={`flex gap-4 overflow-x-auto pb-4 ${className}`}>
+      <div className={`flex gap-6 overflow-x-auto pb-10 no-scrollbar ${className}`}>
         {columns.map(column => {
           const isDropTarget = overId === column.id ||
             (overId && column.items.some(item => item.id === overId));
@@ -243,7 +241,7 @@ export const DraggableBoard: React.FC<DraggableBoardProps> = ({
               ) : (
                 <DroppableColumn
                   column={column}
-                  isDropTarget={isDropTarget}
+                  isDropTarget={!!isDropTarget}
                 >
                   {column.items.map(item => (
                     <SortableCard
@@ -259,18 +257,21 @@ export const DraggableBoard: React.FC<DraggableBoardProps> = ({
         })}
       </div>
 
-      <DragOverlay>
+      <DragOverlay dropAnimation={{
+        duration: 400,
+        easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+      }}>
         {activeItem ? (
-          <div className="opacity-90 rotate-3 scale-105">
+          <div className="z-50 shadow-[0_20px_50px_rgba(0,0,0,0.15)] rotate-2 scale-[1.02] transition-transform duration-200">
             {renderCard(activeItem, true)}
           </div>
         ) : null}
       </DragOverlay>
 
       {isMoving && (
-        <div className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center">
-          <div className="bg-white rounded-lg p-4 shadow-lg">
-            <div className="animate-spin h-8 w-8 border-4 border-slate-200 border-t-slate-600 rounded-full" />
+        <div className="fixed inset-0 bg-white/40 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white rounded-full p-4 shadow-xl border border-slate-100">
+            <div className="animate-spin h-6 w-6 border-2 border-slate-100 border-t-blue-600 rounded-full" />
           </div>
         </div>
       )}

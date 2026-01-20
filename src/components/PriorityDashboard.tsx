@@ -19,58 +19,6 @@ import { DashboardShell } from './shared/DashboardShell';
 import { PrecisionTable } from './shared/PrecisionTable';
 
 
-// ============================================================================
-// DESIGN SYSTEM
-// ============================================================================
-
-const DESIGN = {
-  space: {
-    xs: '0.25rem',    // 4px
-    sm: '0.5rem',     // 8px
-    md: '0.75rem',    // 12px
-    lg: '1rem',       // 16px
-    xl: '1.5rem',     // 24px
-    '2xl': '2rem',    // 32px
-  },
-  text: {
-    xs: '0.6875rem',  // 11px
-    sm: '0.8125rem',  // 13px
-    base: '0.875rem', // 14px
-    lg: '1rem',       // 16px
-    xl: '1.25rem',    // 20px
-    '2xl': '1.75rem', // 28px
-  },
-  weight: {
-    normal: '400',
-    medium: '500',
-    semibold: '600',
-    bold: '700',
-  },
-  color: {
-    primary: 'bg-blue-600 text-white hover:bg-blue-700',
-    secondary: 'bg-slate-100 text-slate-700 hover:bg-slate-200',
-    success: 'bg-green-600 text-white',
-    local: 'text-green-600',
-  },
-  elevation: {
-    none: 'shadow-none',
-    sm: 'shadow-sm',
-    md: 'shadow-md',
-    lg: 'shadow-lg',
-  },
-  radius: {
-    sm: '0.5rem',   // 8px
-    md: '0.75rem',  // 12px
-    lg: '1rem',     // 16px
-    full: '9999px',
-  },
-  transition: {
-    fast: '100ms',
-    base: '150ms',
-    slow: '200ms',
-  },
-};
-
 const RECORDS_PER_PAGE = 100;
 const COPY_DURATION = 2000;
 const DEBOUNCE_DELAY = 300;
@@ -426,15 +374,14 @@ const Toast: React.FC<{ toast: Toast; onDismiss: () => void }> = ({ toast, onDis
   return (
     <div
       className={cn(
-        'fixed bottom-6 right-6 px-4 py-3 rounded-xl z-50',
-        'flex items-center gap-2.5 animate-slideUp backdrop-blur-sm text-white',
-        bg, DESIGN.elevation.lg
+        'fixed bottom-6 right-6 px-5 py-3.5 rounded-2xl z-50',
+        'flex items-center gap-3 animate-slideUp backdrop-blur-xl border border-white/20 text-white shadow-2xl',
+        bg
       )}
-      style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
       role="alert"
     >
-      <Icon size={16} strokeWidth={2.5} />
-      {toast.message}
+      <Icon size={18} strokeWidth={2.5} />
+      <span className="text-[13px] font-semibold tracking-tight">{toast.message}</span>
     </div>
   );
 };
@@ -488,16 +435,10 @@ const PackageModal: React.FC<{
         {/* Header */}
         <header className="p-6 border-b border-slate-200 flex justify-between items-center">
           <div>
-            <h2
-              className="text-slate-900 mb-1"
-              style={{ fontSize: DESIGN.text.lg, fontWeight: DESIGN.weight.semibold }}
-            >
+            <h2 className="editorial-title text-[18px]">
               Email for {prospect.candidate_name}
             </h2>
-            <p
-              className="text-slate-500"
-              style={{ fontSize: DESIGN.text.sm }}
-            >
+            <p className="editorial-caption text-slate-400 mt-0.5">
               Job #{prospect.job_id} · {prospect.specialty}
             </p>
           </div>
@@ -520,8 +461,7 @@ const PackageModal: React.FC<{
             <textarea
               readOnly
               value={email.body}
-              className="w-full h-96 p-4 bg-slate-50 border border-slate-200 rounded-xl resize-none focus:outline-none font-mono"
-              style={{ fontSize: DESIGN.text.sm }}
+              className="w-full h-96 p-5 bg-slate-50 border border-slate-200/60 rounded-[20px] resize-none focus:outline-none font-mono text-[13px] leading-relaxed text-slate-600"
             />
           )}
         </div>
@@ -532,10 +472,9 @@ const PackageModal: React.FC<{
             <button
               onClick={handleCopy}
               className={cn(
-                'px-4 py-2 rounded-lg transition-all flex items-center gap-2',
-                copied ? DESIGN.color.success : DESIGN.color.primary
+                'px-6 py-2.5 rounded-full transition-all flex items-center gap-2 text-[13px] font-bold shadow-sm active:scale-95',
+                copied ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'
               )}
-              style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.semibold }}
             >
               {copied ? (
                 <>
@@ -623,18 +562,14 @@ const JobFilterModal: React.FC<{
         {/* Header */}
         <header className="p-6 border-b border-slate-200 flex justify-between items-center">
           <div>
-            <h2
-              className="text-slate-900 mb-1"
-              style={{ fontSize: DESIGN.text.lg, fontWeight: DESIGN.weight.semibold }}
-            >
+            <h2 className="editorial-title text-[18px]">
               Filter by Job IDs
             </h2>
             <a
               href="https://ssrsreports-ayahealthcare.msappproxy.net/reports/report/Recruiting/MyAya%20Interested%20Clicks"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1"
-              style={{ fontSize: DESIGN.text.sm }}
+              className="text-blue-600 hover:text-blue-700 transition-colors flex items-center gap-1.5 text-[12px] font-semibold"
             >
               Generate Report
               <ExternalLink size={14} strokeWidth={2} />
@@ -653,10 +588,9 @@ const JobFilterModal: React.FC<{
         <div className="p-6 space-y-4">
           <label className="flex items-center justify-center">
             <div className={cn(
-              'px-4 py-2.5 rounded-lg cursor-pointer transition-colors flex items-center gap-2',
-              loading ? 'bg-slate-300 cursor-wait' : DESIGN.color.primary
+              'px-6 py-3 rounded-full cursor-pointer transition-all flex items-center gap-2 text-[13px] font-bold shadow-sm hover:translate-y-[-1px] active:scale-95',
+              loading ? 'bg-slate-300 cursor-wait' : 'bg-blue-600 text-white hover:bg-blue-700'
             )}
-              style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.semibold }}
             >
               <FileUp size={18} strokeWidth={2} />
               {loading ? 'Processing...' : 'Upload Excel'}
@@ -680,8 +614,7 @@ const JobFilterModal: React.FC<{
             </div>
             <div className="relative flex justify-center">
               <span
-                className="px-2 bg-white text-slate-500"
-                style={{ fontSize: DESIGN.text.xs }}
+                className="px-3 bg-white text-slate-300 text-[10px] font-bold tracking-widest uppercase"
               >
                 OR
               </span>
@@ -689,18 +622,14 @@ const JobFilterModal: React.FC<{
           </div>
 
           <div>
-            <label
-              className="block text-slate-700 mb-2"
-              style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
-            >
+            <label className="editorial-caption text-slate-400 mb-2 block">
               Paste Job IDs
             </label>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="123456&#10;789012&#10;345678"
-              className="w-full h-48 p-4 bg-slate-50 border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-              style={{ fontSize: DESIGN.text.sm }}
+              className="w-full h-48 p-5 bg-slate-50 border border-slate-200/60 rounded-[20px] resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/10 font-mono text-[13px] text-slate-600"
             />
           </div>
         </div>
@@ -709,28 +638,20 @@ const JobFilterModal: React.FC<{
         <footer className="p-6 bg-slate-50 border-t border-slate-200 rounded-b-2xl flex justify-end gap-3">
           <button
             onClick={onClose}
-            className={cn(
-              'px-4 py-2 rounded-lg transition-colors',
-              DESIGN.color.secondary
-            )}
-            style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
+            className="px-5 py-2.5 rounded-full bg-slate-100 text-slate-600 text-[13px] font-bold hover:bg-slate-200 transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleLoad}
             disabled={!input.trim()}
-            className={cn(
-              'px-4 py-2 rounded-lg transition-colors disabled:bg-slate-300',
-              DESIGN.color.primary
-            )}
-            style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.semibold }}
+            className="px-6 py-2.5 rounded-full bg-blue-600 text-white text-[13px] font-bold hover:bg-blue-700 disabled:bg-slate-200 transition-all shadow-sm active:scale-95"
           >
             Load
           </button>
         </footer>
       </div>
-    </div>
+    </div >
   );
 };
 
