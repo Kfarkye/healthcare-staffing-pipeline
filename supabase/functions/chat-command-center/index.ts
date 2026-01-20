@@ -141,9 +141,22 @@ Knowledge Retrieval:
 
         const userParts: any[] = [{ text: message }];
         if (attachment) {
+            // Normalize MIME types for Gemini. .eml is often message/rfc822 which Gemini doesn't support directly.
+            // Mapping it to text/plain allows Gemini to parse the email content as text.
+            let mimeType = attachment.mimeType;
+            if (mimeType === 'message/rfc822' || mimeType.includes('email') || attachment.base64.startsWith('RnJvbTo')) { // 'From:' in base64
+                mimeType = 'text/plain';
+            }
+
+            // Fallback for types Gemini doesn't support but are essentially text
+            const textTypes = ['application/json', 'application/xml', 'text/csv', 'text/html'];
+            if (textTypes.includes(mimeType)) {
+                mimeType = 'text/plain';
+            }
+
             userParts.push({
                 inlineData: {
-                    mimeType: attachment.mimeType,
+                    mimeType: mimeType,
                     data: attachment.base64
                 }
             });
