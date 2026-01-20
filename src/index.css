@@ -12,19 +12,19 @@
 
 @layer components {
     .precision-glass {
-        @apply backdrop-blur-3xl border border-white/20 bg-white/70 shadow-[0_8px_32px_-4px_rgba(0, 0, 0, 0.05)];
+        @apply backdrop-blur-3xl border border-white/20 bg-white/70 shadow-[0_8px_32px_-4px_rgba(0,0,0,0.05)];
     }
 
     .obsidian-glass {
-        @apply backdrop-blur-3xl border border-white/10 bg-slate-950/80 shadow-[0_24px_64px_-12px_rgba(0, 0, 0, 0.5)];
+        @apply backdrop-blur-3xl border border-white/10 bg-slate-950/80 shadow-[0_24px_64px_-12px_rgba(0,0,0,0.5)];
     }
 
     .ambient-glow-indigo {
-        @apply shadow-[0_0_60px_-15px_rgba(79, 70, 229, 0.3)];
+        @apply shadow-[0_0_60px_-15px_rgba(79,70,229,0.3)];
     }
 
     .ambient-glow-emerald {
-        @apply shadow-[0_0_60px_-15px_rgba(16, 185, 129, 0.2)];
+        @apply shadow-[0_0_60px_-15px_rgba(16,185,129,0.2)];
     }
 
     .editorial-title {
@@ -57,5 +57,5 @@
 .page-transition-enter-active {
     opacity: 1;
     transform: translateY(0);
-    transition: all 400ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 400ms cubic-bezier(0.16, 1,0.3, 1);
 }
