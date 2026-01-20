@@ -152,44 +152,88 @@ export const CommandCenter: React.FC = () => {
                                 <div className={`group relative max-w-[85%] px-4 py-3 ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-2xl rounded-br-sm' : 'bg-slate-800/50 text-slate-200 border border-white/10 rounded-2xl rounded-bl-sm'}`}>
                                     {msg.role === 'model' ? (
                                         <div className="space-y-3 font-normal">
-                                            <div className="prose prose-invert prose-sm max-w-none p-0.5 pointer-events-auto selection:bg-blue-500/30">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                    {msg.parts[0]?.text || ''}
-                                                </ReactMarkdown>
-                                            </div>
+                                            {isLikelyEmail(msg.parts[0]?.text || '') ? (
+                                                <div className="bg-slate-950/40 rounded-xl border border-white/10 overflow-hidden shadow-inner">
+                                                    {/* Email Frame Header */}
+                                                    <div className="flex items-center justify-between px-4 py-2.5 bg-white/5 border-b border-white/5">
+                                                        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Email</span>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <button
+                                                                onClick={() => {
+                                                                    const text = msg.parts[0]?.text || '';
+                                                                    navigator.clipboard.writeText(stripMarkdown(text));
+                                                                    setCopiedIndex(i);
+                                                                    setTimeout(() => setCopiedIndex(null), 2000);
+                                                                }}
+                                                                className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors flex items-center gap-1.5"
+                                                                title="Copy all"
+                                                            >
+                                                                {copiedIndex === i ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                                                                <span className="text-[10px]">{copiedIndex === i ? 'Copied' : 'Copy'}</span>
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    const text = msg.parts[0]?.text || '';
+                                                                    const { to, subject, body } = extractEmailFields(text);
+                                                                    const url = buildOutlookLink(to, undefined, subject, body);
+                                                                    window.open(url, '_blank');
+                                                                }}
+                                                                className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors"
+                                                                title="Open in email"
+                                                            >
+                                                                <Mail size={12} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
 
-                                            {/* Action Bar */}
-                                            <div className="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button
-                                                    onClick={() => {
-                                                        const text = msg.parts[0]?.text || '';
-                                                        navigator.clipboard.writeText(stripMarkdown(text));
-                                                        setCopiedIndex(i);
-                                                        setTimeout(() => setCopiedIndex(null), 2000);
-                                                    }}
-                                                    className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors flex items-center gap-1.5"
-                                                    title="Copy all"
-                                                >
-                                                    {copiedIndex === i ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                                                    <span className="text-[10px]">{copiedIndex === i ? 'Copied' : 'Copy'}</span>
-                                                </button>
+                                                    {/* Email Content Area */}
+                                                    <div className="p-4 space-y-4">
+                                                        {(() => {
+                                                            const { subject, body } = extractEmailFields(msg.parts[0]?.text || '');
+                                                            return (
+                                                                <>
+                                                                    {subject && (
+                                                                        <div className="flex items-baseline gap-3 text-[13px] border-b border-white/5 pb-3">
+                                                                            <span className="text-slate-500 font-medium shrink-0">Subject</span>
+                                                                            <span className="text-slate-100 font-semibold leading-tight">{subject}</span>
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="prose prose-invert prose-sm max-w-none pointer-events-auto selection:bg-blue-500/30 leading-relaxed">
+                                                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                                            {body}
+                                                                        </ReactMarkdown>
+                                                                    </div>
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-3">
+                                                    <div className="prose prose-invert prose-sm max-w-none p-0.5 pointer-events-auto selection:bg-blue-500/30">
+                                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                            {msg.parts[0]?.text || ''}
+                                                        </ReactMarkdown>
+                                                    </div>
 
-                                                {isLikelyEmail(msg.parts[0]?.text || '') && (
-                                                    <button
-                                                        onClick={() => {
-                                                            const text = msg.parts[0]?.text || '';
-                                                            const { to, subject, body } = extractEmailFields(text);
-                                                            const url = buildOutlookLink(to, undefined, subject, body);
-                                                            window.open(url, '_blank');
-                                                        }}
-                                                        className="p-1.5 bg-blue-500/20 hover:bg-blue-500/30 rounded-lg text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1.5"
-                                                        title="Draft in Outlook"
-                                                    >
-                                                        <Mail size={12} />
-                                                        <span className="text-[10px]">Draft in Outlook</span>
-                                                    </button>
-                                                )}
-                                            </div>
+                                                    {/* Standard Action Bar */}
+                                                    <div className="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button
+                                                            onClick={() => {
+                                                                const text = msg.parts[0]?.text || '';
+                                                                navigator.clipboard.writeText(stripMarkdown(text));
+                                                                setCopiedIndex(i);
+                                                                setTimeout(() => setCopiedIndex(null), 2000);
+                                                            }}
+                                                            className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors flex items-center gap-1.5"
+                                                            title="Copy all"
+                                                        >
+                                                            {copiedIndex === i ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                                                            <span className="text-[10px]">{copiedIndex === i ? 'Copied' : 'Copy'}</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     ) : (
                                         <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{msg.parts[0].text}</p>
