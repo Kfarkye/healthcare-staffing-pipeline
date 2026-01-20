@@ -7,6 +7,7 @@ import {
     Zap,
     Paperclip,
     Copy,
+    Mail,
     Layout as LayoutIcon,
     ChevronDown,
     ChevronUp,
@@ -17,7 +18,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AIService, ChatMessage } from '../services/aiService';
-import { extractEmailFields, stripMarkdown, isLikelyEmail } from '../utils/outlookUtils';
+import { buildOutlookLink, extractEmailFields, stripMarkdown, isLikelyEmail } from '../utils/outlookUtils';
 import { PrecisionCard } from './shared/PrecisionCard';
 import { useLayout } from '../context/LayoutContext';
 import { cn } from '../lib/utils';
@@ -199,7 +200,8 @@ export const CommandCenter: React.FC = () => {
                                                                     <div className="px-4 py-2 bg-white/5 border-b border-white/5 flex items-center justify-between">
                                                                         <span className="text-[9px] font-bold opacity-50 uppercase tracking-widest">Draft</span>
                                                                         <div className="flex gap-2">
-                                                                            <button onClick={() => navigator.clipboard.writeText(stripMarkdown(text))} className="hover:text-white transition-colors"><Copy size={12} /></button>
+                                                                            <a href={buildOutlookLink('', undefined, subject, stripMarkdown(body))} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors" title="Open in Outlook"><Mail size={12} /></a>
+                                                                            <button onClick={() => navigator.clipboard.writeText(stripMarkdown(text))} className="hover:text-white transition-colors" title="Copy to clipboard"><Copy size={12} /></button>
                                                                         </div>
                                                                     </div>
                                                                     <div className="p-4 space-y-2">
