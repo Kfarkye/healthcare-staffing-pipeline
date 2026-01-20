@@ -187,55 +187,37 @@ export const CommandCenter: React.FC = () => {
                                             <PrecisionCard variant="obsidian" className="max-w-[90%] border-white/5 p-4">
                                                 <div className="space-y-4">
                                                     {(() => {
-                                                        const text = msg.parts.find(p => p.text && !p.thought)?.text || '';
-                                                        const thought = msg.parts.find(p => p.thought)?.text || '';
-
+                                                        const text = msg.parts[0]?.text || '';
                                                         if (isLikelyEmail(text)) {
                                                             const { subject, body } = extractEmailFields(text);
                                                             const isExpanded = expandedCards.has(i);
                                                             return (
-                                                                <div className="space-y-3">
-                                                                    {thought && (
-                                                                        <div className="bg-white/5 border border-white/5 rounded-xl px-3 py-2">
-                                                                            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest opacity-60">Reasoning</span>
-                                                                            <p className="text-[11px] text-slate-400 leading-relaxed italic">{thought}</p>
+                                                                <div className="bg-black/20 rounded-2xl border border-white/5 overflow-hidden">
+                                                                    <div className="px-4 py-2 bg-white/5 border-b border-white/5 flex items-center justify-between">
+                                                                        <span className="text-[9px] font-bold opacity-50 uppercase tracking-widest">Draft</span>
+                                                                        <div className="flex gap-2">
+                                                                            <button onClick={() => navigator.clipboard.writeText(stripMarkdown(text))} className="hover:text-white transition-colors"><Copy size={12} /></button>
                                                                         </div>
-                                                                    )}
-                                                                    <div className="bg-black/20 rounded-2xl border border-white/5 overflow-hidden">
-                                                                        <div className="px-4 py-2 bg-white/5 border-b border-white/5 flex items-center justify-between">
-                                                                            <span className="text-[9px] font-bold opacity-50 uppercase tracking-widest">Draft</span>
-                                                                            <div className="flex gap-2">
-                                                                                <button onClick={() => navigator.clipboard.writeText(stripMarkdown(text))} className="hover:text-white transition-colors"><Copy size={12} /></button>
-                                                                            </div>
+                                                                    </div>
+                                                                    <div className="p-4 space-y-2">
+                                                                        <div className="text-sm font-bold text-white leading-tight">{subject}</div>
+                                                                        <div className={cn("prose prose-invert prose-sm opacity-80", !isExpanded && "line-clamp-6")}>
+                                                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
                                                                         </div>
-                                                                        <div className="p-4 space-y-2">
-                                                                            <div className="text-sm font-bold text-white leading-tight">{subject}</div>
-                                                                            <div className={cn("prose prose-invert prose-sm opacity-80", !isExpanded && "line-clamp-6")}>
-                                                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
-                                                                            </div>
-                                                                            <button onClick={() => setExpandedCards(prev => {
-                                                                                const next = new Set(prev);
-                                                                                if (next.has(i)) next.delete(i); else next.add(i);
-                                                                                return next;
-                                                                            })} className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mt-2">
-                                                                                {isExpanded ? 'Collapse' : 'Expand Draft'}
-                                                                            </button>
-                                                                        </div>
+                                                                        <button onClick={() => setExpandedCards(prev => {
+                                                                            const next = new Set(prev);
+                                                                            if (next.has(i)) next.delete(i); else next.add(i);
+                                                                            return next;
+                                                                        })} className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mt-2">
+                                                                            {isExpanded ? 'Collapse' : 'Expand Draft'}
+                                                                        </button>
                                                                     </div>
                                                                 </div>
                                                             );
                                                         }
                                                         return (
-                                                            <div className="space-y-3">
-                                                                {thought && (
-                                                                    <div className="bg-white/5 border border-white/5 rounded-xl px-3 py-2">
-                                                                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest opacity-60">Reasoning</span>
-                                                                        <p className="text-[11px] text-slate-400 leading-relaxed italic">{thought}</p>
-                                                                    </div>
-                                                                )}
-                                                                <div className="prose prose-invert prose-sm opacity-90 leading-relaxed">
-                                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-                                                                </div>
+                                                            <div className="prose prose-invert prose-sm opacity-90 leading-relaxed">
+                                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
                                                             </div>
                                                         );
                                                     })()}
