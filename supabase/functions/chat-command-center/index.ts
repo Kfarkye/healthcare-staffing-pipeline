@@ -296,7 +296,7 @@ Thank you!`
                 for (let attempt = 0; attempt <= maxRetries; attempt++) {
                     console.log(`[Command] API Call attempt ${attempt + 1}/${maxRetries + 1}`);
 
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${googleApiKey}`, {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleApiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -305,7 +305,7 @@ Thank you!`
                             generationConfig: {
                                 thinkingConfig: {
                                     includeThoughts: false,
-                                    thinkingLevel: "low"
+                                    thinkingLevel: "medium"
                                 }
                             }
                         })
