@@ -47,7 +47,12 @@
     }
 
     .radiant-card {
-        @apply bg-white border border-slate-200/60 rounded-[24px] shadow-[0_1px_3px_rgba(0, 0, 0, 0.02), 0_12px_24px_-10px_rgba(0, 0, 0, 0.03)] transition-all duration-300 hover:shadow-[0_1px_3px_rgba(0, 0, 0, 0.02), 0_20px_40px_-12px_rgba(0, 0, 0, 0.06)];
+        @apply bg-white border border-slate-200/60 rounded-[24px] transition-all duration-300;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 12px 24px -10px rgba(0, 0, 0, 0.03);
+    }
+
+    .radiant-card:hover {
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 20px 40px -12px rgba(0, 0, 0, 0.06);
     }
 }
 
