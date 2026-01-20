@@ -20,6 +20,14 @@ import {
     MapPin,
     Clock,
     Sparkles,
+    Copy,
+    Plus,
+    Trash2,
+    Download,
+    Upload,
+    FileText,
+    ExternalLink,
+    ShieldCheck
 } from 'lucide-react';
 
 // ============================================================================
@@ -953,6 +961,155 @@ RESPONSIVE ADJUSTMENTS
         height: 40px;
     }
 }
+
+/* ========================================================================
+CREDENTIAL SNAPSHOT TOOL
+======================================================================== */
+
+.credential-tool {
+padding: ${tokens.spacing[8]};
+background: var(--color-surface-elevated);
+border-radius: ${tokens.radii.xl};
+box-shadow: var(--shadow-card);
+border: 1px solid rgba(0,0,0,0.04);
+}
+
+.credential-grid {
+display: grid;
+grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+gap: ${tokens.spacing[4]};
+margin-bottom: ${tokens.spacing[8]};
+}
+
+.credential-card {
+padding: ${tokens.spacing[5]};
+background: var(--color-surface-secondary);
+border: 1px solid rgba(0,0,0,0.05);
+border-radius: ${tokens.radii.lg};
+transition: all var(--transition-base);
+display: flex;
+flex-direction: column;
+gap: ${tokens.spacing[3]};
+}
+
+.credential-card:hover {
+transform: translateY(-2px);
+box-shadow: var(--shadow-sm);
+border-color: var(--color-accent-primary);
+}
+
+.credential-card__header {
+display: flex;
+align-items: center;
+justify-content: space-between;
+}
+
+.credential-card__type {
+font-family: var(--font-display);
+font-size: ${tokens.typography.scale.lg};
+font-weight: 600;
+color: var(--color-ink-primary);
+}
+
+.badge {
+padding: 2px 8px;
+font-size: 10px;
+font-weight: 700;
+text-transform: uppercase;
+letter-spacing: 0.05em;
+border-radius: ${tokens.radii.sm};
+}
+
+.badge--active { background: #dcfce7; color: #166534; }
+.badge--expiring { background: #fef9c3; color: #854d0e; }
+.badge--expired { background: #fee2e2; color: #991b1b; }
+.badge--neutral { background: #f1f5f9; color: #475569; }
+
+.credential-card__meta {
+display: flex;
+flex-direction: column;
+gap: 4px;
+font-size: ${tokens.typography.scale.xs};
+color: var(--color-ink-tertiary);
+}
+
+.credential-card__actions {
+display: flex;
+gap: ${tokens.spacing[2]};
+margin-top: auto;
+padding-top: ${tokens.spacing[3]};
+border-top: 1px solid rgba(0,0,0,0.05);
+}
+
+.credential-form {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+gap: ${tokens.spacing[4]};
+padding: ${tokens.spacing[6]};
+margin-bottom: ${tokens.spacing[8]};
+background: var(--color-surface-secondary);
+border-radius: ${tokens.radii.lg};
+border: 1px dashed var(--color-ink-muted);
+}
+
+.form-group {
+display: flex;
+flex-direction: column;
+gap: 4px;
+}
+
+.form-label {
+font-size: 10px;
+font-weight: 700;
+color: var(--color-ink-secondary);
+text-transform: uppercase;
+letter-spacing: 0.05em;
+}
+
+.form-input {
+padding: 8px 12px;
+font-size: 13px;
+border: 1px solid rgba(0,0,0,0.1);
+border-radius: ${tokens.radii.md};
+background: white;
+transition: border-color var(--transition-fast);
+}
+
+.form-input:focus {
+outline: none;
+border-color: var(--color-accent-primary);
+}
+
+.btn {
+display: inline-flex;
+align-items: center;
+justify-content: center;
+gap: 8px;
+padding: 10px 16px;
+font-size: 12px;
+font-weight: 600;
+cursor: pointer;
+transition: all var(--transition-base);
+border-radius: ${tokens.radii.md};
+border: none;
+white-space: nowrap;
+}
+
+.btn--sm { padding: 4px 8px; font-size: 10px; }
+.btn--primary { background: var(--color-accent-primary); color: white; }
+.btn--primary:hover { opacity: 0.9; transform: translateY(-1px); }
+.btn--ghost { background: transparent; color: var(--color-ink-secondary); border: 1px solid rgba(0,0,0,0.1); }
+.btn--ghost:hover { background: var(--color-surface-tertiary); color: var(--color-accent-primary); border-color: var(--color-accent-primary); }
+.btn--danger { background: #fee2e2; color: #991b1b; }
+.btn--danger:hover { background: #fecaca; }
+
+.tool-actions {
+display: flex;
+flex-wrap: wrap;
+gap: ${tokens.spacing[3]};
+padding-top: ${tokens.spacing[8]};
+border-top: 1px solid rgba(0,0,0,0.05);
+}
 `;
 
 // ============================================================================
@@ -979,6 +1136,15 @@ interface ChecklistItem {
     step: number;
     title: string;
     description: string;
+}
+
+interface CredentialItem {
+    id: string;
+    type: string;
+    issuer?: string;
+    credentialId?: string;
+    expirationDate?: string;
+    attachmentUrl?: string;
 }
 
 const HOUSING_RESOURCES: HousingResource[] = [
@@ -1330,7 +1496,6 @@ const ChecklistSection: FC = () => (
                     establish operational rhythm immediately.
                 </p>
             </AnimatedSection>
-
             <div className="checklist">
                 {FIRST_48_HOURS.map((item) => (
                     <ChecklistItemCard key={item.step} item={item} />
@@ -1339,6 +1504,192 @@ const ChecklistSection: FC = () => (
         </div>
     </section>
 );
+
+const CredentialSnapshotSection: FC = () => {
+    const [items, setItems] = useState<CredentialItem[]>([]);
+    const [newItem, setNewItem] = useState<Partial<CredentialItem>>({ type: '' });
+
+    const getStatus = (date?: string) => {
+        if (!date) return 'neutral';
+        const expiry = new Date(date);
+        const now = new Date();
+        const diff = expiry.getTime() - now.getTime();
+        const days = Math.ceil(diff / (1000 * 3600 * 24));
+
+        if (days < 0) return 'expired';
+        if (days <= 30) return 'expiring';
+        return 'active';
+    };
+
+    const addItem = () => {
+        if (!newItem.type) return;
+        const item: CredentialItem = {
+            id: crypto.randomUUID(),
+            type: newItem.type,
+            issuer: newItem.issuer,
+            credentialId: newItem.credentialId,
+            expirationDate: newItem.expirationDate,
+            attachmentUrl: newItem.attachmentUrl,
+        };
+        setItems([...items, item]);
+        setNewItem({ type: '' });
+    };
+
+    const deleteItem = (id: string) => {
+        setItems(items.filter(i => i.id !== id));
+    };
+
+    const exportData = () => {
+        const data = JSON.stringify(items, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `credential-pack-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+    };
+
+    const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const data = JSON.parse(event.target?.result as string);
+                if (Array.isArray(data)) setItems(data);
+            } catch (err) {
+                alert('Invalid JSON file');
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    const copyShareText = () => {
+        if (items.length === 0) return;
+        const text = `CREDENTIAL READINESS SNAPSHOT\nGenerated: ${new Date().toLocaleDateString()}\n\n` +
+            items.map(i => {
+                const status = getStatus(i.expirationDate).toUpperCase();
+                return `[${status}] ${i.type}${i.issuer ? ` | ${i.issuer}` : ''}${i.expirationDate ? ` | Exp: ${i.expirationDate}` : ''}${i.attachmentUrl ? `\nLink: ${i.attachmentUrl}` : ''}`;
+            }).join('\n\n');
+
+        navigator.clipboard.writeText(text);
+        alert('Copied to clipboard!');
+    };
+
+    return (
+        <section id="credentials" className="handbook-section handbook-section--alt">
+            <div className="handbook-section__container">
+                <AnimatedSection className="handbook-section__header">
+                    <p className="handbook-section__eyebrow">
+                        <ShieldCheck />
+                        Compliance & Readiness
+                    </p>
+                    <h2 className="handbook-section__title">Credential Snapshot</h2>
+                    <p className="handbook-section__description">
+                        Organize your professional identity. Track expirations locally and generate a "Share Pack" for your recruiter in seconds. No server uploads—your data stays in your browser.
+                    </p>
+                </AnimatedSection>
+
+                <div className="credential-tool">
+                    <div className="credential-form">
+                        <div className="form-group">
+                            <label className="form-label">Type (e.g. BLS, License)</label>
+                            <input
+                                className="form-input"
+                                placeholder="State License"
+                                value={newItem.type}
+                                onChange={e => setNewItem({ ...newItem, type: e.target.value })}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Issuer</label>
+                            <input
+                                className="form-input"
+                                placeholder="AHA, State Board"
+                                value={newItem.issuer || ''}
+                                onChange={e => setNewItem({ ...newItem, issuer: e.target.value })}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Expiration</label>
+                            <input
+                                className="form-input"
+                                type="date"
+                                value={newItem.expirationDate || ''}
+                                onChange={e => setNewItem({ ...newItem, expirationDate: e.target.value })}
+                            />
+                        </div>
+                        <div className="form-group" style={{ justifyContent: 'end' }}>
+                            <button className="btn btn--primary" onClick={addItem}>
+                                <Plus size={16} /> Add to Pack
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="credential-grid">
+                        {items.length === 0 && (
+                            <div className="credential-empty" style={{ gridColumn: '1/-1', textAlign: 'center', padding: '40px', color: tokens.colors.ink.tertiary }}>
+                                <FileText size={48} style={{ opacity: 0.2, marginBottom: '16px' }} />
+                                <p>Your pack is empty. Add your first credential above.</p>
+                            </div>
+                        )}
+                        {items.map(item => {
+                            const status = getStatus(item.expirationDate);
+                            return (
+                                <div key={item.id} className="credential-card">
+                                    <div className="credential-card__header">
+                                        <span className="credential-card__type">{item.type}</span>
+                                        <span className={`badge badge--${status}`}>{status}</span>
+                                    </div>
+                                    <div className="credential-card__meta">
+                                        {item.issuer && <span>Issuer: {item.issuer}</span>}
+                                        {item.credentialId && <span>ID: {item.credentialId}</span>}
+                                        {item.expirationDate && (
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <Clock size={12} /> {item.expirationDate}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="credential-card__actions">
+                                        <button className="btn btn--ghost btn--sm" onClick={() => deleteItem(item.id)}>
+                                            <Trash2 size={12} /> Remove
+                                        </button>
+                                        {item.attachmentUrl && (
+                                            <a href={item.attachmentUrl} target="_blank" rel="noopener noreferrer" className="btn btn--ghost btn--sm">
+                                                <ExternalLink size={12} /> View
+                                            </a>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="tool-actions">
+                        <button className="btn btn--primary" onClick={copyShareText} disabled={items.length === 0}>
+                            <Copy size={16} /> Copy Share Pack
+                        </button>
+                        <button className="btn btn--ghost" onClick={exportData} disabled={items.length === 0}>
+                            <Download size={16} /> Export JSON
+                        </button>
+                        <div style={{ position: 'relative' }}>
+                            <button className="btn btn--ghost" onClick={() => document.getElementById('import-json')?.click()}>
+                                <Upload size={16} /> Import JSON
+                            </button>
+                            <input
+                                id="import-json"
+                                type="file"
+                                accept=".json"
+                                style={{ display: 'none' }}
+                                onChange={handleImport}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    );
+};
 
 const Footer: FC = () => (
     <footer className="handbook-footer">
@@ -1364,6 +1715,7 @@ export default function TravelerHandbook(): JSX.Element {
             <HousingSection />
             <MoneySection />
             <ChecklistSection />
+            <CredentialSnapshotSection />
             <Footer />
         </div>
     );
