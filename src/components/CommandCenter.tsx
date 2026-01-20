@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 import {
     X,
     Minimize2,
@@ -97,13 +98,48 @@ export const CommandCenter: React.FC = () => {
         setHistory(newHistory);
 
         try {
+            let fileUrl = '';
+            let metadata = {};
+
+            // 1. If there's an attachment, upload it to Supabase Storage
+            if (currentAttachment) {
+                const { data: sessionRes } = await supabase.auth.getSession();
+                const userId = sessionRes?.session?.user?.id;
+
+                if (userId) {
+                    const fileExt = currentAttachment.file.name.split('.').pop();
+                    const fileName = `${userId}/${Date.now()}.${fileExt}`;
+
+                    const { error: uploadError } = await supabase.storage
+                        .from('command-center-attachments')
+                        .upload(fileName, currentAttachment.file);
+
+                    if (!uploadError) {
+                        const { data: { publicUrl } } = supabase.storage
+                            .from('command-center-attachments')
+                            .getPublicUrl(fileName);
+                        fileUrl = publicUrl;
+                        metadata = { attachment_url: fileUrl, file_name: currentAttachment.file.name };
+                    } else {
+                        console.error('Upload error:', uploadError);
+                    }
+                }
+            }
+
+            // 2. Send command with metadata
+            const userMsgWithMeta: ChatMessage = { role: 'user', parts: [{ text: userMessage }], metadata };
+            const newHistory: ChatMessage[] = [...history, userMsgWithMeta];
+            setHistory(newHistory);
+
             const response = await AIService.sendCommand(
                 userMessage,
                 history,
                 currentAttachment ? {
                     base64: currentAttachment.base64,
                     mimeType: currentAttachment.mimeType
-                } : undefined
+                } : undefined,
+                undefined, // context
+                metadata
             );
 
             const text = response?.text || '';
@@ -190,6 +226,17 @@ export const CommandCenter: React.FC = () => {
                                         {msg.role === 'model' ? (
                                             <PrecisionCard variant="obsidian" className="max-w-[90%] border-white/5 p-4">
                                                 <div className="space-y-4">
+                                                    {/* Attachments from metadata */}
+                                                    {msg.metadata?.attachment_url && (
+                                                        <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/20">
+                                                            <img
+                                                                src={msg.metadata.attachment_url}
+                                                                alt="Attachment"
+                                                                className="w-full h-auto max-h-[300px] object-cover"
+                                                                onError={(e) => (e.currentTarget.style.display = 'none')}
+                                                            />
+                                                        </div>
+                                                    )}
                                                     {(() => {
                                                         const text = msg.parts[0]?.text || '';
                                                         if (isLikelyEmail(text)) {

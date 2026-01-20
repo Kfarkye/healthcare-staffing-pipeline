@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
     };
 
     try {
-        const { message, history, attachment, conversation_id: message_conversation_id, context } = await req.json();
+        const { message, history, attachment, conversation_id: message_conversation_id, context, metadata } = await req.json();
         const startTime = Date.now();
         let accumulatedToolCalls: any[] = [];
         console.log(`[Command] Processing: "${message}" ${context ? '(with ambient context)' : ''}`);
@@ -398,6 +398,7 @@ Thank you!`
                             user_id: userData.user.id,
                             conversation_id: String(convId),
                             messages: contents,
+                            metadata: metadata || {},
                             last_message_at: new Date().toISOString()
                         }, { onConflict: 'user_id, conversation_id' });
                     }

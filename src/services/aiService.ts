@@ -14,6 +14,7 @@ export interface ChatMessage {
         functionCall?: { name: string; args: any };
         functionResponse?: { name: string; response: any };
     }[];
+    metadata?: any;
 }
 
 export interface CommandResponse {
@@ -44,7 +45,7 @@ class AIServiceClass {
         return data as TailoredReplyResponse;
     }
 
-    async sendCommand(message: string, history: ChatMessage[] = [], attachment?: { base64: string; mimeType: string }, context?: any): Promise<{ text: string, history: ChatMessage[] }> {
+    async sendCommand(message: string, history: ChatMessage[] = [], attachment?: { base64: string; mimeType: string }, context?: any, metadata?: any): Promise<{ text: string, history: ChatMessage[] }> {
         const { data: sessionRes } = await supabase.auth.getSession();
         const accessToken = sessionRes?.session?.access_token ?? '';
 
@@ -56,7 +57,8 @@ class AIServiceClass {
                 message,
                 history,
                 attachment,
-                context
+                context,
+                metadata
             },
         });
 
