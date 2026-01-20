@@ -283,13 +283,35 @@ Thank you!`
         while (iteration < maxIterations) {
             iteration++;
 
-            const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleApiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents, tools, system_instruction: systemInstruction })
-            });
+            // Retry wrapper with exponential backoff
+            const callGeminiWithRetry = async (payload: any, maxRetries = 3): Promise<any> => {
+                for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleApiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
 
-            const result = await geminiResponse.json();
+                    const result = await response.json();
+
+                    // Check for retryable errors
+                    const isOverloaded = result.error?.message?.includes('overloaded') ||
+                        result.error?.message?.includes('rate limit') ||
+                        result.error?.code === 503 ||
+                        result.error?.code === 429;
+
+                    if (result.error && isOverloaded && attempt < maxRetries) {
+                        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+                        console.log(`[Command] Retry ${attempt + 1}/${maxRetries} after ${delay}ms (${result.error.message})`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+
+                    return result;
+                }
+            };
+
+            const result = await callGeminiWithRetry({ contents, tools, system_instruction: systemInstruction });
             if (result.error) throw new Error(result.error.message || 'Gemini API failed');
             if (!result.candidates?.[0]) throw new Error('No AI response.');
 
