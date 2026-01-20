@@ -135,7 +135,17 @@ Deno.serve(async (req) => {
 Knowledge Retrieval:
 - Use 'search_knowledge' to find corporate benefits, insurance details, and policies.
 - Do NOT guess benefits; query the database.
-- If knowledge is not found, use 'google_search' for current external info.`
+- If knowledge is not found, use 'google_search' for current external info.
+
+Pay Package Workflow (CRITICAL):
+- When an attachment is provided (PDF, EML, Image), check if it's a pay package or job breakdown.
+- OCR/Extract: Look for 'Gross Weekly', 'Hourly Rate', 'Hours', 'Specialty', 'City/State'.
+- If details are found: 
+  1. Call 'calculate_pay' with the extracted values.
+  2. Present the breakdown clearly.
+  3. Offer to ‘Draft Outreach’ immediately.
+- For .EML (Email) attachments: Summarize the email first, then extract potential job/pay details.
+- Always use the 'DRAFT_EMAIL' tool to generate outreach once pay is confirmed.`
             }]
         };
 
