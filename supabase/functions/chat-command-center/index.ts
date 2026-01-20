@@ -14,34 +14,40 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
-
     const googleApiKey = Deno.env.get('GEMINI_API_KEY')!;
+
+    const ToolName = {
+        SEARCH_PROSPECTS: 'search_prospects',
+        GET_PROSPECT_DETAILS: 'get_prospect_details',
+        CALCULATE_PAY: 'calculate_pay',
+        LIST_EMAIL_TEMPLATES: 'list_email_templates',
+        DRAFT_EMAIL: 'draft_email',
+        CREATE_FOLLOW_UP: 'create_follow_up',
+        GOOGLE_SEARCH: 'google_search'
+    };
 
     try {
         const { message, history = [], attachment } = await req.json();
 
-        if (!message) {
-            throw new Error('Message is required');
-        }
+        if (!message) throw new Error('Message is required');
 
-        // Define the tools for Gemini
         const tools = [{
             function_declarations: [
                 {
-                    name: "search_prospects",
+                    name: ToolName.SEARCH_PROSPECTS,
                     description: "Search for candidates (prospects) in the database.",
                     parameters: {
                         type: "object",
                         properties: {
                             specialty: { type: "string" },
                             home_state: { type: "string" },
-                            status: { type: "string" },
+                            status: { type: "string", enum: ['New', 'Contacted', 'Interested', 'Passive', 'Rotation'] },
                             name_contains: { type: "string" }
                         }
                     }
                 },
                 {
-                    name: "get_prospect_details",
+                    name: ToolName.GET_PROSPECT_DETAILS,
                     description: "Get full profile for a specific candidate.",
                     parameters: {
                         type: "object",
@@ -52,7 +58,7 @@ Deno.serve(async (req) => {
                     }
                 },
                 {
-                    name: "calculate_pay",
+                    name: ToolName.CALCULATE_PAY,
                     description: "Calculate weekly gross pay breakdown.",
                     parameters: {
                         type: "object",
@@ -67,12 +73,12 @@ Deno.serve(async (req) => {
                     }
                 },
                 {
-                    name: "list_email_templates",
+                    name: ToolName.LIST_EMAIL_TEMPLATES,
                     description: "List outreach templates.",
                     parameters: { type: "object", properties: {} }
                 },
                 {
-                    name: "draft_email",
+                    name: ToolName.DRAFT_EMAIL,
                     description: "Draft an email using a template.",
                     parameters: {
                         type: "object",
@@ -84,7 +90,7 @@ Deno.serve(async (req) => {
                     }
                 },
                 {
-                    name: "create_follow_up",
+                    name: ToolName.CREATE_FOLLOW_UP,
                     description: "Schedule a follow-up.",
                     parameters: {
                         type: "object",
@@ -98,7 +104,7 @@ Deno.serve(async (req) => {
                     }
                 },
                 {
-                    name: "google_search",
+                    name: ToolName.GOOGLE_SEARCH,
                     description: "Web search for grounding.",
                     parameters: {
                         type: "object",
@@ -111,7 +117,7 @@ Deno.serve(async (req) => {
 
         const systemInstruction = {
             parts: [{
-                text: `You are the 'Pipeline Command Center' AI, embodying Kofi Farkye, a Senior Recruiter at Aya Healthcare. Professional, high-speed, direct, warm. No robotic preambles. Action-oriented.`
+                text: `You are the 'Pipeline Command Center' AI (Kofi Farkye). Professional, high-speed, direct, warm. No robotic preambles. Action-oriented.`
             }]
         };
 
@@ -131,7 +137,7 @@ Deno.serve(async (req) => {
         ];
 
         let iteration = 0;
-        const maxIterations = 5;
+        const maxIterations = 10;
 
         while (iteration < maxIterations) {
             iteration++;
@@ -139,110 +145,101 @@ Deno.serve(async (req) => {
             const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleApiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents,
-                    tools,
-                    system_instruction: systemInstruction
-                })
+                body: JSON.stringify({ contents, tools, system_instruction: systemInstruction })
             });
 
             const result = await geminiResponse.json();
-            if (result.error) {
-                console.error('Gemini API Error:', result.error);
-                throw new Error(result.error.message || 'Gemini API call failed');
-            }
+            if (result.error) throw new Error(result.error.message || 'Gemini API failed');
+            if (!result.candidates?.[0]) throw new Error('No AI response.');
 
-            if (!result.candidates || result.candidates.length === 0) {
-                throw new Error('Gemini returned no candidates. Please refine your query.');
-            }
-
-            const candidate = result.candidates[0];
-            const content = candidate.content;
+            const content = result.candidates[0].content;
             contents.push(content);
 
             const toolCalls = content.parts.filter((p: any) => p.functionCall);
-
             if (toolCalls.length === 0) {
-                // Return final text response
                 return new Response(JSON.stringify(content), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 });
             }
 
-            // Execute tool calls
+            if (iteration === maxIterations) break;
+
             const toolResponses = await Promise.all(toolCalls.map(async (part: any) => {
                 const { name, args } = part.functionCall;
-                console.log(`Executing tool: ${name}`, args);
-
-                let toolResult;
+                let resultData;
                 try {
-                    if (name === 'search_prospects') {
-                        let query = supabase.from('prospects').select('*');
-                        if (args.specialty) query = query.ilike('specialty', `%${args.specialty}%`);
-                        if (args.home_state) query = query.eq('home_state', args.home_state.toUpperCase());
-                        if (args.status) query = query.eq('status', args.status);
-                        if (args.name_contains) query = query.ilike('name', `%${args.name_contains}%`);
-                        const { data, error } = await query.limit(10);
-                        toolResult = error ? { error: error.message } : data;
-                    } else if (name === 'get_prospect_details') {
-                        let query = supabase.from('prospects').select('*');
-                        if (args.candidate_id) query = query.eq('candidate_id', args.candidate_id);
-                        else if (args.name) query = query.ilike('name', `%${args.name}%`);
-                        const { data, error } = await query.maybeSingle();
-                        toolResult = error ? { error: error.message } : (data || { message: "Not found" });
-                    } else if (name === 'list_email_templates') {
-                        toolResult = [
-                            { id: 'initial_outreach', description: 'Initial outreach breakdown' },
-                            { id: 'hourly_rate_outreach', description: 'Hourly focused' },
-                            { id: 'reengagement', description: 'Passive candidate check-in' },
-                            { id: 'margin_approval', description: 'Internal approval request' }
-                        ];
-                    } else if (name === 'calculate_pay') {
-                        const { data, error } = await supabase.rpc('calculate_pay_package', {
-                            p_state: args.state.toUpperCase(),
-                            p_city: args.city,
-                            p_profession: 'RN',
-                            p_target_gross: args.target_gross,
-                            p_hours_per_week: args.hours || 36
-                        });
-                        toolResult = error ? { error: error.message } : data;
-                    } else if (name === 'draft_email') {
-                        toolResult = {
-                            template_used: args.template_id,
-                            note: "Drafted using project-specific outreach logic."
-                        };
-                    } else if (name === 'create_follow_up') {
-                        const { data, error } = await supabase.from('follow_ups').insert({
-                            candidate_id: args.candidate_id,
-                            follow_up_type: args.follow_up_type || 'active',
-                            scheduled_date: args.scheduled_date,
-                            notes: args.notes
-                        }).select();
-                        toolResult = error ? { error: error.message } : data;
-                    } else if (name === 'google_search') {
-                        toolResult = { message: "Grounded Google Search simulating results for: " + args.query };
-                    } else {
-                        toolResult = { message: "Tool executed successfully" };
+                    switch (name) {
+                        case ToolName.SEARCH_PROSPECTS: {
+                            let query = supabase.from('prospects').select('*');
+                            if (args.specialty) query = query.ilike('specialty', `%${args.specialty}%`);
+                            if (args.home_state) query = query.eq('home_state', args.home_state.toUpperCase());
+                            if (args.status) query = query.eq('status', args.status);
+                            if (args.name_contains) query = query.ilike('name', `%${args.name_contains}%`);
+                            const { data, error } = await query.limit(10);
+                            resultData = error ? { error: error.message } : (data?.length ? data : { message: "No candidates found." });
+                            break;
+                        }
+                        case ToolName.GET_PROSPECT_DETAILS: {
+                            let query = supabase.from('prospects').select('*');
+                            if (args.candidate_id) query = query.eq('candidate_id', args.candidate_id);
+                            else if (args.name) query = query.ilike('name', `%${args.name}%`);
+                            const { data, error } = await query.maybeSingle();
+                            resultData = error ? { error: error.message } : (data || { message: "Not found" });
+                            break;
+                        }
+                        case ToolName.LIST_EMAIL_TEMPLATES:
+                            resultData = [
+                                { id: 'initial_outreach', description: 'Initial outreach' },
+                                { id: 'reengagement', description: 'Check-in' }
+                            ];
+                            break;
+                        case ToolName.CALCULATE_PAY: {
+                            const { data, error } = await supabase.rpc('calculate_pay_package', {
+                                p_state: args.state.toUpperCase(),
+                                p_city: args.city,
+                                p_profession: 'RN',
+                                p_target_gross: args.target_gross,
+                                p_hours_per_week: args.hours || 36
+                            });
+                            resultData = error ? { error: error.message } : data;
+                            break;
+                        }
+                        case ToolName.DRAFT_EMAIL:
+                            resultData = { template_used: args.template_id, note: "Drafted." };
+                            break;
+                        case ToolName.CREATE_FOLLOW_UP: {
+                            const { data: userData } = await supabase.auth.getUser();
+                            const { data, error } = await supabase.from('follow_ups').insert({
+                                candidate_id: args.candidate_id,
+                                recruiter_id: userData?.user?.id || '00000000-0000-0000-0000-000000000000',
+                                follow_up_type: args.follow_up_type || 'active',
+                                scheduled_date: args.scheduled_date,
+                                notes: args.notes
+                            }).select();
+                            resultData = error ? { error: error.message } : data;
+                            break;
+                        }
+                        case ToolName.GOOGLE_SEARCH:
+                            resultData = { message: "Grounded Google Search simulating results for: " + args.query };
+                            break;
+                        default:
+                            resultData = { error: "Tool not implemented" };
                     }
                 } catch (e: any) {
-                    toolResult = { error: e.message };
+                    resultData = { error: e.message };
                 }
-
-                return {
-                    functionResponse: {
-                        name,
-                        response: { content: toolResult }
-                    }
-                };
+                return { functionResponse: { name, response: { content: resultData } } };
             }));
 
-            contents.push({
-                role: 'function',
-                parts: toolResponses
-            });
+            contents.push({ role: 'function', parts: toolResponses });
         }
 
-        throw new Error('Exceeded maximum tool call iterations');
+        return new Response(JSON.stringify({
+            role: 'model',
+            parts: [{ text: "I've searched several times but am having trouble finding that specific data. Could you try providing more details?" }]
+        }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
 
     } catch (error: any) {
         console.error('Edge Function Crash:', error);
