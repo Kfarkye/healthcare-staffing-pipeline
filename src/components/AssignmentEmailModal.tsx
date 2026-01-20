@@ -6,8 +6,8 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   Send, Copy, Check, Upload, Loader2, Phone, ExternalLink,
-  FileText, DollarSign, Calendar, Building2, Mail, Clock, User, 
-  MapPin, Heart, PiggyBank, Edit2, CheckCircle, AlertTriangle, Save
+  FileText, DollarSign, Mail, Clock, User,
+  Heart, PiggyBank, Edit2, CheckCircle, AlertTriangle, Save
 } from 'lucide-react';
 import { EmailModalShell } from './shared/EmailModalShell';
 import { supabase } from '../lib/supabase';
@@ -161,24 +161,23 @@ const encodeParam = (s: string): string =>
   encodeURIComponent(s ?? '');
 
 const buildOutlookLink = (to: string, cc: string | undefined, subject: string, body: string): string =>
-  `https://outlook.office.com/mail/deeplink/compose?to=${encodeParam(to)}${
-    cc ? `&cc=${encodeParam(cc)}` : ''
+  `https://outlook.office.com/mail/deeplink/compose?to=${encodeParam(to)}${cc ? `&cc=${encodeParam(cc)}` : ''
   }&subject=${encodeParam(subject)}&body=${encodeParam(body)}`;
 
 const parseDateString = (dateStr: string): Date | null => {
   if (!dateStr || isPlaceholder(dateStr)) return null;
-  
+
   const date = new Date(dateStr);
   if (!isNaN(date.getTime())) {
     return date;
   }
-  
+
   const formats = [
     /(\d{1,2})\/(\d{1,2})\/(\d{4})/,
     /(\d{4})-(\d{1,2})-(\d{1,2})/,
     /(\w+)\s+(\d{1,2}),?\s+(\d{4})/,
   ];
-  
+
   for (const format of formats) {
     const match = dateStr.match(format);
     if (match) {
@@ -188,7 +187,7 @@ const parseDateString = (dateStr: string): Date | null => {
       }
     }
   }
-  
+
   return null;
 };
 
@@ -218,19 +217,19 @@ const DateConfirmationBadge: React.FC<{
           </div>
           <div className="text-[14px] text-emerald-900 font-medium space-y-1">
             <div>
-              Start: {startDate.toLocaleDateString('en-US', { 
+              Start: {startDate.toLocaleDateString('en-US', {
                 weekday: 'short',
-                month: 'short', 
-                day: 'numeric', 
-                year: 'numeric' 
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
               })}
             </div>
             <div>
-              End: {endDate.toLocaleDateString('en-US', { 
+              End: {endDate.toLocaleDateString('en-US', {
                 weekday: 'short',
-                month: 'short', 
-                day: 'numeric', 
-                year: 'numeric' 
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
               })}
             </div>
             <div className="text-emerald-700 text-[12px] mt-2">
@@ -245,10 +244,10 @@ const DateConfirmationBadge: React.FC<{
 
 const ConfidenceIndicator: React.FC<{ confidence: number }> = ({ confidence }) => {
   if (confidence >= 0.7) return null;
-  
+
   return (
-    <div 
-      className="inline-flex items-center gap-1 text-amber-600" 
+    <div
+      className="inline-flex items-center gap-1 text-amber-600"
       title="Please verify - lower confidence extraction"
     >
       <AlertTriangle className="w-3.5 h-3.5" />
@@ -286,27 +285,27 @@ function generateTemplate(
 
       let contractAM = '';
       let contractAC = '';
-      
+
       if (contract.am_name && contract.ac_name) {
         contractAM = nameToEmail(contract.am_name);
         contractAC = nameToEmail(contract.ac_name);
-      } 
+      }
       else if (contract.am_ac) {
         const names = contract.am_ac.split(/[;,]/).map(s => s.trim()).filter(Boolean);
         if (names[0]) contractAM = nameToEmail(names[0]);
         if (names[1]) contractAC = nameToEmail(names[1]);
       }
 
-      const amEmail = contractAM || (extractedExtension?.accountManager 
+      const amEmail = contractAM || (extractedExtension?.accountManager
         ? nameToEmail(extractedExtension.accountManager)
         : '');
-      
+
       const acEmail = contractAC || (extractedExtension?.accountCoordinator
         ? nameToEmail(extractedExtension.accountCoordinator)
         : '');
 
       to = amEmail || '[AM EMAIL]';
-      
+
       const ccList = [];
       if (acEmail) ccList.push(acEmail);
       ccList.push(TIFFANY_EMAIL);
@@ -315,16 +314,16 @@ function generateTemplate(
       const unit = pick(formData.extension.unit, extractedExtension?.specialty, contract.specialty, '[UNIT]');
       const currentEndDate = pick(formData.extension.currentEndDate, formatEndDate(contract.end_date), '[END DATE]');
       const billRate = pick(
-        formData.extension.currentBillRate, 
-        extractedExtension?.currentBillRate, 
-        extractedExtension?.billRate, 
-        extractedExtension?.rate, 
+        formData.extension.currentBillRate,
+        extractedExtension?.currentBillRate,
+        extractedExtension?.billRate,
+        extractedExtension?.rate,
         '[RATE]'
       );
       const shift = pick(
-        formData.extension.currentShiftHours, 
-        extractedExtension?.currentShift, 
-        extractedExtension?.shift, 
+        formData.extension.currentShiftHours,
+        extractedExtension?.currentShift,
+        extractedExtension?.shift,
         '[SHIFT]'
       );
       const proposedDates = pick(
@@ -449,7 +448,7 @@ export default function AssignmentEmailModal({
   showToast,
 }: AssignmentEmailModalProps) {
   const [templateType, setTemplateType] = useState<TemplateType>(initialTab);
-  
+
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [editedTo, setEditedTo] = useState('');
   const [editedCc, setEditedCc] = useState('');
@@ -511,19 +510,19 @@ export default function AssignmentEmailModal({
 
   const email = useMemo(() => {
     if (!contract) return { subject: '', body: '', to: '', cc: '' };
-    
+
     const generated = generateTemplate(contract, templateType, {
       approval: approvalForm,
       extension: extensionForm
     }, extensionExtract);
-    
+
     return {
       ...generated,
       to: isEditingEmail && editedTo ? editedTo : generated.to,
       cc: isEditingEmail && editedCc !== undefined ? editedCc : generated.cc
     };
   }, [contract, templateType, approvalForm, extensionForm, extensionExtract, isEditingEmail, editedTo, editedCc]);
-  
+
   useEffect(() => {
     if (!isEditingEmail && email) {
       setEditedTo(email.to);
@@ -545,7 +544,7 @@ export default function AssignmentEmailModal({
   const openOutlookWeb = useCallback(() => {
     const finalTo = email.to;
     const finalCc = email.cc;
-    
+
     if (!finalTo || finalTo.includes('[')) {
       showToast?.('Please complete all required fields', 'error');
       return;
@@ -563,8 +562,8 @@ export default function AssignmentEmailModal({
   }, [email, templateType, showToast, onClose]);
 
   const handleSaveExtensionDates = async () => {
-    if (!contract?.contract_id) {
-      showToast?.('No contract found', 'error');
+    if (!contract?.id) {
+      showToast?.('No assignment found', 'error');
       return;
     }
 
@@ -576,7 +575,7 @@ export default function AssignmentEmailModal({
     setIsSavingExtensionDates(true);
     try {
       const { error } = await supabase.rpc('set_extension_dates', {
-        assignment_id_param: contract.contract_id,
+        assignment_id_param: contract.id,
         new_start_date: extensionForm.proposedStartDate.toISOString().split('T')[0],
         new_end_date: extensionForm.proposedEndDate.toISOString().split('T')[0]
       });
@@ -589,11 +588,11 @@ export default function AssignmentEmailModal({
 
       setExtensionDatesSaved(true);
       showToast?.('✅ Extension dates saved successfully', 'success');
-      
+
       trackEvent('extension_dates_saved', {
-        contract_id: contract.contract_id,
+        contract_id: contract.id,
         duration_weeks: Math.round(
-          (extensionForm.proposedEndDate.getTime() - extensionForm.proposedStartDate.getTime()) 
+          (extensionForm.proposedEndDate.getTime() - extensionForm.proposedStartDate.getTime())
           / (1000 * 60 * 60 * 24 * 7)
         )
       });
@@ -607,14 +606,14 @@ export default function AssignmentEmailModal({
 
   const validateExtractedPeople = async (extracted: ExtractedDataWithConfidence) => {
     const validated = { ...extracted };
-    
+
     if (extracted.accountManager) {
       const { data: amData } = await supabase
         .from('people')
         .select('full_name, email')
         .ilike('full_name', `%${extracted.accountManager}%`)
         .single();
-      
+
       if (!amData) {
         validated._confidence = { ...validated._confidence, accountManager: 0.3 };
         validated._validated = { ...validated._validated, accountManager: false };
@@ -630,7 +629,7 @@ export default function AssignmentEmailModal({
         .select('full_name, email')
         .ilike('full_name', `%${extracted.accountCoordinator}%`)
         .single();
-      
+
       if (!acData) {
         validated._confidence = { ...validated._confidence, accountCoordinator: 0.3 };
         validated._validated = { ...validated._validated, accountCoordinator: false };
@@ -660,10 +659,10 @@ export default function AssignmentEmailModal({
 
       return {
         commonShift: Object.entries(shiftCounts)
-          .sort(([,a], [,b]) => b - a)[0]?.[0] || null
+          .sort(([, a], [, b]) => b - a)[0]?.[0] || null
       };
     }
-    
+
     return null;
   };
 
@@ -695,7 +694,7 @@ export default function AssignmentEmailModal({
     setIsExtracting(true);
     try {
       const extracted = await extractExtensionRequestFromImage(file) as ExtractedDataWithConfidence;
-      
+
       if (!extracted._confidence) {
         extracted._confidence = {
           currentBillRate: 0.7,
@@ -707,8 +706,8 @@ export default function AssignmentEmailModal({
       }
 
       const validated = await validateExtractedPeople(extracted);
-      const smartDefaults = await getSmartDefaults(contract?.facility_name || '');
-      
+      // const smartDefaults = await getSmartDefaults(contract?.facility_name || '');
+
       console.log('[Extension Extract] Comparison:', {
         contract: {
           am_name: contract?.am_name,
@@ -722,28 +721,28 @@ export default function AssignmentEmailModal({
         confidence: validated._confidence,
         validated: validated._validated
       });
-      
+
       setExtensionExtract(validated);
       setExtractionConfidence(validated._confidence || {});
 
       const billRate = extracted.currentBillRate || extracted.billRate || extracted.rate || '';
       const proposedDates = extracted.proposedDates || extracted.extensionDates || '';
-      
+
       const finalProposedDates = (
-        extracted.proposedStartDate && 
-        extracted.proposedEndDate && 
+        extracted.proposedStartDate &&
+        extracted.proposedEndDate &&
         !extracted.proposedStartDate.includes('[') &&
         !extracted.proposedEndDate.includes('[')
       )
         ? `${extracted.proposedStartDate} - ${extracted.proposedEndDate}`
         : proposedDates;
 
-      const startDate = extracted.proposedStartDate 
-        ? parseDateString(extracted.proposedStartDate) 
+      const startDate = extracted.proposedStartDate
+        ? parseDateString(extracted.proposedStartDate)
         : null;
-      
-      const endDate = extracted.proposedEndDate 
-        ? parseDateString(extracted.proposedEndDate) 
+
+      const endDate = extracted.proposedEndDate
+        ? parseDateString(extracted.proposedEndDate)
         : null;
 
       setExtensionForm(prev => ({
@@ -756,8 +755,8 @@ export default function AssignmentEmailModal({
         proposedStartDate: startDate,
         proposedEndDate: endDate,
         timeOffBetween: prev.timeOffBetween || 'None',
-        timeOffDuring: extracted.timeOffDates?.length > 0 
-          ? extracted.timeOffDates.join(', ') 
+        timeOffDuring: (extracted.timeOffDates && extracted.timeOffDates.length > 0)
+          ? extracted.timeOffDates.join(', ')
           : (extracted.rto || extracted.timeOff || 'None'),
         localStatus: prev.localStatus || 'N',
         managerDiscussion: prev.managerDiscussion || 'Yes',
@@ -766,10 +765,10 @@ export default function AssignmentEmailModal({
 
       const missingFields = [];
       const lowConfidenceFields = [];
-      
+
       if (!billRate || billRate === '[RATE]') missingFields.push('Bill Rate');
       if (!finalProposedDates || finalProposedDates === '[PROPOSED DATES]') missingFields.push('Proposed Dates');
-      
+
       if (validated._confidence) {
         Object.entries(validated._confidence).forEach(([field, confidence]) => {
           if (confidence < 0.7) {
@@ -784,7 +783,7 @@ export default function AssignmentEmailModal({
       if (validated._validated?.accountCoordinator === false) {
         showToast?.('⚠️ Account Coordinator name not found in database - please verify', 'info');
       }
-      
+
       if (missingFields.length > 0) {
         showToast?.(`Extension data extracted. Please manually enter: ${missingFields.join(', ')}`, 'info');
       } else if (lowConfidenceFields.length > 0) {
@@ -792,10 +791,10 @@ export default function AssignmentEmailModal({
       } else {
         showToast?.('Extension data extracted successfully', 'success');
       }
-      
-      if (contract?.contract_id) {
+
+      if (contract?.id) {
         await logExtractionAudit(
-          contract.contract_id,
+          String(contract.id),
           validated,
           extensionForm
         );
@@ -901,58 +900,59 @@ export default function AssignmentEmailModal({
           </section>
 
           {/* Extension Data Upload */}
-          {templateType === 'extension_request' && (
-            <section>
-              <h3 className={`${DESIGN.text.label} mb-3`}>
-                Extract Extension Data
-              </h3>
-              <label
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                onDragLeave={() => setDragActive(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragActive(false);
-                  const file = e.dataTransfer.files?.[0];
-                  if (file) {
-                    const evt = { target: { files: [file] } } as any;
-                    handleExtensionFile(evt);
-                  }
-                }}
-                className={`flex flex-col items-center justify-center gap-3 border-2 border-dashed ${DESIGN.radius.md} p-6 cursor-pointer ${DESIGN.transition} ${
-                  dragActive 
-                    ? `border-${DESIGN.colors.primary} bg-${DESIGN.colors.bgSubtle}` 
+          {
+            templateType === 'extension_request' && (
+              <section>
+                <h3 className={`${DESIGN.text.label} mb-3`}>
+                  Extract Extension Data
+                </h3>
+                <label
+                  onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragActive(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) {
+                      const evt = { target: { files: [file] } } as any;
+                      handleExtensionFile(evt);
+                    }
+                  }}
+                  className={`flex flex-col items-center justify-center gap-3 border-2 border-dashed ${DESIGN.radius.md} p-6 cursor-pointer ${DESIGN.transition} ${dragActive
+                    ? `border-${DESIGN.colors.primary} bg-${DESIGN.colors.bgSubtle}`
                     : `border-${DESIGN.colors.border} hover:border-${DESIGN.colors.tertiary}`
-                }`}
-              >
-                <div className={`p-3 bg-${DESIGN.colors.bgSubtle} ${DESIGN.radius.md}`}>
-                  {isExtracting ? (
-                    <Loader2 size={18} className={`animate-spin text-${DESIGN.colors.secondary}`} />
-                  ) : (
-                    <Upload size={18} className={`text-${DESIGN.colors.secondary}`} />
-                  )}
-                </div>
-                <div className="text-center">
-                  <span className={`${DESIGN.text.value} block mb-1`}>
-                    {isExtracting ? 'Extracting data...' : 'Drop screenshot here'}
-                  </span>
-                  <span className={DESIGN.text.caption}>
-                    PNG or JPG format
-                  </span>
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg"
-                  className="hidden"
-                  onChange={handleExtensionFile}
-                />
-              </label>
-            </section>
-          )}
-        </div>
+                    }`}
+                >
+                  <div className={`p-3 bg-${DESIGN.colors.bgSubtle} ${DESIGN.radius.md}`}>
+                    {isExtracting ? (
+                      <Loader2 size={18} className={`animate-spin text-${DESIGN.colors.secondary}`} />
+                    ) : (
+                      <Upload size={18} className={`text-${DESIGN.colors.secondary}`} />
+                    )}
+                  </div>
+                  <div className="text-center">
+                    <span className={`${DESIGN.text.value} block mb-1`}>
+                      {isExtracting ? 'Extracting data...' : 'Drop screenshot here'}
+                    </span>
+                    <span className={DESIGN.text.caption}>
+                      PNG or JPG format
+                    </span>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    className="hidden"
+                    onChange={handleExtensionFile}
+                  />
+                </label>
+              </section>
+            )
+          }
+        </div >
       }
       footer={
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200">
+        < div className="flex items-center justify-between px-6 py-4 border-t border-slate-200" >
           <button
             onClick={() => handleCopy(email.body, 'body')}
             className={`px-4 py-2.5 ${DESIGN.text.label} ${DESIGN.radius.md} border border-${DESIGN.colors.border} hover:bg-${DESIGN.colors.bgSubtle} ${DESIGN.transition} flex items-center gap-2`}
@@ -973,16 +973,15 @@ export default function AssignmentEmailModal({
           <button
             onClick={openOutlookWeb}
             disabled={!email.to || email.to.includes('[')}
-            className={`px-6 py-3 text-[13px] font-semibold ${DESIGN.radius.md} ${DESIGN.transition} flex items-center gap-2 ${
-              !email.to || email.to.includes('[')
-                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                : `bg-${DESIGN.colors.primary} text-white hover:bg-slate-800 ${DESIGN.elevation.float}`
-            }`}
+            className={`px-6 py-3 text-[13px] font-semibold ${DESIGN.radius.md} ${DESIGN.transition} flex items-center gap-2 ${!email.to || email.to.includes('[')
+              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              : `bg-${DESIGN.colors.primary} text-white hover:bg-slate-800 ${DESIGN.elevation.float}`
+              }`}
           >
             <Send size={16} />
             Open in Outlook
           </button>
-        </div>
+        </div >
       }
     >
       <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -994,11 +993,10 @@ export default function AssignmentEmailModal({
                 <button
                   key={tab.key}
                   onClick={() => setTemplateType(tab.key)}
-                  className={`px-4 py-2 text-[11px] font-bold tracking-wider uppercase rounded-lg transition-all flex items-center gap-2 whitespace-nowrap ${
-                    templateType === tab.key
-                      ? 'bg-slate-900 text-white shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  }`}
+                  className={`px-4 py-2 text-[11px] font-bold tracking-wider uppercase rounded-lg transition-all flex items-center gap-2 whitespace-nowrap ${templateType === tab.key
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
                 >
                   <Icon size={14} />
                   {tab.label}
@@ -1011,287 +1009,273 @@ export default function AssignmentEmailModal({
         {templateType === 'extension_request' && (
           <div className="bg-slate-50/30 border-b border-slate-100 max-h-[280px] overflow-y-auto flex-shrink-0">
             <div className="px-8 py-6">
-            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-4">
-              Extension Details
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[10px] font-semibold text-slate-600 mb-1.5">Local</label>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setExtensionForm(prev => ({ ...prev, localStatus: prev.localStatus === 'Y' ? 'N' : 'Y' }))}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 ${
-                      extensionForm.localStatus === 'Y' ? 'bg-slate-900' : 'bg-slate-300'
-                    }`}
-                    role="switch"
-                    aria-checked={extensionForm.localStatus === 'Y'}
-                  >
-                    <span className="sr-only">Local</span>
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        extensionForm.localStatus === 'Y' ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                  <span className="text-[12px] font-medium text-slate-700">
-                    {extensionForm.localStatus === 'Y' ? 'Yes' : 'No'}
-                  </span>
+              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-4">
+                Extension Details
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-600 mb-1.5">Local</label>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setExtensionForm(prev => ({ ...prev, localStatus: prev.localStatus === 'Y' ? 'N' : 'Y' }))}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 ${extensionForm.localStatus === 'Y' ? 'bg-slate-900' : 'bg-slate-300'
+                        }`}
+                      role="switch"
+                      aria-checked={extensionForm.localStatus === 'Y'}
+                    >
+                      <span className="sr-only">Local</span>
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${extensionForm.localStatus === 'Y' ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                      />
+                    </button>
+                    <span className="text-[12px] font-medium text-slate-700">
+                      {extensionForm.localStatus === 'Y' ? 'Yes' : 'No'}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <label className="block text-[10px] font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
-                  Unit
-                  {extractionConfidence.specialty && extractionConfidence.specialty < 0.7 && (
-                    <span className="text-yellow-500" title="Low confidence - please verify">⚠️</span>
-                  )}
-                </label>
-                <input
-                  value={extensionForm.unit}
-                  onChange={(e) => setExtensionForm(prev => ({ ...prev, unit: e.target.value }))}
-                  className="w-full px-3 py-2 text-[12px] bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
-                  placeholder="e.g., ICU"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
-                  Current Bill Rate
-                  {extractionConfidence.currentBillRate && extractionConfidence.currentBillRate < 0.7 && (
-                    <span className="text-yellow-500" title="Low confidence - please verify">⚠️</span>
-                  )}
-                </label>
-                <input
-                  value={extensionForm.currentBillRate}
-                  onChange={(e) => setExtensionForm(prev => ({ ...prev, currentBillRate: e.target.value }))}
-                  className={`w-full px-3 py-2 text-[12px] bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 ${
-                    extractionConfidence.currentBillRate && extractionConfidence.currentBillRate < 0.7 
-                      ? 'border-yellow-400' 
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+                    Unit
+                    {extractionConfidence.specialty && extractionConfidence.specialty < 0.7 && (
+                      <span className="text-yellow-500" title="Low confidence - please verify">⚠️</span>
+                    )}
+                  </label>
+                  <input
+                    value={extensionForm.unit}
+                    onChange={(e) => setExtensionForm(prev => ({ ...prev, unit: e.target.value }))}
+                    className="w-full px-3 py-2 text-[12px] bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
+                    placeholder="e.g., ICU"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+                    Current Bill Rate
+                    {extractionConfidence.currentBillRate && extractionConfidence.currentBillRate < 0.7 && (
+                      <span className="text-yellow-500" title="Low confidence - please verify">⚠️</span>
+                    )}
+                  </label>
+                  <input
+                    value={extensionForm.currentBillRate}
+                    onChange={(e) => setExtensionForm(prev => ({ ...prev, currentBillRate: e.target.value }))}
+                    className={`w-full px-3 py-2 text-[12px] bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 ${extractionConfidence.currentBillRate && extractionConfidence.currentBillRate < 0.7
+                      ? 'border-yellow-400'
                       : 'border-slate-200'
-                  }`}
-                  placeholder="e.g., $65/hr"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
-                  Shift/Hours
-                  {extractionConfidence.shift && extractionConfidence.shift < 0.7 && (
-                    <span className="text-yellow-500" title="Low confidence - please verify">⚠️</span>
-                  )}
-                </label>
-                <input
-                  value={extensionForm.currentShiftHours}
-                  onChange={(e) => setExtensionForm(prev => ({ ...prev, currentShiftHours: e.target.value }))}
-                  className={`w-full px-3 py-2 text-[12px] bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 ${
-                    extractionConfidence.shift && extractionConfidence.shift < 0.7 
-                      ? 'border-yellow-400' 
+                      }`}
+                    placeholder="e.g., $65/hr"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+                    Shift/Hours
+                    {extractionConfidence.shift && extractionConfidence.shift < 0.7 && (
+                      <span className="text-yellow-500" title="Low confidence - please verify">⚠️</span>
+                    )}
+                  </label>
+                  <input
+                    value={extensionForm.currentShiftHours}
+                    onChange={(e) => setExtensionForm(prev => ({ ...prev, currentShiftHours: e.target.value }))}
+                    className={`w-full px-3 py-2 text-[12px] bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 ${extractionConfidence.shift && extractionConfidence.shift < 0.7
+                      ? 'border-yellow-400'
                       : 'border-slate-200'
-                  }`}
-                  placeholder="e.g., 3x12 Nights"
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-[10px] font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
-                  Proposed Extension Dates
-                  {extractionConfidence.proposedDates && extractionConfidence.proposedDates < 0.7 && (
-                    <span className="text-yellow-500" title="Low confidence - please verify">⚠️</span>
-                  )}
-                </label>
-                <input
-                  value={extensionForm.proposedDates}
-                  onChange={(e) => setExtensionForm(prev => ({ ...prev, proposedDates: e.target.value }))}
-                  className={`w-full px-3 py-2 text-[12px] bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 ${
-                    extractionConfidence.proposedDates && extractionConfidence.proposedDates < 0.7 
-                      ? 'border-yellow-400' 
-                      : 'border-slate-200'
-                  }`}
-                  placeholder="e.g., March 15 - June 15, 2025"
-                />
-              </div>
-
-              {extensionForm.proposedStartDate && extensionForm.proposedEndDate && (
-                <DateConfirmationBadge 
-                  startDate={extensionForm.proposedStartDate} 
-                  endDate={extensionForm.proposedEndDate} 
-                />
-              )}
-
-              {extensionForm.proposedStartDate && extensionForm.proposedEndDate && (
+                      }`}
+                    placeholder="e.g., 3x12 Nights"
+                  />
+                </div>
                 <div className="col-span-2">
-                  <button
-                    type="button"
-                    onClick={handleSaveExtensionDates}
-                    disabled={isSavingExtensionDates || extensionDatesSaved}
-                    className={`w-full px-4 py-3 rounded-lg font-semibold text-sm transition-all flex items-center justify-center gap-2 ${
-                      extensionDatesSaved
+                  <label className="block text-[10px] font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+                    Proposed Extension Dates
+                    {extractionConfidence.proposedDates && extractionConfidence.proposedDates < 0.7 && (
+                      <span className="text-yellow-500" title="Low confidence - please verify">⚠️</span>
+                    )}
+                  </label>
+                  <input
+                    value={extensionForm.proposedDates}
+                    onChange={(e) => setExtensionForm(prev => ({ ...prev, proposedDates: e.target.value }))}
+                    className={`w-full px-3 py-2 text-[12px] bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 ${extractionConfidence.proposedDates && extractionConfidence.proposedDates < 0.7
+                      ? 'border-yellow-400'
+                      : 'border-slate-200'
+                      }`}
+                    placeholder="e.g., March 15 - June 15, 2025"
+                  />
+                </div>
+
+                {extensionForm.proposedStartDate && extensionForm.proposedEndDate && (
+                  <DateConfirmationBadge
+                    startDate={extensionForm.proposedStartDate}
+                    endDate={extensionForm.proposedEndDate}
+                  />
+                )}
+
+                {extensionForm.proposedStartDate && extensionForm.proposedEndDate && (
+                  <div className="col-span-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveExtensionDates}
+                      disabled={isSavingExtensionDates || extensionDatesSaved}
+                      className={`w-full px-4 py-3 rounded-lg font-semibold text-sm transition-all flex items-center justify-center gap-2 ${extensionDatesSaved
                         ? 'bg-green-100 text-green-700 border-2 border-green-300 cursor-default'
                         : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
-                    }`}
-                  >
-                    {isSavingExtensionDates ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Saving dates...
-                      </>
-                    ) : extensionDatesSaved ? (
-                      <>
-                        <CheckCircle className="w-4 h-4" />
-                        Extension dates saved
-                      </>
-                    ) : (
-                      <>
-                        <Save className="w-4 h-4" />
-                        Save Extension Dates (
-                          {extensionForm.proposedStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} 
+                        }`}
+                    >
+                      {isSavingExtensionDates ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Saving dates...
+                        </>
+                      ) : extensionDatesSaved ? (
+                        <>
+                          <CheckCircle className="w-4 h-4" />
+                          Extension dates saved
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4" />
+                          Save Extension Dates (
+                          {extensionForm.proposedStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           {' - '}
                           {extensionForm.proposedEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        )
-                      </>
+                          )
+                        </>
+                      )}
+                    </button>
+                    {extensionDatesSaved && (
+                      <p className="text-xs text-green-600 mt-2 text-center">
+                        Dates will be confirmed when prospect moves to Signed status
+                      </p>
                     )}
-                  </button>
-                  {extensionDatesSaved && (
-                    <p className="text-xs text-green-600 mt-2 text-center">
-                      Dates will be confirmed when prospect moves to Signed status
-                    </p>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
 
-              {/* Time Off - Simplified binary toggles */}
-              <div>
-                <label className={`block ${DESIGN.text.label} mb-2`}>Time Off Between</label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const isNone = extensionForm.timeOffBetween === 'None';
-                      setExtensionForm(prev => ({ 
-                        ...prev, 
-                        timeOffBetween: isNone ? '' : 'None' 
-                      }));
-                    }}
-                    className={`px-4 py-2 text-[12px] font-medium ${DESIGN.radius.sm} ${DESIGN.transition} ${
-                      extensionForm.timeOffBetween === 'None' 
-                        ? `bg-${DESIGN.colors.primary} text-white` 
+                {/* Time Off - Simplified binary toggles */}
+                <div>
+                  <label className={`block ${DESIGN.text.label} mb-2`}>Time Off Between</label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const isNone = extensionForm.timeOffBetween === 'None';
+                        setExtensionForm(prev => ({
+                          ...prev,
+                          timeOffBetween: isNone ? '' : 'None'
+                        }));
+                      }}
+                      className={`px-4 py-2 text-[12px] font-medium ${DESIGN.radius.sm} ${DESIGN.transition} ${extensionForm.timeOffBetween === 'None'
+                        ? `bg-${DESIGN.colors.primary} text-white`
                         : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    None
-                  </button>
-                  <input
-                    value={extensionForm.timeOffBetween === 'None' ? '' : extensionForm.timeOffBetween}
-                    onChange={(e) => setExtensionForm(prev => ({ ...prev, timeOffBetween: e.target.value }))}
-                    disabled={extensionForm.timeOffBetween === 'None'}
-                    className={`flex-1 px-3 py-2 ${DESIGN.text.input} bg-white border border-${DESIGN.colors.border} ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-${DESIGN.colors.borderFocus} ${DESIGN.transition} ${
-                      extensionForm.timeOffBetween === 'None' ? 'opacity-40' : ''
-                    }`}
-                    placeholder="Specify dates if needed"
-                  />
+                        }`}
+                    >
+                      None
+                    </button>
+                    <input
+                      value={extensionForm.timeOffBetween === 'None' ? '' : extensionForm.timeOffBetween}
+                      onChange={(e) => setExtensionForm(prev => ({ ...prev, timeOffBetween: e.target.value }))}
+                      disabled={extensionForm.timeOffBetween === 'None'}
+                      className={`flex-1 px-3 py-2 ${DESIGN.text.input} bg-white border border-${DESIGN.colors.border} ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-${DESIGN.colors.borderFocus} ${DESIGN.transition} ${extensionForm.timeOffBetween === 'None' ? 'opacity-40' : ''
+                        }`}
+                      placeholder="Specify dates if needed"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className={`block ${DESIGN.text.label} mb-2`}>Time Off During</label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const isNone = extensionForm.timeOffDuring === 'None';
+                        setExtensionForm(prev => ({
+                          ...prev,
+                          timeOffDuring: isNone ? '' : 'None'
+                        }));
+                      }}
+                      className={`px-4 py-2 text-[12px] font-medium ${DESIGN.radius.sm} ${DESIGN.transition} ${extensionForm.timeOffDuring === 'None'
+                        ? `bg-${DESIGN.colors.primary} text-white`
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                    >
+                      None
+                    </button>
+                    <input
+                      value={extensionForm.timeOffDuring === 'None' ? '' : extensionForm.timeOffDuring}
+                      onChange={(e) => setExtensionForm(prev => ({ ...prev, timeOffDuring: e.target.value }))}
+                      disabled={extensionForm.timeOffDuring === 'None'}
+                      className={`flex-1 px-3 py-2 ${DESIGN.text.input} bg-white border border-${DESIGN.colors.border} ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-${DESIGN.colors.borderFocus} ${DESIGN.transition} ${extensionForm.timeOffDuring === 'None' ? 'opacity-40' : ''
+                        }`}
+                      placeholder="Specify dates if needed"
+                    />
+                  </div>
+                </div>
+
+                {/* Manager Discussion */}
+                <div className="col-span-2">
+                  <label className={`block ${DESIGN.text.label} mb-2`}>
+                    Discussed with Manager?
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const isNo = extensionForm.managerDiscussion === 'No';
+                        setExtensionForm(prev => ({
+                          ...prev,
+                          managerDiscussion: isNo ? 'Yes' : 'No'
+                        }));
+                      }}
+                      className={`px-4 py-2 text-[12px] font-medium ${DESIGN.radius.sm} ${DESIGN.transition} ${extensionForm.managerDiscussion === 'No'
+                        ? `bg-${DESIGN.colors.primary} text-white`
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                    >
+                      No
+                    </button>
+                    <input
+                      value={extensionForm.managerDiscussion === 'No' ? '' : (extensionForm.managerDiscussion === 'Yes' ? '' : extensionForm.managerDiscussion)}
+                      onChange={(e) => setExtensionForm(prev => ({ ...prev, managerDiscussion: e.target.value }))}
+                      disabled={extensionForm.managerDiscussion === 'No'}
+                      className={`flex-1 px-3 py-2 ${DESIGN.text.input} bg-white border border-${DESIGN.colors.border} ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-${DESIGN.colors.borderFocus} ${DESIGN.transition} ${extensionForm.managerDiscussion === 'No' ? 'opacity-40' : ''
+                        }`}
+                      placeholder={extensionForm.managerDiscussion === 'Yes' ? "Manager's name" : ""}
+                    />
+                  </div>
+                </div>
+
+                {/* Additional Details */}
+                <div className="col-span-2">
+                  <label className={`block ${DESIGN.text.label} mb-2`}>
+                    Additional Details
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const isNA = extensionForm.additionalDetails === 'N/A';
+                        setExtensionForm(prev => ({
+                          ...prev,
+                          additionalDetails: isNA ? '' : 'N/A'
+                        }));
+                      }}
+                      className={`px-4 py-2 text-[12px] font-medium ${DESIGN.radius.sm} ${DESIGN.transition} ${extensionForm.additionalDetails === 'N/A'
+                        ? `bg-${DESIGN.colors.primary} text-white`
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                    >
+                      N/A
+                    </button>
+                    <textarea
+                      value={extensionForm.additionalDetails === 'N/A' ? '' : extensionForm.additionalDetails}
+                      onChange={(e) => setExtensionForm(prev => ({ ...prev, additionalDetails: e.target.value }))}
+                      disabled={extensionForm.additionalDetails === 'N/A'}
+                      rows={2}
+                      className={`flex-1 px-3 py-2 ${DESIGN.text.input} bg-white border border-${DESIGN.colors.border} ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-${DESIGN.colors.borderFocus} ${DESIGN.transition} ${extensionForm.additionalDetails === 'N/A' ? 'opacity-40' : ''
+                        }`}
+                      placeholder="Any special requirements or notes"
+                    />
+                  </div>
                 </div>
               </div>
-
-              <div>
-                <label className={`block ${DESIGN.text.label} mb-2`}>Time Off During</label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const isNone = extensionForm.timeOffDuring === 'None';
-                      setExtensionForm(prev => ({ 
-                        ...prev, 
-                        timeOffDuring: isNone ? '' : 'None' 
-                      }));
-                    }}
-                    className={`px-4 py-2 text-[12px] font-medium ${DESIGN.radius.sm} ${DESIGN.transition} ${
-                      extensionForm.timeOffDuring === 'None' 
-                        ? `bg-${DESIGN.colors.primary} text-white` 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    None
-                  </button>
-                  <input
-                    value={extensionForm.timeOffDuring === 'None' ? '' : extensionForm.timeOffDuring}
-                    onChange={(e) => setExtensionForm(prev => ({ ...prev, timeOffDuring: e.target.value }))}
-                    disabled={extensionForm.timeOffDuring === 'None'}
-                    className={`flex-1 px-3 py-2 ${DESIGN.text.input} bg-white border border-${DESIGN.colors.border} ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-${DESIGN.colors.borderFocus} ${DESIGN.transition} ${
-                      extensionForm.timeOffDuring === 'None' ? 'opacity-40' : ''
-                    }`}
-                    placeholder="Specify dates if needed"
-                  />
-                </div>
-              </div>
-
-              {/* Manager Discussion */}
-              <div className="col-span-2">
-                <label className={`block ${DESIGN.text.label} mb-2`}>
-                  Discussed with Manager?
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const isNo = extensionForm.managerDiscussion === 'No';
-                      setExtensionForm(prev => ({ 
-                        ...prev, 
-                        managerDiscussion: isNo ? 'Yes' : 'No' 
-                      }));
-                    }}
-                    className={`px-4 py-2 text-[12px] font-medium ${DESIGN.radius.sm} ${DESIGN.transition} ${
-                      extensionForm.managerDiscussion === 'No' 
-                        ? `bg-${DESIGN.colors.primary} text-white` 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    No
-                  </button>
-                  <input
-                    value={extensionForm.managerDiscussion === 'No' ? '' : (extensionForm.managerDiscussion === 'Yes' ? '' : extensionForm.managerDiscussion)}
-                    onChange={(e) => setExtensionForm(prev => ({ ...prev, managerDiscussion: e.target.value }))}
-                    disabled={extensionForm.managerDiscussion === 'No'}
-                    className={`flex-1 px-3 py-2 ${DESIGN.text.input} bg-white border border-${DESIGN.colors.border} ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-${DESIGN.colors.borderFocus} ${DESIGN.transition} ${
-                      extensionForm.managerDiscussion === 'No' ? 'opacity-40' : ''
-                    }`}
-                    placeholder={extensionForm.managerDiscussion === 'Yes' ? "Manager's name" : ""}
-                  />
-                </div>
-              </div>
-
-              {/* Additional Details */}
-              <div className="col-span-2">
-                <label className={`block ${DESIGN.text.label} mb-2`}>
-                  Additional Details
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const isNA = extensionForm.additionalDetails === 'N/A';
-                      setExtensionForm(prev => ({ 
-                        ...prev, 
-                        additionalDetails: isNA ? '' : 'N/A' 
-                      }));
-                    }}
-                    className={`px-4 py-2 text-[12px] font-medium ${DESIGN.radius.sm} ${DESIGN.transition} ${
-                      extensionForm.additionalDetails === 'N/A' 
-                        ? `bg-${DESIGN.colors.primary} text-white` 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    N/A
-                  </button>
-                  <textarea
-                    value={extensionForm.additionalDetails === 'N/A' ? '' : extensionForm.additionalDetails}
-                    onChange={(e) => setExtensionForm(prev => ({ ...prev, additionalDetails: e.target.value }))}
-                    disabled={extensionForm.additionalDetails === 'N/A'}
-                    rows={2}
-                    className={`flex-1 px-3 py-2 ${DESIGN.text.input} bg-white border border-${DESIGN.colors.border} ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-${DESIGN.colors.borderFocus} ${DESIGN.transition} ${
-                      extensionForm.additionalDetails === 'N/A' ? 'opacity-40' : ''
-                    }`}
-                    placeholder="Any special requirements or notes"
-                  />
-                </div>
-              </div>
-            </div>
             </div>
           </div>
         )}
@@ -1330,103 +1314,103 @@ export default function AssignmentEmailModal({
           <div className="flex-1 overflow-y-auto">
             <div className="px-6 py-6">
               <div className="space-y-5">
-              {/* Email Recipients - Editable with clear affordance */}
-              <div className="space-y-3">
-                {/* To Field */}
-                <div className="flex items-center gap-3">
-                  <span className={`${DESIGN.text.label} w-12 flex-shrink-0`}>To</span>
-                  {isEditingEmail ? (
-                    <input
-                      type="text"
-                      value={editedTo}
-                      onChange={(e) => setEditedTo(e.target.value)}
-                      onBlur={handleSaveEmailEdits}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleSaveEmailEdits();
-                        if (e.key === 'Escape') handleCancelEmailEdits();
-                      }}
-                      className={`flex-1 px-3 py-2 ${DESIGN.text.input} bg-white border border-${DESIGN.colors.borderFocus} ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-${DESIGN.colors.borderFocus}`}
-                      placeholder="email@ayahealthcare.com"
-                      autoFocus
-                    />
-                  ) : (
-                    <>
-                      <span 
-                        onClick={() => setIsEditingEmail(true)}
-                        className={`flex-1 font-mono text-[12px] text-${DESIGN.colors.secondary} cursor-pointer hover:text-${DESIGN.colors.primary} ${DESIGN.transition}`}
-                      >
-                        {email.to || 'Click to add recipient'}
-                      </span>
-                      <button
-                        onClick={() => setIsEditingEmail(true)}
-                        className={`p-2 ${DESIGN.radius.sm} text-${DESIGN.colors.secondary} hover:text-${DESIGN.colors.primary} hover:bg-${DESIGN.colors.bgHover} ${DESIGN.transition}`}
-                        title="Edit recipients"
-                        aria-label="Edit email recipients"
-                      >
-                        <Edit2 size={15} />
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                {/* CC Field */}
-                {(email.cc || isEditingEmail) && (
+                {/* Email Recipients - Editable with clear affordance */}
+                <div className="space-y-3">
+                  {/* To Field */}
                   <div className="flex items-center gap-3">
-                    <span className={`${DESIGN.text.label} w-12 flex-shrink-0`}>CC</span>
+                    <span className={`${DESIGN.text.label} w-12 flex-shrink-0`}>To</span>
                     {isEditingEmail ? (
                       <input
                         type="text"
-                        value={editedCc}
-                        onChange={(e) => setEditedCc(e.target.value)}
+                        value={editedTo}
+                        onChange={(e) => setEditedTo(e.target.value)}
                         onBlur={handleSaveEmailEdits}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') handleSaveEmailEdits();
                           if (e.key === 'Escape') handleCancelEmailEdits();
                         }}
                         className={`flex-1 px-3 py-2 ${DESIGN.text.input} bg-white border border-${DESIGN.colors.borderFocus} ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-${DESIGN.colors.borderFocus}`}
-                        placeholder="email@ayahealthcare.com; email2@ayahealthcare.com"
+                        placeholder="email@ayahealthcare.com"
+                        autoFocus
                       />
                     ) : (
-                      <span 
-                        onClick={() => setIsEditingEmail(true)}
-                        className={`flex-1 font-mono text-[12px] text-${DESIGN.colors.secondary} cursor-pointer hover:text-${DESIGN.colors.primary} ${DESIGN.transition}`}
-                      >
-                        {email.cc || 'Click to add CC'}
-                      </span>
+                      <>
+                        <span
+                          onClick={() => setIsEditingEmail(true)}
+                          className={`flex-1 font-mono text-[12px] text-${DESIGN.colors.secondary} cursor-pointer hover:text-${DESIGN.colors.primary} ${DESIGN.transition}`}
+                        >
+                          {email.to || 'Click to add recipient'}
+                        </span>
+                        <button
+                          onClick={() => setIsEditingEmail(true)}
+                          className={`p-2 ${DESIGN.radius.sm} text-${DESIGN.colors.secondary} hover:text-${DESIGN.colors.primary} hover:bg-${DESIGN.colors.bgHover} ${DESIGN.transition}`}
+                          title="Edit recipients"
+                          aria-label="Edit email recipients"
+                        >
+                          <Edit2 size={15} />
+                        </button>
+                      </>
                     )}
                   </div>
-                )}
-              </div>
 
-            <div className="h-px bg-slate-200"></div>
+                  {/* CC Field */}
+                  {(email.cc || isEditingEmail) && (
+                    <div className="flex items-center gap-3">
+                      <span className={`${DESIGN.text.label} w-12 flex-shrink-0`}>CC</span>
+                      {isEditingEmail ? (
+                        <input
+                          type="text"
+                          value={editedCc}
+                          onChange={(e) => setEditedCc(e.target.value)}
+                          onBlur={handleSaveEmailEdits}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveEmailEdits();
+                            if (e.key === 'Escape') handleCancelEmailEdits();
+                          }}
+                          className={`flex-1 px-3 py-2 ${DESIGN.text.input} bg-white border border-${DESIGN.colors.borderFocus} ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-${DESIGN.colors.borderFocus}`}
+                          placeholder="email@ayahealthcare.com; email2@ayahealthcare.com"
+                        />
+                      ) : (
+                        <span
+                          onClick={() => setIsEditingEmail(true)}
+                          className={`flex-1 font-mono text-[12px] text-${DESIGN.colors.secondary} cursor-pointer hover:text-${DESIGN.colors.primary} ${DESIGN.transition}`}
+                        >
+                          {email.cc || 'Click to add CC'}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
 
-            {/* Subject Line */}
-            <div>
-              <label className={`block ${DESIGN.text.label} mb-2`}>
-                Subject
-              </label>
-              <div className={`w-full px-4 py-3 ${DESIGN.text.value} bg-${DESIGN.colors.bgSubtle} border border-${DESIGN.colors.border} ${DESIGN.radius.md}`}>
-                {email.subject}
-              </div>
-            </div>
+                <div className="h-px bg-slate-200"></div>
 
-            {/* Message Body */}
-            <div>
-              <label className={`block ${DESIGN.text.label} mb-2`}>
-                Message
-              </label>
-              <div className={`relative w-full bg-${DESIGN.colors.bgSubtle} border border-${DESIGN.colors.border} ${DESIGN.radius.md}`}>
-                <pre className={`p-4 ${DESIGN.text.body} whitespace-pre-wrap font-sans overflow-y-auto max-h-[400px]`}>
-{email.body}
-                </pre>
-              </div>
+                {/* Subject Line */}
+                <div>
+                  <label className={`block ${DESIGN.text.label} mb-2`}>
+                    Subject
+                  </label>
+                  <div className={`w-full px-4 py-3 ${DESIGN.text.value} bg-${DESIGN.colors.bgSubtle} border border-${DESIGN.colors.border} ${DESIGN.radius.md}`}>
+                    {email.subject}
+                  </div>
+                </div>
+
+                {/* Message Body */}
+                <div>
+                  <label className={`block ${DESIGN.text.label} mb-2`}>
+                    Message
+                  </label>
+                  <div className={`relative w-full bg-${DESIGN.colors.bgSubtle} border border-${DESIGN.colors.border} ${DESIGN.radius.md}`}>
+                    <pre className={`p-4 ${DESIGN.text.body} whitespace-pre-wrap font-sans overflow-y-auto max-h-[400px]`}>
+                      {email.body}
+                    </pre>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </EmailModalShell>
+    </EmailModalShell >
   );
 }
 

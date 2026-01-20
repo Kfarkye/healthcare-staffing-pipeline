@@ -33,6 +33,8 @@ export interface Contract {
   nova_url?: string | null;
   candidate_id?: string | number | null;
   phone?: string | null;
+  am_name?: string | null;
+  ac_name?: string | null;
 }
 
 export type ModalView = 'composer' | 'reimbursement' | 'margin_extract' | 'extension_extract';
