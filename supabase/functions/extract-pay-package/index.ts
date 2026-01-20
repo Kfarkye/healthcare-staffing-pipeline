@@ -77,8 +77,8 @@ Deno.serve(async (req) => {
                 generationConfig: {
                     ...body.generationConfig,
                     thinkingConfig: {
-                        includeThoughts: true,
-                        thinkingLevel: "high"
+                        includeThoughts: false,
+                        thinkingLevel: "low"
                     }
                 }
             })

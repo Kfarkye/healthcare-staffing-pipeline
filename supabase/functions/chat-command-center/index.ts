@@ -302,8 +302,8 @@ Thank you!`
                             safetySettings,
                             generationConfig: {
                                 thinkingConfig: {
-                                    includeThoughts: true,
-                                    thinkingLevel: "high"
+                                    includeThoughts: false,
+                                    thinkingLevel: "low"
                                 }
                             }
                         })
