@@ -270,13 +270,41 @@ export const CommandCenter: React.FC = () => {
                                                             const isExpanded = expandedCards.has(i);
                                                             return (
                                                                 <div className="bg-black/20 rounded-2xl border border-white/5 overflow-hidden">
-                                                                    <div className="px-4 py-2 bg-white/5 border-b border-white/5 flex items-center justify-between">
-                                                                        <span className="text-[9px] font-bold opacity-50 uppercase tracking-widest">Draft</span>
-                                                                        <div className="flex gap-2">
-                                                                            <a href={buildOutlookLink('', undefined, subject, stripMarkdown(body))} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors" title="Open in Outlook"><Mail size={12} /></a>
-                                                                            <button onClick={() => navigator.clipboard.writeText(stripMarkdown(text))} className="hover:text-white transition-colors" title="Copy to clipboard"><Copy size={12} /></button>
+                                                                    {/* Header with actions */}
+                                                                    <div className="px-4 py-3 bg-white/5 border-b border-white/5 flex items-center justify-between">
+                                                                        <span className="text-[10px] font-bold opacity-60 uppercase tracking-widest">Email Draft</span>
+                                                                        <div className="flex items-center gap-2">
+                                                                            {/* Copy Button */}
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    navigator.clipboard.writeText(stripMarkdown(text));
+                                                                                    // Visual feedback
+                                                                                    const btn = document.activeElement as HTMLButtonElement;
+                                                                                    if (btn) {
+                                                                                        btn.classList.add('!bg-emerald-500/20', '!text-emerald-400');
+                                                                                        setTimeout(() => btn.classList.remove('!bg-emerald-500/20', '!text-emerald-400'), 1500);
+                                                                                    }
+                                                                                }}
+                                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all text-[11px] font-semibold"
+                                                                                title="Copy to clipboard"
+                                                                            >
+                                                                                <Copy size={12} />
+                                                                                <span>Copy</span>
+                                                                            </button>
+                                                                            {/* Open in Outlook Button */}
+                                                                            <a
+                                                                                href={buildOutlookLink('', undefined, subject, stripMarkdown(body))}
+                                                                                target="_blank"
+                                                                                rel="noopener noreferrer"
+                                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300 hover:text-blue-200 transition-all text-[11px] font-semibold"
+                                                                                title="Open in Outlook"
+                                                                            >
+                                                                                <Mail size={12} />
+                                                                                <span>Open in Outlook</span>
+                                                                            </a>
                                                                         </div>
                                                                     </div>
+                                                                    {/* Email Content */}
                                                                     <div className="p-4 space-y-2">
                                                                         <div className="text-sm font-bold text-white leading-tight">{subject}</div>
                                                                         <div className={cn("prose prose-invert prose-sm opacity-80", !isExpanded && "line-clamp-6")}>
