@@ -348,6 +348,21 @@ Senior Recruiter, Fulfillment Specialist`
                     { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_NONE" }
                 ];
 
+                // SANITIZE CONTENTS: Gemini only accepts 'role' and 'parts'. 
+                // Any extra fields (metadata, id, thought) in history objects will trigger a 400 error.
+                const sanitizedContents = payload.contents.map((m: any) => ({
+                    role: m.role,
+                    parts: m.parts.map((p: any) => {
+                        const part: any = {};
+                        if (p.text) part.text = p.text;
+                        if (p.inlineData) part.inlineData = p.inlineData;
+                        if (p.functionCall) part.functionCall = p.functionCall;
+                        if (p.functionResponse) part.functionResponse = p.functionResponse;
+                        // Specifically NOT including 'thought' or other non-standard keys here
+                        return part;
+                    })
+                }));
+
                 for (let attempt = 0; attempt <= maxRetries; attempt++) {
                     console.log(`[Command] API Call attempt ${attempt + 1}/${maxRetries + 1}`);
 
@@ -356,8 +371,10 @@ Senior Recruiter, Fulfillment Specialist`
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             ...payload,
+                            contents: sanitizedContents,
                             safetySettings,
                             generationConfig: {
+                                // ...
                                 thinkingConfig: {
                                     includeThoughts: false,
                                     thinkingLevel: "high"
@@ -758,7 +775,7 @@ Senior Recruiter, Fulfillment Specialist`
                 return { functionResponse: { name, response: { content: resultData } } };
             }));
 
-            contents.push({ role: 'user', parts: toolResponses });
+            contents.push({ role: 'function', parts: toolResponses });
         }
 
         return new Response(JSON.stringify({

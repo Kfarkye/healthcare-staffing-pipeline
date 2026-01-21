@@ -8,6 +8,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
+import { retryWithBackoff, withTimeout, circuitBreaker, getCachedData, setCachedData } from '../lib/resilience';
 import { SMSModal } from './SMSModal';
 import { EmailTemplateModal } from './prospects/EmailTemplateModal';
 import AddProspectModal from './prospects/AddProspectModal';
@@ -155,27 +156,58 @@ const ProspectsDashboard: React.FC = () => {
   const [smsModalProspect, setSmsModalProspect] = useState<Prospect | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('prospects')
-        .select('*')
-        .order('updated_at', { ascending: false });
+  const [isStale, setIsStale] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-      if (error) throw error;
-      setProspects(data || []);
-    } catch (err) {
+  const loadData = useCallback(async () => {
+    const cacheKey = 'prospects_list_cache';
+    const cached = getCachedData<Prospect[]>(cacheKey);
+
+    if (cached) {
+      setProspects(cached);
+      setIsStale(true);
+    } else {
+      setLoading(true);
+    }
+
+    setError(null);
+
+    try {
+      const data = await circuitBreaker('prospects_query', async () => {
+        return await retryWithBackoff(async () => {
+          return await withTimeout((async () => {
+            const { data, error } = await supabase
+              .from('prospects')
+              .select('*')
+              .order('updated_at', { ascending: false });
+
+            if (error) throw error;
+            return (data as Prospect[]) || [];
+          })(), 10000);
+        });
+      });
+
+      const finalData = data || [];
+      setProspects(finalData);
+      setCachedData(cacheKey, finalData);
+      setIsStale(false);
+    } catch (err: any) {
       console.error('Error loading prospects:', err);
-      showToast('Failed to load candidates', 'error');
+      if (cached) {
+        setIsStale(true);
+        showToast('Refresh failed. Showing offline data.', 'error');
+      } else {
+        showToast('Failed to load candidates', 'error');
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const stats = useMemo(() => {
     return {
@@ -304,17 +336,31 @@ const ProspectsDashboard: React.FC = () => {
             )}
           </div>
 
-          <button
-            onClick={() => {
-              setSearchQuery('');
-              setStatusFilter(null);
-              loadData();
-            }}
-            className="text-[12px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-[0.12em] px-2 active:scale-95 flex items-center gap-2"
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            Clear & Reset
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setStatusFilter(null);
+                loadData();
+              }}
+              className="text-[12px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-[0.12em] px-2 active:scale-95 flex items-center gap-2"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              Clear & Reset
+            </button>
+            {isStale && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-full border border-amber-200 animate-pulse">
+                <Clock size={12} />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Stale</span>
+              </div>
+            )}
+            {error && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-50 text-rose-600 rounded-full border border-rose-200">
+                <AlertCircle size={12} />
+                <button onClick={() => loadData()} className="text-[10px] font-bold uppercase tracking-wider underline">Retry Refresh</button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Dynamic Viewport */}

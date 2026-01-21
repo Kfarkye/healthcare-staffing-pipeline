@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { retryWithBackoff, withTimeout, circuitBreaker, getCachedData, setCachedData, classifyError } from '../lib/resilience';
 
 export type AgingBucket =
   | 'READY'
@@ -95,38 +96,69 @@ export type Options = {
 
 export function useClinicianDashboard(opts: Options) {
   const { view, q = '', limit = 200 } = opts;
-  const [rows, setRows] = useState<ClinicianRow[]>([]);
+  const [rows, setRows] = useState<ClinicianRow[]>(() => {
+    // Initial SWR: Load from cache if possible
+    const cacheKey = `dashboard_${view}_${q}_${limit}`;
+    return getCachedData<ClinicianRow[]>(cacheKey) || [];
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState(false);
   const searchRef = useRef(q);
 
   const fetchRows = useCallback(async () => {
-    setLoading(true);
+    const cacheKey = `dashboard_${view}_${searchRef.current}_${limit}`;
+    const cached = getCachedData<ClinicianRow[]>(cacheKey);
+
+    // If we have cached data, show it immediately and refresh in background
+    if (cached) {
+      setRows(cached);
+      setIsStale(true);
+    } else {
+      setLoading(true);
+    }
+
     setError(null);
 
     try {
-      // Base query
-      let query = supabase
-        .from(view)
-        .select('*')
-        .limit(limit);
+      const data = await circuitBreaker(view, async () => {
+        return await retryWithBackoff(async () => {
+          // Wrapped in IIFE to create promise for withTimeout
+          return await withTimeout((async () => {
+            // Base query
+            let query = supabase
+              .from(view)
+              .select('*')
+              .limit(limit);
 
-      // Server-side text search (fast!)
-      if (searchRef.current.trim()) {
-        const term = searchRef.current.trim();
-        query = query.or(
-          `full_name.ilike.%${term}%,facility_name.ilike.%${term}%,location_city.ilike.%${term}%,location_state.ilike.%${term}%,raw_status.ilike.%${term}%,recruiter.ilike.%${term}%,job_id.ilike.%${term}%`
-        );
-      }
+            // Server-side text search (fast!)
+            if (searchRef.current.trim()) {
+              const term = searchRef.current.trim();
+              query = query.or(
+                `full_name.ilike.%${term}%,facility_name.ilike.%${term}%,location_city.ilike.%${term}%,location_state.ilike.%${term}%,raw_status.ilike.%${term}%,recruiter.ilike.%${term}%,job_id.ilike.%${term}%`
+              );
+            }
 
-      const { data, error: queryError } = await query;
+            const { data, error: queryError } = await query;
+            if (queryError) throw queryError;
+            return (data as ClinicianRow[]) || [];
+          })(), 15000); // 15s timeout
+        }, { attempts: 3, baseMs: 1000 });
+      }, { failureThreshold: 3, coolDownMs: 10000 });
 
-      if (queryError) throw queryError;
-
-      setRows((data as ClinicianRow[]) || []);
+      const finalData = (data as ClinicianRow[]) || [];
+      setRows(finalData);
+      setCachedData(cacheKey, finalData);
+      setIsStale(false);
     } catch (err: any) {
       console.error('[useClinicianDashboard] Error:', err);
-      setError(err.message || 'Failed to load data');
+      // If we have stale data, we keep showing it but mark it as stale
+      if (cached) {
+        setIsStale(true);
+        setError(`Refresh failed: ${err.message}. Showing last known data.`);
+      } else {
+        setError(err.message || 'Failed to load data');
+      }
     } finally {
       setLoading(false);
     }
@@ -172,14 +204,18 @@ export function useClinicianDashboard(opts: Options) {
   // Direct promote function (no Edge Function needed)
   const promote = useCallback(async (engagementId: string, nextStage: Stage) => {
     try {
-      const { error: updateError } = await supabase
-        .from('engagements')
-        .update({
-          stage: nextStage,
-          is_current: true,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', engagementId);
+      // For mutations, we use a simpler circuit breaker or direct call
+      // No automatic retry for mutations unless idempotent (promote is idempotent here)
+      const { error: updateError } = await retryWithBackoff(async () => {
+        return await supabase
+          .from('engagements')
+          .update({
+            stage: nextStage,
+            is_current: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', engagementId);
+      });
 
       if (updateError) throw updateError;
 
@@ -195,6 +231,7 @@ export function useClinicianDashboard(opts: Options) {
     rows,
     loading,
     error,
+    isStale,
     refresh: fetchRows,
     promote,
   };

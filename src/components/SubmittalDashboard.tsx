@@ -375,7 +375,7 @@ export default function SubmittalsDashboard() {
 
   const debouncedSearch = useDebouncedValue(search);
 
-  const { rows, loading, refresh } = useClinicianDashboard({
+  const { rows, loading, error, isStale, refresh } = useClinicianDashboard({
     view: 'submittals_dashboard' as ViewName,
     q: debouncedSearch,
     limit: 500,
@@ -512,9 +512,26 @@ export default function SubmittalsDashboard() {
                 className="pl-11 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] w-64 outline-none"
               />
             </div>
-            <button onClick={() => refresh()} className="p-2 text-slate-400 hover:text-slate-900">
+            <button
+              onClick={() => refresh()}
+              className={cn("p-2 transition-colors", loading ? "text-blue-500" : "text-slate-400 hover:text-slate-900")}
+              title={error ? "Refresh failed. Click to retry." : "Refresh data"}
+            >
               <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
             </button>
+            {isStale && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-amber-50 text-amber-600 rounded-full border border-amber-200 animate-pulse">
+                <Clock size={12} />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Stale Data</span>
+              </div>
+            )}
+            {error && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-rose-50 text-rose-600 rounded-full border border-rose-200">
+                <AlertCircle size={12} />
+                <span className="text-[10px] font-bold truncate max-w-[200px]">{error}</span>
+                <button onClick={() => refresh()} className="underline font-bold ml-1 active:scale-95">RETRY</button>
+              </div>
+            )}
           </div>
         }
       >
