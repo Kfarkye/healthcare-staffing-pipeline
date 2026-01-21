@@ -42,6 +42,15 @@ export const extractEmailFields = (text: string) => {
         body = body.replace(/To:\s*.*\n?/i, '').trim();
     }
 
+    // If no 'To:' line, try to find an email address pattern anywhere in text
+    if (!to) {
+        const emailPattern = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/;
+        const emailMatch = text.match(emailPattern);
+        if (emailMatch) {
+            to = emailMatch[1];
+        }
+    }
+
     // Try to find a 'Subject:' line
     const subjectMatch = text.match(/Subject:\s*(.*)/i);
     if (subjectMatch) {

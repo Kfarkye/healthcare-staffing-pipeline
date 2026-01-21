@@ -356,7 +356,9 @@ export const CommandCenter: React.FC = () => {
                                                         {(() => {
                                                             const text = msg.parts[0]?.text || '';
                                                             if (isLikelyEmail(text)) {
-                                                                const { subject, body } = extractEmailFields(text);
+                                                                const { to: extractedTo, subject, body } = extractEmailFields(text);
+                                                                // Try metadata first (from prospect context), then extracted 'To:'  
+                                                                const recipientEmail = msg.metadata?.recipient_email || msg.metadata?.email || extractedTo || '';
                                                                 const isExpanded = expandedCards.has(i);
                                                                 return (
                                                                     <div className="bg-black/20 rounded-2xl border border-white/5 overflow-hidden">
@@ -383,7 +385,7 @@ export const CommandCenter: React.FC = () => {
                                                                                 </button>
                                                                                 {/* Open in Outlook Button */}
                                                                                 <a
-                                                                                    href={buildOutlookLink('', undefined, subject, stripMarkdown(body))}
+                                                                                    href={buildOutlookLink(recipientEmail, undefined, subject, stripMarkdown(body))}
                                                                                     target="_blank"
                                                                                     rel="noopener noreferrer"
                                                                                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300 hover:text-blue-200 transition-all text-[11px] font-semibold"
