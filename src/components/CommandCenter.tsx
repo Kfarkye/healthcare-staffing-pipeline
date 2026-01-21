@@ -413,9 +413,42 @@ export const CommandCenter: React.FC = () => {
                                                                     </div>
                                                                 );
                                                             }
+                                                            // Check if message contains an email address
+                                                            const emailPattern = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+                                                            const foundEmails = text.match(emailPattern);
+
                                                             return (
-                                                                <div className="prose prose-invert prose-sm opacity-90 leading-relaxed">
-                                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                                                                <div className="space-y-3">
+                                                                    <div className="prose prose-invert prose-sm opacity-90 leading-relaxed">
+                                                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                                                                    </div>
+                                                                    {/* Show Copy Email button if email found */}
+                                                                    {foundEmails && foundEmails.length > 0 && (
+                                                                        <div className="flex items-center gap-2 pt-2">
+                                                                            {foundEmails.map((email, idx) => (
+                                                                                <button
+                                                                                    key={idx}
+                                                                                    onClick={() => {
+                                                                                        navigator.clipboard.writeText(email);
+                                                                                        setCopiedMessageId(originalIndex * 1000 + idx); // Unique ID per email
+                                                                                        setTimeout(() => setCopiedMessageId(null), 2000);
+                                                                                    }}
+                                                                                    className={cn(
+                                                                                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all",
+                                                                                        copiedMessageId === originalIndex * 1000 + idx
+                                                                                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                                                                            : "bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300 hover:text-blue-200"
+                                                                                    )}
+                                                                                >
+                                                                                    {copiedMessageId === originalIndex * 1000 + idx ? (
+                                                                                        <><CheckCircle size={12} /> Copied!</>
+                                                                                    ) : (
+                                                                                        <><Mail size={12} /> Copy Email</>
+                                                                                    )}
+                                                                                </button>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             );
                                                         })()}
