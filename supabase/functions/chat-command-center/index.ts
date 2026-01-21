@@ -358,8 +358,10 @@ Senior Recruiter, Fulfillment Specialist`
                         if (p.inlineData) part.inlineData = p.inlineData;
                         if (p.functionCall) part.functionCall = p.functionCall;
                         if (p.functionResponse) part.functionResponse = p.functionResponse;
-                        // CRITICAL: Gemini 3 requires thought_signature to be preserved for function calls
+                        // CRITICAL: Gemini 3 requires thought_signature to be preserved on ALL parts
                         if (p.thought_signature) part.thought_signature = p.thought_signature;
+                        if (p.thoughtSignature) part.thought_signature = p.thoughtSignature; // camelCase fallback
+                        if (p.thought !== undefined) part.thought = p.thought; // Preserve thought boolean
                         return part;
                     })
                 }));
@@ -501,8 +503,9 @@ Senior Recruiter, Fulfillment Specialist`
 
             const toolResponses = await Promise.all(toolCalls.map(async (part: any) => {
                 const { name, args } = part.functionCall;
-                // CRITICAL: Gemini 3 requires thought_signature in function response
-                const thoughtSignature = part.functionCall.thought_signature || part.thought_signature;
+                // CRITICAL: Gemini 3 returns thought_signature at PART level, not inside functionCall
+                const thoughtSignature = part.thought_signature || part.thoughtSignature;
+                console.log(`[Command] Tool ${name}: thought_signature=${!!thoughtSignature}`);
                 let resultData;
                 try {
                     switch (name) {
