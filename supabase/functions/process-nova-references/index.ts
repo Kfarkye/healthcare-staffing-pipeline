@@ -16,7 +16,7 @@ const corsHeaders = {
 
 const CONFIG = {
   ai: {
-    model: 'gemini-1.5-flash',
+    model: 'gemini-3-flash-preview',
     temperature: 0.1,
     maxTokens: 4096
   }
@@ -94,7 +94,7 @@ function processReferenceData(rawData: any) {
       date: ref.date || null,
       relationship: ref.relationship || null
     })) : [],
-    
+
     workHistory: Array.isArray(rawData.workHistory) ? rawData.workHistory.map((work: any) => ({
       facility: work.facility || '',
       role: work.role || '',
@@ -102,7 +102,7 @@ function processReferenceData(rawData: any) {
       end: work.end || '',
       location: work.location || null
     })) : [],
-    
+
     verifiedCount: 0,
     pendingCount: 0,
     totalReferences: 0,
@@ -132,7 +132,7 @@ Deno.serve(async (req) => {
   try {
     // Parse request body
     const { images, candidateId } = await req.json();
-    
+
     if (!images || !Array.isArray(images) || images.length === 0) {
       throw new Error('Invalid request: images array required');
     }
@@ -147,9 +147,9 @@ Deno.serve(async (req) => {
 
     // Call Gemini API
     console.log(`[AI EXTRACTION] Sending to ${CONFIG.ai.model}`);
-    
+
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.ai.model}:generateContent?key=${apiKey}`;
-    
+
     const payload = {
       contents: [{
         parts: [
@@ -216,14 +216,14 @@ Deno.serve(async (req) => {
           sectionsFound: processedData.extractedSections
         }
       }),
-      { 
-        headers: { 
+      {
+        headers: {
           ...corsHeaders,
-          'Content-Type': 'application/json' 
-        } 
+          'Content-Type': 'application/json'
+        }
       }
     );
-    
+
   } catch (error) {
     console.error(`[ERROR] ${error.message}`, {
       stack: error.stack,
@@ -233,7 +233,7 @@ Deno.serve(async (req) => {
     const processingTime = Date.now() - startTime;
 
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         success: false,
         error: error.message,
         data: {
@@ -249,12 +249,12 @@ Deno.serve(async (req) => {
           timestamp: new Date().toISOString()
         }
       }),
-      { 
-        status: 500, 
-        headers: { 
+      {
+        status: 500,
+        headers: {
           ...corsHeaders,
-          'Content-Type': 'application/json' 
-        } 
+          'Content-Type': 'application/json'
+        }
       }
     );
   }

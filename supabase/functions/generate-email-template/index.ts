@@ -63,7 +63,7 @@ const CONFIG = {
     },
     STORAGE_BUCKET: 'screenshots',
     // Using stable model version
-    GEMINI_MODEL: 'gemini-1.5-flash-001',
+    GEMINI_MODEL: 'gemini-3-flash-preview',
     GEMINI_API_ENDPOINT: 'https://generativelanguage.googleapis.com/v1beta/models'
 };
 
@@ -76,9 +76,9 @@ const CONFIG = {
  */
 const createJsonResponse = (body: object, status: number): Response => {
     return new Response(JSON.stringify(body), {
-        headers: { 
-            "Content-Type": "application/json", 
-            ...CONFIG.CORS_HEADERS 
+        headers: {
+            "Content-Type": "application/json",
+            ...CONFIG.CORS_HEADERS
         },
         status,
     });
@@ -90,12 +90,12 @@ const createJsonResponse = (body: object, status: number): Response => {
 const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
     const bytes = new Uint8Array(buffer);
     let binary = '';
-    
+
     // Use iterative approach to avoid call stack issues
     for (let i = 0; i < bytes.length; i++) {
         binary += String.fromCharCode(bytes[i]);
     }
-    
+
     return btoa(binary);
 };
 
@@ -118,22 +118,22 @@ const fillTemplate = (template: string, data: Record<string, any>): string => {
  * Fetches base email template from database
  */
 const getBaseTemplate = async (
-    supabaseAdmin: any, 
+    supabaseAdmin: any,
     templateType: string
 ): Promise<BaseTemplate> => {
     console.log(`[DB] Fetching template type: ${templateType}`);
-    
+
     const { data, error } = await supabaseAdmin
         .from('email_template_definitions')
         .select('subject_template, body_template')
         .eq('template_type', templateType)
         .eq('is_active', true)
         .single();
-    
+
     if (error) {
         throw new Error(`Template fetch failed for '${templateType}': ${error.message}`);
     }
-    
+
     console.log("[DB] Template fetched successfully");
     return data;
 };
@@ -148,7 +148,7 @@ const saveGeneratedTemplate = async (
     const { error } = await supabaseAdmin
         .from('generated_email_templates')
         .insert(template);
-    
+
     if (error) {
         console.error("[DB] Failed to save template:", error.message);
         // Don't throw - this is non-critical
@@ -166,7 +166,7 @@ const saveGeneratedTemplate = async (
  * FIXED: Updated to use correct model endpoint
  */
 const extractDataWithGemini = async (
-    imageBase64: string, 
+    imageBase64: string,
     mimeType: string
 ): Promise<ExtractedData> => {
     const apiKey = Deno.env.get('GEMINI_API_KEY');
@@ -212,9 +212,9 @@ const extractDataWithGemini = async (
 
     // FIXED: Using correct model endpoint without -latest
     const apiUrl = `${CONFIG.GEMINI_API_ENDPOINT}/${CONFIG.GEMINI_MODEL}:generateContent?key=${apiKey}`;
-    
+
     console.log(`[AI] Calling Gemini API with model: ${CONFIG.GEMINI_MODEL}`);
-    
+
     const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -222,7 +222,7 @@ const extractDataWithGemini = async (
         },
         body: JSON.stringify(requestBody)
     });
-    
+
     if (!response.ok) {
         const errorText = await response.text();
         console.error(`[AI] Gemini API error: ${response.status} - ${errorText}`);
@@ -230,20 +230,20 @@ const extractDataWithGemini = async (
     }
 
     const result = await response.json();
-    
+
     if (!result.candidates?.[0]?.content?.parts?.[0]?.text) {
         throw new Error('Invalid response structure from Gemini API');
     }
 
     const textResponse = result.candidates[0].content.parts[0].text;
     console.log("[AI] Raw response received");
-    
+
     // Clean up JSON response (remove markdown code blocks if present)
     const cleanedJson = textResponse
         .replace(/```json\n?/g, '')
         .replace(/```\n?/g, '')
         .trim();
-    
+
     try {
         const extractedData = JSON.parse(cleanedJson);
         console.log("[AI] Data extracted successfully");
@@ -262,24 +262,24 @@ const extractDataWithGemini = async (
  * Downloads file from Supabase storage
  */
 const downloadFile = async (
-    supabaseAdmin: any, 
+    supabaseAdmin: any,
     filePath: string
 ): Promise<{ buffer: ArrayBuffer; mimeType: string }> => {
     console.log(`[Storage] Downloading: ${filePath}`);
-    
+
     const { data, error } = await supabaseAdmin.storage
         .from(CONFIG.STORAGE_BUCKET)
         .download(filePath);
-    
+
     if (error) {
         throw new Error(`Storage download failed: ${error.message}`);
     }
-    
+
     console.log("[Storage] Download successful");
-    
+
     const buffer = await data.arrayBuffer();
     const mimeType = data.type || "image/png";
-    
+
     return { buffer, mimeType };
 };
 
@@ -287,15 +287,15 @@ const downloadFile = async (
  * Deletes file from Supabase storage
  */
 const deleteFile = async (
-    supabaseAdmin: any, 
+    supabaseAdmin: any,
     filePath: string
 ): Promise<void> => {
     console.log(`[Storage] Deleting: ${filePath}`);
-    
+
     const { error } = await supabaseAdmin.storage
         .from(CONFIG.STORAGE_BUCKET)
         .remove([filePath]);
-    
+
     if (error) {
         console.error(`[Storage] Delete failed: ${error.message}`);
     } else {
@@ -326,21 +326,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
         console.log("========================================");
         console.log("[Function] Process-Outreach invoked");
         console.log(`[Function] Timestamp: ${new Date().toISOString()}`);
-        
+
         // Parse request body
         const body: GenerationRequestBody = await req.json();
         filePath = body.filePath;
 
         // Validate required fields
         if (!filePath) {
-            return createJsonResponse({ 
-                error: "Missing required field: filePath" 
+            return createJsonResponse({
+                error: "Missing required field: filePath"
             }, 400);
         }
 
         if (!body.templateType) {
-            return createJsonResponse({ 
-                error: "Missing required field: templateType" 
+            return createJsonResponse({
+                error: "Missing required field: templateType"
             }, 400);
         }
 
@@ -352,13 +352,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
         // Step 2: Convert to base64 for AI processing
         const imageBase64 = arrayBufferToBase64(buffer);
-        
+
         // Step 3: Extract data using Gemini AI
         const extractedData = await extractDataWithGemini(imageBase64, mimeType);
 
         // Step 4: Fetch the email template from database
         const baseTemplate = await getBaseTemplate(supabaseAdmin, body.templateType);
-        
+
         // Step 5: Merge all data sources
         const mergedData = {
             ...extractedData,
@@ -366,7 +366,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
             prospect_email: body.prospect?.email || '[Candidate Email]',
             recruiter_email: body.recruiterInfo?.email || '[Recruiter Email]',
             // Add formatted versions of dates if present
-            start_date_formatted: extractedData.start_date 
+            start_date_formatted: extractedData.start_date
                 ? new Date(extractedData.start_date).toLocaleDateString('en-US', {
                     month: 'long',
                     day: 'numeric',
@@ -374,11 +374,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
                 })
                 : '[Start Date]',
         };
-        
+
         // Step 6: Fill the template with merged data
         const filledSubject = fillTemplate(baseTemplate.subject_template, mergedData);
         const filledBody = fillTemplate(baseTemplate.body_template, mergedData);
-        
+
         // Step 7: Prepare final template
         const finalTemplate: FinalTemplate = {
             template_name: `${extractedData.specialty || 'Assignment'} at ${extractedData.facility || 'Facility'}`,
@@ -387,14 +387,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
             extracted_data: extractedData,
             base_template_id: null
         };
-        
+
         // Step 8: Save to database (non-blocking)
         await saveGeneratedTemplate(supabaseAdmin, finalTemplate);
 
         // Calculate processing time
         const processingTime = Date.now() - startTime;
         console.log(`[Function] Processing completed in ${processingTime}ms`);
-        
+
         // Return success response
         return createJsonResponse({
             success: true,
@@ -409,20 +409,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
         console.error("========================================");
         console.error("[Function] ERROR:", error.message);
         console.error("[Function] Stack:", error.stack);
-        
+
         // Return error response
-        return createJsonResponse({ 
+        return createJsonResponse({
             success: false,
             error: error.message,
-            details: error.stack 
+            details: error.stack
         }, 500);
-        
+
     } finally {
         // Always cleanup the uploaded file
         if (filePath) {
             await deleteFile(supabaseAdmin, filePath);
         }
-        
+
         console.log("[Function] Execution completed");
         console.log("========================================");
     }

@@ -46,7 +46,7 @@ const CONFIG = {
         'Access-Control-Allow-Methods': 'POST, OPTIONS'
     },
     // Using stable model version
-    GEMINI_MODEL: 'gemini-1.5-flash-001',
+    GEMINI_MODEL: 'gemini-3-flash-preview',
     GEMINI_API_ENDPOINT: 'https://generativelanguage.googleapis.com/v1beta/models',
     GENERATION_CONFIG: {
         response_mime_type: "application/json",
@@ -148,7 +148,7 @@ const validateAssignments = (assignments: any[]): ParsedAssignment[] => {
         if (cleaned.candidate_name) {
             return cleaned;
         }
-        
+
         console.warn(`[Validation] Skipping record without candidate name at index ${index}`);
         return null;
     }).filter(Boolean) as ParsedAssignment[];
@@ -159,7 +159,7 @@ const validateAssignments = (assignments: any[]): ParsedAssignment[] => {
  */
 const validateDate = (dateStr: any): string | null => {
     if (!dateStr) return null;
-    
+
     try {
         // Handle string dates
         if (typeof dateStr === 'string') {
@@ -171,7 +171,7 @@ const validateDate = (dateStr: any): string | null => {
     } catch (e) {
         console.warn(`[Validation] Invalid date format: ${dateStr}`);
     }
-    
+
     return null;
 };
 
@@ -189,8 +189,8 @@ const extractWithGemini = async (textToParse: string): Promise<ParsedAssignment[
     }
 
     // Build the API URL with the correct model name
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
     console.log(`[AI] Using model: ${CONFIG.GEMINI_MODEL}`);
     console.log(`[AI] Processing ${textToParse.length} characters of text`);
 
@@ -213,12 +213,12 @@ const extractWithGemini = async (textToParse: string): Promise<ParsedAssignment[
     if (!response.ok) {
         const errorBody = await response.text();
         console.error(`[AI] API Error: ${response.status} - ${errorBody}`);
-        
+
         // Check for specific model not found error
         if (response.status === 404 && errorBody.includes('model')) {
             throw new Error(`Gemini model '${CONFIG.GEMINI_MODEL}' not found. Please check model name.`);
         }
-        
+
         throw new Error(`Gemini API failed: ${response.status} - ${response.statusText}`);
     }
 
@@ -255,7 +255,7 @@ const saveToDatabase = async (
     try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL');
         const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-        
+
         if (!supabaseUrl || !supabaseKey) {
             console.warn('[DB] Supabase credentials not configured, skipping save');
             return false;
@@ -290,7 +290,7 @@ const saveToDatabase = async (
 
 Deno.serve(async (req: Request): Promise<Response> => {
     const startTime = Date.now();
-    
+
     // Handle CORS preflight requests
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: CONFIG.CORS_HEADERS });
@@ -358,7 +358,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         console.error('========================================');
         console.error('[Function] ERROR:', error.message);
         console.error('[Function] Stack:', error.stack);
-        
+
         // Determine appropriate status code
         let statusCode = 500;
         if (error.message.includes('not configured')) {
@@ -373,7 +373,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
             error: error.message,
             details: error.stack
         }, statusCode);
-        
+
     } finally {
         console.log('[Function] Execution completed');
         console.log('========================================');

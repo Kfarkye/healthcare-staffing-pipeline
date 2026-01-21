@@ -9,7 +9,7 @@ const corsHeaders = {
 }
 
 const GOOGLE_API_KEY = Deno.env.get('GOOGLE_API_KEY')!
-const MODEL = 'gemini-2.5-flash'
+const MODEL = 'gemini-3-flash-preview'
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
 
 serve(async (req) => {
@@ -20,10 +20,10 @@ serve(async (req) => {
   try {
     const body = await req.json()
     const { jobIds = [], selectedTemplate = 'professional', extractedText = '' } = body
-    
+
     // jobIds is now optional - default to empty array
     console.log('Processing with:', { jobIds, selectedTemplate, extractedText })
-    
+
     // Generate email with Gemini
     const prompt = `Generate a professional recruitment email for healthcare positions.
     ${extractedText ? `Context: ${extractedText}` : ''}

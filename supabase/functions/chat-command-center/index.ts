@@ -358,7 +358,8 @@ Senior Recruiter, Fulfillment Specialist`
                         if (p.inlineData) part.inlineData = p.inlineData;
                         if (p.functionCall) part.functionCall = p.functionCall;
                         if (p.functionResponse) part.functionResponse = p.functionResponse;
-                        // Specifically NOT including 'thought' or other non-standard keys here
+                        // CRITICAL: Gemini 3 requires thought_signature to be preserved for function calls
+                        if (p.thought_signature) part.thought_signature = p.thought_signature;
                         return part;
                     })
                 }));
@@ -500,6 +501,8 @@ Senior Recruiter, Fulfillment Specialist`
 
             const toolResponses = await Promise.all(toolCalls.map(async (part: any) => {
                 const { name, args } = part.functionCall;
+                // CRITICAL: Gemini 3 requires thought_signature in function response
+                const thoughtSignature = part.functionCall.thought_signature || part.thought_signature;
                 let resultData;
                 try {
                     switch (name) {
@@ -772,7 +775,10 @@ Senior Recruiter, Fulfillment Specialist`
                 } catch (e: any) {
                     resultData = { error: e.message };
                 }
-                return { functionResponse: { name, response: { content: resultData } } };
+                // Include thought_signature if present (required for Gemini 3)
+                const response: any = { functionResponse: { name, response: { content: resultData } } };
+                if (thoughtSignature) response.thought_signature = thoughtSignature;
+                return response;
             }));
 
             contents.push({ role: 'function', parts: toolResponses });
