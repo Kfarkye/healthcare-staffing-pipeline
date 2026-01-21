@@ -95,7 +95,8 @@
 
     /* Physical Cards */
     .radiant-card {
-        @apply bg-white border border-slate-200/50 rounded-[32px] transition-all duration-500 ease-[cubic-bezier(0.2, 0.8, 0.2, 1)];
+        @apply bg-white border border-slate-200/50 rounded-[32px] transition-all duration-500;
+        transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
         box-shadow: var(--shadow-lift);
     }
 
