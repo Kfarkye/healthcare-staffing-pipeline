@@ -11,7 +11,6 @@ import {
     Mail,
     Layout as LayoutIcon,
     Send,
-    Loader2,
     RefreshCw,
     Bookmark,
     Trash2,
@@ -504,11 +503,44 @@ export const CommandCenter: React.FC = () => {
                                         </div>
                                     );
                                 })}
-                                {isGenerating && (
-                                    <div className="flex items-center gap-2 text-slate-500 italic text-xs px-2">
-                                        <Loader2 size={12} className="animate-spin" /> Thinking...
-                                    </div>
-                                )}
+                                {/* Dynamic Island - Premium Thinking Indicator */}
+                                <AnimatePresence>
+                                    {isGenerating && (
+                                        <motion.div
+                                            initial={{ opacity: 0, scale: 0.8, width: 48 }}
+                                            animate={{
+                                                opacity: 1,
+                                                scale: 1,
+                                                width: 180,
+                                                transition: { type: 'spring', damping: 20, stiffness: 300 }
+                                            }}
+                                            exit={{
+                                                opacity: 0,
+                                                scale: 0.8,
+                                                width: 48,
+                                                transition: { duration: 0.2 }
+                                            }}
+                                            className="mx-auto mb-4 flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-black/60 backdrop-blur-xl border border-white/10 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)_inset]"
+                                        >
+                                            {/* Pulse Ring */}
+                                            <motion.div
+                                                className="relative"
+                                                animate={{ scale: [1, 1.2, 1] }}
+                                                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                                            >
+                                                <div className="w-2 h-2 rounded-full bg-gradient-to-br from-blue-400 to-purple-500" />
+                                                <motion.div
+                                                    className="absolute inset-0 rounded-full bg-blue-400/50"
+                                                    animate={{ scale: [1, 2], opacity: [0.5, 0] }}
+                                                    transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
+                                                />
+                                            </motion.div>
+                                            <span className="text-[11px] font-medium text-white/80 whitespace-nowrap">
+                                                Thinking...
+                                            </span>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                             </div>
 
                             <footer className="p-6 border-t border-white/10 space-y-4">
