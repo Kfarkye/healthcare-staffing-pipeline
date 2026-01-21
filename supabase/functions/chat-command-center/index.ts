@@ -279,6 +279,7 @@ Available Templates:
 - extension_request (active): For candidates wanting to extend contracts.
 - margin_approval (active): For low-margin or custom pay package requests.
 - cold_outreach (prospect): For initial candidate outreach.
+- reassignment_request (retention): For internal OPS requests to reassign a traveler.
 
 SIGNATURE:
 Best,
