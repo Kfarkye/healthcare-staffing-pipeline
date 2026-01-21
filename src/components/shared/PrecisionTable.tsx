@@ -17,6 +17,7 @@ interface PrecisionTableProps<T> {
     sortKey?: string;
     sortDir?: 'asc' | 'desc';
     isLoading?: boolean;
+    emptyMessage?: string;
     className?: string;
 }
 
@@ -28,6 +29,7 @@ export function PrecisionTable<T extends { id: string | number }>({
     sortKey,
     sortDir,
     isLoading,
+    emptyMessage,
     className
 }: PrecisionTableProps<T>): JSX.Element {
     return (
@@ -85,7 +87,7 @@ export function PrecisionTable<T extends { id: string | number }>({
                                 <td colSpan={columns.length} className="px-6 py-24 text-center">
                                     <div className="flex flex-col items-center gap-3">
                                         <div className="editorial-caption text-slate-300">No entries found</div>
-                                        <p className="text-[14px] text-slate-400 font-medium tracking-tight">Try broadening your filters.</p>
+                                        <p className="text-[14px] text-slate-400 font-medium tracking-tight">{emptyMessage || "Try broadening your filters."}</p>
                                     </div>
                                 </td>
                             </tr>

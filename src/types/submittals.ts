@@ -11,50 +11,62 @@
  */
 export interface ClinicianRow {
   // IDs
-  engagement_id?: number;
-  prospect_id?: number;
-  candidate_id?: number;
-  contract_id?: number;
-  job_id?: number;
-  facility_id?: number;
-  
+  candidate_id: string | number;
+  prospect_id: string | number | null;
+  engagement_id: string | number | null;
+  job_id: string | number | null;
+  facility_id: string | number | null;
+  contract_id?: string | number | null;
+
   // Personal Info
-  full_name?: string;
-  email?: string;
-  phone?: string;
-  
-  // Specialty & Location
-  primary_specialty?: string;
-  engagement_specialty?: string;
-  home_state?: string;
-  facility_name?: string;
-  location_city?: string;
-  location_state?: string;
-  
-  // Metadata
-  licenses?: string[];
-  recruiter?: string;
-  submitted_at?: string;
-  days_since_submitted?: number;
-  stage?: string;
-  raw_status?: string;
-  tab?: TabId;
-  source_type?: SourceType;
-  is_active_submittal?: boolean;
-  is_weekly_priority?: boolean;
+  full_name: string | null;
+  email: string | null;
+  phone: string | null;
+  nova_url: string | null;
+
+  // Professional Info
+  primary_specialty: string | null;
+  engagement_specialty?: string | null;
+  home_state: string | null;
+  licenses: string[] | null;
+  recruiter: string | null;
+  available_start_date: string | null;
+  profile_complete?: boolean | null;
+  references_verified?: number | null;
+  rto_notes?: string | null;
+
+  // Engagement/Assignment Details
+  facility_name: string | null;
+  location_city: string | null;
+  location_state: string | null;
+  raw_status: string | null;
+  stage?: string | null;
+  tab?: TabId | null;
+  is_current?: boolean | null;
+  submitted_at: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  contract_end_date: string | null;
+  bill_rate: number | null;
+  actual_margin: number | null;
+  engagement_notes: string | null;
+  seeking_new?: boolean | null;
+  am_name: string | null;
+  ac_name: string | null;
+  extension_stage: string | null;
+  is_active_submittal: boolean | null;
+  is_weekly_priority: boolean | null;
+
+  // Derived/Aggregated
+  primary_state?: string;
+  aging_bucket?: string | null;
+  days_since_submitted: number | null;
+  days_to_end?: number | null;
+  end_bucket?: string | null;
   other_engagements_count?: number;
-  engagement_notes?: string;
-  nova_url?: string;
-  available_start_date?: string;
-  
-  // Contract Info (for retention/extension candidates)
-  current_contract_start_date?: string;  // ← FIXED: Match SQL field name
-  current_contract_end_date?: string;    // ← FIXED: Match SQL field name
-  
-  // Account Team
-  am_name?: string;
-  ac_name?: string;
-  extension_stage?: string;
+  stage_rank?: number | null;
+  source_type: SourceType | null;
+  updated_at: string | null;
 }
 
 /**
@@ -72,12 +84,8 @@ export interface PriorityCandidate {
   updated_at?: string;
 }
 
-/**
- * Bridge type for modal components expecting Prospect shape
- * Eliminates need for 'as any' casts
- */
 export type ProspectLike = {
-  id: number;
+  id: string | number;
   full_name: string;
   email: string | null;
   phone: string | null;
@@ -88,9 +96,9 @@ export type ProspectLike = {
   status?: string;
   nova_url?: string | null;
 } & Partial<{
-  engagement_id: number;
-  prospect_id: number;
-  candidate_id: number;
+  engagement_id: string | number;
+  prospect_id: string | number;
+  candidate_id: string | number;
   tab: TabId;
   source_type: SourceType;
   is_active_submittal: boolean;
@@ -101,7 +109,7 @@ export type ProspectLike = {
  */
 export function toProspectLike(row: ClinicianRow): ProspectLike {
   return {
-    id: row.prospect_id ?? row.engagement_id ?? row.candidate_id ?? 0,
+    id: row.prospect_id ?? row.engagement_id ?? row.candidate_id ?? '0',
     full_name: row.full_name ?? 'Unknown',
     email: row.email ?? null,
     phone: row.phone ?? null,
@@ -110,12 +118,12 @@ export function toProspectLike(row: ClinicianRow): ProspectLike {
     location_city: row.location_city ?? null,
     location_state: row.location_state ?? null,
     nova_url: row.nova_url ?? null,
-    engagement_id: row.engagement_id,
-    prospect_id: row.prospect_id,
-    candidate_id: row.candidate_id,
-    tab: row.tab,
-    source_type: row.source_type,
-    is_active_submittal: row.is_active_submittal,
+    engagement_id: row.engagement_id as any,
+    prospect_id: row.prospect_id as any,
+    candidate_id: row.candidate_id as any,
+    tab: (row.tab as any) || undefined,
+    source_type: (row.source_type as any) || undefined,
+    is_active_submittal: row.is_active_submittal as any,
   };
 }
 

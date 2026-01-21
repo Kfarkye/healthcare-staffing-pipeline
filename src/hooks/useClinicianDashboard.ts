@@ -22,48 +22,58 @@ export type EndBucket =
 export type PrimaryState = 'PROSPECTING' | 'SUBMITTED' | 'SIGNED' | 'ACTIVE' | 'INACTIVE';
 export type Stage = 'SUBMITTED' | 'SIGNED' | 'ACTIVE';
 
+import type { TabId, SourceType } from '../types/submittals';
+export type { TabId, SourceType };
+
 export interface ClinicianRow {
-  candidate_id: string;
-  prospect_id: string | null;
+  // IDs
+  candidate_id: string | number;
+  prospect_id: string | number | null;
+  engagement_id: string | number | null;
+  job_id: string | number | null;
+  facility_id: string | number | null;
+  contract_id?: string | number | null;
+
+  // Personal Info
   full_name: string | null;
   email: string | null;
   phone: string | null;
   nova_url: string | null;
+
+  // Professional Info
   primary_specialty: string | null;
+  engagement_specialty?: string | null;
   home_state: string | null;
   licenses: string[] | null;
-  candidate_stage: string | null;
-  prospect_status: string | null;
+  recruiter: string | null;
   available_start_date: string | null;
-  profile_complete: boolean | null;
-  references_verified: number | null;
-  rto_notes: string | null;
+  profile_complete?: boolean | null;
+  references_verified?: number | null;
+  rto_notes?: string | null;
 
-  engagement_id: string | null;
+  // Engagement/Assignment Details
   facility_name: string | null;
-  engagement_specialty: string | null;
   location_city: string | null;
   location_state: string | null;
-  job_id: string | null;
   raw_status: string | null;
   stage: Stage | null;
-  is_current: boolean | null;
+  tab: TabId | null;
+  is_current?: boolean | null;
   submitted_at: string | null;
   start_date: string | null;
   end_date: string | null;
   contract_end_date: string | null;
   bill_rate: number | null;
   actual_margin: number | null;
-  recruiter: string | null;
   engagement_notes: string | null;
-  seeking_new: boolean | null;
+  seeking_new?: boolean | null;
   am_name: string | null;
   ac_name: string | null;
   extension_stage: string | null;
-  tab: string | null;
   is_active_submittal: boolean | null;
   is_weekly_priority: boolean | null;
 
+  // Derived/Aggregated
   primary_state: PrimaryState;
   aging_bucket: AgingBucket | null;
   days_since_submitted: number | null;
@@ -71,13 +81,13 @@ export interface ClinicianRow {
   end_bucket: EndBucket | null;
   other_engagements_count: number;
   stage_rank: number | null;
-  source_type: 'PROSPECT' | 'TRANSITIONING_CLINICIAN' | null;
+  source_type: SourceType | null;
   updated_at: string | null;
 }
 
-type ViewName = 'prospects_dashboard' | 'submittals_dashboard' | 'active_assignments_dashboard';
+export type ViewName = 'prospects_dashboard' | 'submittals_dashboard' | 'active_assignments_dashboard';
 
-type Options = {
+export type Options = {
   view: ViewName;
   q?: string;
   limit?: number;

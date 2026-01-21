@@ -13,14 +13,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { supabase } from '../supabase';
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
 export interface ActiveAssignment {
-  id: number; // Primary key from active_assignments table
-  candidate_id: number;
-  engagement_id: number;
+  id: string | number; // Primary key from active_assignments table
+  candidate_id: string | number;
+  engagement_id: string | number;
   candidate_name: string;
   phone: string | null;
   email: string | null;
@@ -271,7 +267,7 @@ export function useToggleAssignmentFlag() {
       flagValue: boolean;
     }) => {
       console.log('[toggleFlag] Calling RPC with:', { id, flagName, flagValue });
-      
+
       const { data, error } = await supabase.rpc('toggle_assignment_flag', {
         p_id: id,                 // ← CRITICAL FIX: Changed from p_engagement_id to p_id
         p_flag_name: flagName,    // ← FIXED: Matches SQL function parameter name
@@ -306,12 +302,12 @@ export function useToggleAssignmentFlag() {
           return old.map((assignment) =>
             assignment.id === id
               ? {
-                  ...assignment,
-                  is_looking_for_new_facility:
-                    flagName === 'looking' ? flagValue : assignment.is_looking_for_new_facility,
-                  is_exiting:
-                    flagName === 'exiting' ? flagValue : assignment.is_exiting,
-                }
+                ...assignment,
+                is_looking_for_new_facility:
+                  flagName === 'looking' ? flagValue : assignment.is_looking_for_new_facility,
+                is_exiting:
+                  flagName === 'exiting' ? flagValue : assignment.is_exiting,
+              }
               : assignment
           );
         }

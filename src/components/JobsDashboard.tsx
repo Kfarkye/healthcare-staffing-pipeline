@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Plus, X, Edit3, Trash2, Loader, Briefcase, MapPin, Clock } from 'lucide-react';
+import { Search, Plus, X, Edit3, Trash2, Loader, Briefcase, MapPin, Clock, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
 import { jobsService, facilitiesService } from '../services/schemaService';
-import type { JobWithFacility, JobInput, Facility, JobStatus, Specialty, ShiftType } from '../types/schema';
+import type { JobWithFacility, JobInput, Facility, JobStatus } from '../types/schema';
 import { JOB_STATUS, SPECIALTY, SHIFT_TYPE } from '../types/schema';
-
-const cn = (...classes: (string | boolean | undefined | null)[]) =>
-  classes.filter(Boolean).join(' ');
+import { DashboardShell } from './shared/DashboardShell';
+import { PrecisionTable } from './shared/PrecisionTable';
+import { SuccessBadge, WarningBadge, AccentBadge, DefaultBadge } from './shared/Badges';
+import { cn } from '../lib/utils';
 
 type ModalType = 'add' | 'edit' | 'delete' | null;
 
@@ -69,148 +70,167 @@ const JobsDashboard: React.FC = () => {
     setSelectedJob(null);
   };
 
-  const getStatusColor = (status: JobStatus) => {
+  const getStatusBadge = (status: JobStatus) => {
     switch (status) {
-      case 'Open': return 'bg-green-50 text-green-700';
-      case 'On Hold': return 'bg-yellow-50 text-yellow-700';
-      case 'Filled': return 'bg-blue-50 text-blue-700';
-      case 'Cancelled': return 'bg-gray-50 text-gray-700';
-      default: return 'bg-gray-50 text-gray-700';
+      case 'Open': return <SuccessBadge>Open</SuccessBadge>;
+      case 'On Hold': return <WarningBadge>On Hold</WarningBadge>;
+      case 'Filled': return <AccentBadge>Filled</AccentBadge>;
+      case 'Cancelled': return <DefaultBadge>Cancelled</DefaultBadge>;
+      default: return <span className="text-slate-400">Unknown</span>;
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-800">
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-        .animate-fadeIn { animation: fadeIn 0.3s ease-out forwards; }
-        .animate-slideIn { animation: slideIn 0.3s ease-out forwards; }
-      `}</style>
+  const HeaderActions = (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={() => openModal('add')}
+        className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white hover:bg-slate-800 rounded-[14px] transition-all shadow-lift font-bold text-[13px] active:scale-95"
+      >
+        <Plus size={16} strokeWidth={2.5} />
+        <span>Add Job</span>
+      </button>
+      <button
+        onClick={loadJobs}
+        className="p-2.5 bg-white border border-slate-200/60 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-[14px] transition-all active:scale-95 shadow-lift"
+        title="Refresh"
+      >
+        <RefreshCw size={18} strokeWidth={2.5} className={loading ? "animate-spin" : ""} />
+      </button>
+    </div>
+  );
 
-      <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-lg font-semibold text-gray-900 tracking-tight">Job Openings</h1>
-              <p className="text-xs text-gray-500 mt-1">
-                Manage open positions and assignments
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
+  const tableColumns = [
+    {
+      header: 'Specialty',
+      accessor: (job: JobWithFacility) => (
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
+            <Briefcase size={16} />
+          </div>
+          <span className="font-bold text-slate-900">{job.specialty}</span>
+        </div>
+      )
+    },
+    {
+      header: 'Facility',
+      accessor: (job: JobWithFacility) => (
+        <div className="space-y-1">
+          <div className="font-semibold text-slate-900">{job.facility?.name || 'Unknown'}</div>
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
+            <MapPin size={12} className="text-slate-400" />
+            {job.facility?.city}, {job.facility?.state}
+          </div>
+        </div>
+      )
+    },
+    {
+      header: 'Details',
+      accessor: (job: JobWithFacility) => (
+        <div className="flex items-center gap-2 text-[12px] text-slate-600 font-medium">
+          <Clock size={13} className="text-slate-400" />
+          <span>{job.shift} • {job.hours_per_week}h/wk • {job.duration_weeks}w</span>
+        </div>
+      )
+    },
+    {
+      header: 'Start Date',
+      accessor: (job: JobWithFacility) => (
+        <div className="text-slate-600 font-medium whitespace-nowrap">
+          {new Date(job.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+        </div>
+      )
+    },
+    {
+      header: 'Status',
+      accessor: (job: JobWithFacility) => getStatusBadge(job.status)
+    },
+    {
+      header: '',
+      id: 'actions',
+      className: 'text-right',
+      accessor: (job: JobWithFacility) => (
+        <div className="flex items-center justify-end gap-1 px-2">
+          <button
+            onClick={() => openModal('edit', job)}
+            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+          >
+            <Edit3 size={15} />
+          </button>
+          <button
+            onClick={() => openModal('delete', job)}
+            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      )
+    }
+  ];
+
+  return (
+    <>
+      <DashboardShell
+        title="Job Openings"
+        subtitle="Master repository of active positions and facility requirements."
+        eyebrow="Inventory"
+        actions={HeaderActions}
+      >
+        <div className="space-y-6">
+          {/* Unified Filter Bar */}
+          <div className="precision-glass rounded-[28px] p-5 flex items-center justify-between gap-4 shadow-lift border-white/20">
+            <div className="flex items-center gap-4 flex-1">
+              <div className="relative group flex-1 max-w-sm">
+                <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search jobs..."
+                  className="w-full pl-11 pr-4 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 focus:bg-white transition-all text-[14px] font-medium tracking-tight shadow-sm"
+                />
+              </div>
+
+              <div className="h-6 w-px bg-slate-200 mx-2" />
+
+              <div className="flex items-center gap-1.5">
                 {(['All', ...JOB_STATUS] as const).map(status => (
                   <button
                     key={status}
                     onClick={() => setStatusFilter(status)}
                     className={cn(
-                      'px-3 py-1.5 text-xs font-medium rounded-lg transition-all',
+                      'px-4 py-2 text-[12px] font-bold rounded-[12px] transition-all active:scale-95',
                       statusFilter === status
-                        ? 'bg-gray-900 text-white'
-                        : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                        ? 'bg-slate-900 text-white shadow-lift'
+                        : 'bg-white/50 border border-slate-200/60 text-slate-500 hover:bg-white hover:border-slate-300'
                     )}
                   >
                     {status}
                   </button>
                 ))}
               </div>
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search jobs..."
-                  className="w-64 pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all placeholder:text-gray-400"
-                />
-              </div>
-              <button
-                onClick={() => openModal('add')}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 active:scale-[0.98] transition-all shadow-sm"
-              >
-                <Plus size={15} />
-                Add Job
-              </button>
             </div>
-          </div>
-        </div>
-      </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="bg-white border border-gray-200/75 rounded-xl shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50/75 border-b border-gray-200/75">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Specialty</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Facility</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Details</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Start Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200/50">
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="text-center py-16">
-                      <Loader className="w-6 h-6 text-gray-400 animate-spin mx-auto" />
-                    </td>
-                  </tr>
-                ) : filteredJobs.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-center py-16 text-gray-500">
-                      No jobs found.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredJobs.map((job, index) => (
-                    <tr key={job.id} className="hover:bg-gray-50/50 transition-colors animate-fadeIn" style={{ animationDelay: `${Math.min(index * 20, 400)}ms`, opacity: 0 }}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <Briefcase size={16} className="text-gray-400" />
-                          <span className="font-semibold text-gray-900">{job.specialty}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-gray-900">{job.facility?.name || 'Unknown'}</div>
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-0.5">
-                          <MapPin size={12} />
-                          {job.facility?.city}, {job.facility?.state}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-600 text-xs">
-                        <div className="flex items-center gap-1">
-                          <Clock size={12} className="text-gray-400" />
-                          {job.shift} • {job.hours_per_week}h/wk • {job.duration_weeks}w
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">
-                        {new Date(job.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={cn('px-2.5 py-0.5 text-xs font-medium rounded-full', getStatusColor(job.status))}>
-                          {job.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button onClick={() => openModal('edit', job)} className="p-2 rounded-md hover:bg-gray-100 transition-colors">
-                            <Edit3 size={14} className="text-gray-500" />
-                          </button>
-                          <button onClick={() => openModal('delete', job)} className="p-2 rounded-md hover:bg-gray-100 transition-colors">
-                            <Trash2 size={14} className="text-gray-500" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setStatusFilter('All');
+              }}
+              className="text-[12px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-[0.12em] px-2 active:scale-95"
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="bg-white rounded-[24px] border border-slate-200/60 shadow-sm overflow-hidden min-h-[500px]">
+            <PrecisionTable
+              data={filteredJobs}
+              columns={tableColumns}
+              isLoading={loading}
+              emptyMessage="No active job openings found matching your filters."
+            />
           </div>
         </div>
-      </main>
+      </DashboardShell>
 
       {modal && (
         <JobModal
@@ -221,8 +241,8 @@ const JobsDashboard: React.FC = () => {
             loadJobs();
             showToast(
               modal === 'add' ? 'Job created successfully' :
-              modal === 'edit' ? 'Job updated successfully' :
-              'Job deleted successfully',
+                modal === 'edit' ? 'Job updated successfully' :
+                  'Job deleted successfully',
               'success'
             );
           }}
@@ -232,14 +252,17 @@ const JobsDashboard: React.FC = () => {
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 animate-slideIn">
           <div className={cn(
-            'px-4 py-3 rounded-lg shadow-lg text-sm font-medium',
-            toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+            'px-6 py-4 rounded-[20px] shadow-floating backdrop-blur-md border border-white/20 text-[14px] font-bold flex items-center gap-3',
+            toast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'
           )}>
+            <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+              {toast.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+            </div>
             {toast.message}
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
@@ -332,12 +355,12 @@ const JobModal: React.FC<JobModalProps> = ({ type, job, onClose, onSuccess }) =>
   const isDeleteModal = type === 'delete';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn">
-      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl animate-fadeIn" style={{ animationDelay: '50ms' }}>
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-900">{modalTitle}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-            <X size={16} className="text-gray-500" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-fadeIn">
+      <div className="relative bg-white rounded-[32px] shadow-floating w-full max-w-2xl animate-scaleIn border border-white/20">
+        <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="text-[18px] font-bold text-slate-900 tracking-tight">{modalTitle}</h2>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-100 transition-all active:scale-95">
+            <X size={18} className="text-slate-400" />
           </button>
         </div>
 
@@ -466,11 +489,19 @@ const JobModal: React.FC<JobModalProps> = ({ type, job, onClose, onSuccess }) =>
               {error && <p className="text-xs text-red-600">{error}</p>}
             </div>
 
-            <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3 rounded-b-xl">
-              <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 text-gray-700 bg-white hover:bg-gray-50 transition-all">
+            <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex justify-end gap-3 rounded-b-[32px]">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 text-[14px] font-bold rounded-[14px] border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-all active:scale-95 shadow-sm"
+              >
                 Cancel
               </button>
-              <button type="submit" disabled={isSaving} className="px-4 py-2 text-sm font-semibold rounded-lg text-white bg-gray-900 hover:bg-gray-800 transition-all shadow-sm flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="px-6 py-2.5 text-[14px] font-bold rounded-[14px] text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-lift flex items-center gap-2 active:scale-95"
+              >
                 {isSaving && <Loader className="w-4 h-4 animate-spin" />}
                 {type === 'add' ? 'Create Job' : 'Save Changes'}
               </button>

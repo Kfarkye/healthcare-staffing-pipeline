@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Plus, X, Edit3, Trash2, Loader, MapPin } from 'lucide-react';
+import { Search, Plus, X, Edit3, Trash2, Loader, MapPin, CheckCircle, AlertCircle } from 'lucide-react';
 import { facilitiesService } from '../services/schemaService';
 import type { Facility, FacilityInput } from '../types/schema';
-
-const cn = (...classes: (string | boolean | undefined | null)[]) =>
-  classes.filter(Boolean).join(' ');
+import { DashboardShell } from './shared/DashboardShell';
+import { PrecisionTable } from './shared/PrecisionTable';
+import { cn } from '../lib/utils';
 
 type ModalType = 'add' | 'edit' | 'delete' | null;
 
@@ -58,99 +58,89 @@ const FacilitiesDashboard: React.FC = () => {
     setSelectedFacility(null);
   };
 
+  const HeaderActions = (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={() => openModal('add')}
+        className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white hover:bg-slate-800 rounded-[14px] transition-all shadow-lift font-bold text-[13px] active:scale-95"
+      >
+        <Plus size={16} strokeWidth={2.5} />
+        <span>Add Facility</span>
+      </button>
+    </div>
+  );
+
+  const tableColumns = [
+    {
+      header: 'Facility Name',
+      accessor: (facility: Facility) => (
+        <span className="font-bold text-slate-900">{facility.name}</span>
+      )
+    },
+    {
+      header: 'Location',
+      accessor: (facility: Facility) => (
+        <div className="flex items-center gap-1.5 text-slate-600 font-medium">
+          <MapPin size={14} className="text-slate-400" />
+          {facility.city}, {facility.state}
+        </div>
+      )
+    },
+    {
+      header: '',
+      id: 'actions',
+      className: 'text-right',
+      accessor: (facility: Facility) => (
+        <div className="flex items-center justify-end gap-1 px-2">
+          <button
+            onClick={() => openModal('edit', facility)}
+            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+          >
+            <Edit3 size={15} />
+          </button>
+          <button
+            onClick={() => openModal('delete', facility)}
+            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      )
+    }
+  ];
+
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-800">
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-        .animate-fadeIn { animation: fadeIn 0.3s ease-out forwards; }
-        .animate-slideIn { animation: slideIn 0.3s ease-out forwards; }
-      `}</style>
-
-      <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-lg font-semibold text-gray-900 tracking-tight">Facilities</h1>
-              <p className="text-xs text-gray-500 mt-1">
-                Manage healthcare facilities and locations
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search facilities..."
-                  className="w-64 pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all placeholder:text-gray-400"
-                />
-              </div>
-              <button
-                onClick={() => openModal('add')}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 active:scale-[0.98] transition-all shadow-sm"
-              >
-                <Plus size={15} />
-                Add Facility
-              </button>
+    <>
+      <DashboardShell
+        title="Facilities"
+        subtitle="Comprehensive management of healthcare facility partners and locations."
+        eyebrow="Network"
+        actions={HeaderActions}
+      >
+        <div className="space-y-6">
+          <div className="precision-glass rounded-[28px] p-5 flex items-center justify-between gap-4 shadow-lift border-white/20">
+            <div className="relative group flex-1 max-w-sm">
+              <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search facilities..."
+                className="w-full pl-11 pr-4 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 focus:bg-white transition-all text-[14px] font-medium tracking-tight shadow-sm"
+              />
             </div>
           </div>
-        </div>
-      </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="bg-white border border-gray-200/75 rounded-xl shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50/75 border-b border-gray-200/75">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Facility Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Location</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200/50">
-                {loading ? (
-                  <tr>
-                    <td colSpan={3} className="text-center py-16">
-                      <Loader className="w-6 h-6 text-gray-400 animate-spin mx-auto" />
-                    </td>
-                  </tr>
-                ) : filteredFacilities.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="text-center py-16 text-gray-500">
-                      {searchQuery ? 'No facilities found matching your search.' : 'No facilities yet. Add your first facility to get started.'}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredFacilities.map((facility, index) => (
-                    <tr key={facility.id} className="hover:bg-gray-50/50 transition-colors animate-fadeIn" style={{ animationDelay: `${Math.min(index * 20, 400)}ms`, opacity: 0 }}>
-                      <td className="px-6 py-4 whitespace-nowrap font-semibold text-gray-900">{facility.name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">
-                        <div className="flex items-center gap-1.5">
-                          <MapPin size={14} className="text-gray-400" />
-                          {facility.city}, {facility.state}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button onClick={() => openModal('edit', facility)} className="p-2 rounded-md hover:bg-gray-100 transition-colors">
-                            <Edit3 size={14} className="text-gray-500" />
-                          </button>
-                          <button onClick={() => openModal('delete', facility)} className="p-2 rounded-md hover:bg-gray-100 transition-colors">
-                            <Trash2 size={14} className="text-gray-500" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          <div className="bg-white rounded-[24px] border border-slate-200/60 shadow-sm overflow-hidden min-h-[500px]">
+            <PrecisionTable
+              data={filteredFacilities}
+              columns={tableColumns}
+              isLoading={loading}
+              emptyMessage="No facilities found matching your search."
+            />
           </div>
         </div>
-      </main>
+      </DashboardShell>
 
       {modal && (
         <FacilityModal
@@ -161,8 +151,8 @@ const FacilitiesDashboard: React.FC = () => {
             loadFacilities();
             showToast(
               modal === 'add' ? 'Facility created successfully' :
-              modal === 'edit' ? 'Facility updated successfully' :
-              'Facility deleted successfully',
+                modal === 'edit' ? 'Facility updated successfully' :
+                  'Facility deleted successfully',
               'success'
             );
           }}
@@ -172,14 +162,17 @@ const FacilitiesDashboard: React.FC = () => {
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 animate-slideIn">
           <div className={cn(
-            'px-4 py-3 rounded-lg shadow-lg text-sm font-medium',
-            toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+            'px-6 py-4 rounded-[20px] shadow-floating backdrop-blur-md border border-white/20 text-[14px] font-bold flex items-center gap-3',
+            toast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'
           )}>
+            <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+              {toast.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+            </div>
             {toast.message}
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
@@ -244,12 +237,12 @@ const FacilityModal: React.FC<FacilityModalProps> = ({ type, facility, onClose, 
   const isDeleteModal = type === 'delete';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn">
-      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-lg animate-fadeIn" style={{ animationDelay: '50ms' }}>
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-900">{modalTitle}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-            <X size={16} className="text-gray-500" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-md animate-fadeIn">
+      <div className="relative bg-white rounded-[32px] shadow-floating w-full max-w-lg animate-scaleIn border border-white/20">
+        <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="text-[18px] font-bold text-slate-900 tracking-tight">{modalTitle}</h2>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-100 transition-all active:scale-95">
+            <X size={18} className="text-slate-400" />
           </button>
         </div>
 
@@ -319,11 +312,11 @@ const FacilityModal: React.FC<FacilityModalProps> = ({ type, facility, onClose, 
               {error && <p className="text-xs text-red-600">{error}</p>}
             </div>
 
-            <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3 rounded-b-xl">
-              <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 text-gray-700 bg-white hover:bg-gray-50 transition-all">
+            <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex justify-end gap-3 rounded-b-[32px]">
+              <button type="button" onClick={onClose} className="px-5 py-2.5 text-[14px] font-bold rounded-[14px] border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-all active:scale-95 shadow-sm">
                 Cancel
               </button>
-              <button type="submit" disabled={isSaving} className="px-4 py-2 text-sm font-semibold rounded-lg text-white bg-gray-900 hover:bg-gray-800 transition-all shadow-sm flex items-center gap-2">
+              <button type="submit" disabled={isSaving} className="px-6 py-2.5 text-[14px] font-bold rounded-[14px] text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-lift flex items-center gap-2 active:scale-95">
                 {isSaving && <Loader className="w-4 h-4 animate-spin" />}
                 {type === 'add' ? 'Create Facility' : 'Save Changes'}
               </button>
