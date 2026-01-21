@@ -53,8 +53,8 @@ VALUES
     'extension_request', 
     'Sent to Account Manager when a candidate wants to extend their contract.',
     'EXTENSION REQUEST – {{candidate_name}} – {{facility_name}}',
-    'Hi Team,\n\n{{candidate_name}} would like to extend.\n\nPlease see the details below:\n\nCandidate: {{candidate_name}}\nLocal (Y/N): {{is_local}}\nFacility: {{facility_name}}\nUnit: {{specialty}}\nCurrent Bill Rate: {{current_bill_rate}}\nCurrent Shift/Hours: {{current_shift}}\nCurrent End Date: {{current_end_date}}\nProposed Extension Dates: {{proposed_dates}}\nRequested Time Off Between Assignments: {{time_off_between}}\nRequested Time Off During Assignment: {{time_off_during}}\nWas this Extension Discussed with Manager (name)?: Yes\nAny other details we need to confirm?: N/A\n\nThank you!',
-    '["candidate_name", "facility_name", "is_local", "specialty", "current_bill_rate", "current_shift", "current_end_date", "proposed_dates", "time_off_between", "time_off_during"]'::jsonb
+    'Hi Team,\n\n{{candidate_name}} would like to extend for {{extension_duration}}.\n\nCandidate: {{candidate_name}}\nLocal (Y/N): {{is_local}}\nFacility: {{facility_name}}\nUnit: {{specialty}}\nCurrent Bill Rate: {{current_bill_rate}}\nCurrent Shift/Hours: {{current_shift}}\nCurrent End Date: {{current_end_date}}\nProposed Extension Dates: {{proposed_dates}}\nRequested Time Off Between Assignments: {{time_off_between}}\nRequested Time Off During Assignment: {{time_off_during}}\nWas this Extension Discussed with Manager (name)?: Yes\nAny other details we need to confirm?: N/A',
+    '["candidate_name", "facility_name", "is_local", "specialty", "current_bill_rate", "current_shift", "current_end_date", "proposed_dates", "time_off_between", "time_off_during", "extension_duration"]'::jsonb
 ),
 (
     'active',

@@ -166,6 +166,25 @@ export const CommandCenter: React.FC = () => {
         }
     };
 
+    const handlePaste = async (e: React.ClipboardEvent) => {
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                const file = items[i].getAsFile();
+                if (file) {
+                    e.preventDefault();
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const base64 = event.target?.result as string;
+                        setAttachment({ file, base64: base64.split(',')[1], mimeType: file.type });
+                    };
+                    reader.readAsDataURL(file);
+                    return;
+                }
+            }
+        }
+    };
+
     if (!isOpen) {
         return (
             <button
@@ -305,6 +324,7 @@ export const CommandCenter: React.FC = () => {
                                         value={inputValue}
                                         onChange={(e) => setInputValue(e.target.value)}
                                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                                        onPaste={handlePaste}
                                         placeholder="Execute command..."
                                         className="w-full bg-white/5 border border-white/5 rounded-2xl py-4 pl-5 pr-12 focus:ring-1 focus:ring-indigo-500/50 focus:bg-white/10 transition-all resize-none text-[13px] text-white h-24 no-scrollbar"
                                     />

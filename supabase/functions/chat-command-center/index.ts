@@ -30,7 +30,8 @@ Deno.serve(async (req) => {
         GET_PIPELINE_BRIEF: 'get_pipeline_brief',
         SET_UI_STATE: 'set_ui_state',
         SEARCH_TRAVEL_LIST: 'search_travel_list',
-        GET_TEMPLATE: 'get_template'
+        GET_TEMPLATE: 'get_template',
+        ADD_PROSPECT: 'add_prospect'
     };
 
     try {
@@ -230,6 +231,23 @@ Deno.serve(async (req) => {
                         },
                         required: ["category", "template_name"]
                     }
+                },
+                {
+                    name: ToolName.ADD_PROSPECT,
+                    description: "Add a new candidate/prospect to the database. Use this when the user explicitly asks to 'add' or 'create' a new person.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            name: { type: "string", description: "Full name of the candidate" },
+                            specialty: { type: "string", description: "Primary nursing specialty (e.g. ICU, ER, OR)" },
+                            email: { type: "string", description: "Email address (optional)" },
+                            phone: { type: "string", description: "Phone number (optional)" },
+                            home_state: { type: "string", description: "Two-letter state code (e.g. CA, TX)" },
+                            status: { type: "string", enum: ['New', 'Contacted', 'Interested', 'Profile Updates', 'Submittal Ready', 'Submitted'], description: "Initial status (default: New)" },
+                            notes: { type: "string", description: "Initial notes or context" }
+                        },
+                        required: ["name"]
+                    }
                 }
             ]
         }];
@@ -249,10 +267,13 @@ Pillars of Operation:
 
 DYNAMIC TEMPLATE GROUNDING:
 When the user asks to draft, send, or compose ANY standard communication, you MUST:
-1. Call 'get_template' with the appropriate category ('active', 'prospect', 'retention') and template_name (e.g., 'extension_request', 'margin_approval', 'cold_outreach').
-2. Call 'search_travel_list' or 'get_prospect_details' to fetch the REAL candidate data.
-3. Replace all {{placeholders}} in the template with the real data you retrieved.
-4. Present the FULLY POPULATED template to the user. DO NOT ask them for data you can look up.
+1. Call 'get_template' with the appropriate category.
+2. Call 'search_travel_list' to fetch the REAL candidate data (specifically 'current_end_date').
+3. COMPUTE DATES:
+   - If the user specifies a duration (e.g., "13 weeks"), ADD that duration to the 'current_end_date' to find the 'Proposed Extension Dates'.
+   - Format: "[Duration] (Starting [Current End Date + 1 day] - Ending [Calculated Date])"
+4. Replace all {{placeholders}} in the template with the real data and your calculated dates.
+5. Present the FULLY POPULATED template.
 
 Available Templates:
 - extension_request (active): For candidates wanting to extend contracts.
@@ -652,6 +673,34 @@ Senior Recruiter, Fulfillment Specialist`
                                         description: templateData.description
                                     },
                                     instructions: 'Populate the {{placeholders}} using data from search_travel_list or get_prospect_details tools. Do NOT ask the user for data you can look up.'
+                                };
+                            }
+                            break;
+                        }
+                        case ToolName.ADD_PROSPECT: {
+                            const { data: prospectData, error: prospectError } = await supabase
+                                .from('prospects')
+                                .insert({
+                                    candidate_id: Math.floor(Date.now() / 1000), // Simple unique ID generation
+                                    name: args.name,
+                                    specialty: args.specialty,
+                                    email: args.email,
+                                    phone: args.phone,
+                                    home_state: args.home_state,
+                                    status: args.status || 'New',
+                                    notes: args.notes,
+                                    recruiter: 'Kofi Farkye' // Default recruiter
+                                })
+                                .select()
+                                .single();
+
+                            if (prospectError) {
+                                resultData = { error: prospectError.message };
+                            } else {
+                                resultData = {
+                                    action: 'PROSPECT_ADDED',
+                                    prospect: prospectData,
+                                    message: `Successfully added ${args.name} to the pipeline.`
                                 };
                             }
                             break;
