@@ -16,7 +16,7 @@ export default function RootLayout() {
       <motion.main
         layout
         animate={{
-          width: workspaceMode === 'full' ? '0%' : workspaceMode === 'split' ? '50%' : '100%',
+          width: workspaceMode === 'full' ? '0%' : '100%', // Keep full width for split to allow scroll-under
           opacity: workspaceMode === 'full' ? 0 : 1,
           pointerEvents: workspaceMode === 'full' ? 'none' : 'auto',
           // Jony Ive Depth: Push content back in Z-space when split
@@ -32,7 +32,11 @@ export default function RootLayout() {
           <motion.div
             key={location.pathname}
             initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              paddingRight: workspaceMode === 'split' ? '50%' : '0px' // Spacer to allow content to scroll clear of the AI
+            }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
             className="h-full"
