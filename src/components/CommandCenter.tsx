@@ -11,7 +11,15 @@ import {
     Mail,
     Layout as LayoutIcon,
     Send,
-    Loader2
+    Loader2,
+    RefreshCw,
+    Bookmark,
+    Trash2,
+    Search,
+    FileText,
+    DollarSign,
+    Users,
+    CheckCircle
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -66,6 +74,11 @@ export const CommandCenter: React.FC = () => {
     const [attachment, setAttachment] = useState<{ file: File; base64: string; mimeType: string } | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // UX Enhancement State
+    const [pinnedMessages, setPinnedMessages] = useState<Set<number>>(new Set());
+    const [copiedMessageId, setCopiedMessageId] = useState<number | null>(null);
+    const [showPinnedOnly, setShowPinnedOnly] = useState(false);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -187,6 +200,61 @@ export const CommandCenter: React.FC = () => {
         }
     };
 
+    // ============================================================================
+    // UX ENHANCEMENT - Helper Functions
+    // ============================================================================
+    const handleRegenerate = async (messageIndex: number) => {
+        // Find the last user message before this model response
+        const userMsgIndex = history.slice(0, messageIndex).reverse().findIndex(m => m.role === 'user');
+        if (userMsgIndex === -1) return;
+        const actualUserIndex = messageIndex - 1 - userMsgIndex;
+        const userMessage = history[actualUserIndex]?.parts?.[0]?.text || '';
+
+        // Trim history to before the model response and regenerate
+        const trimmedHistory = history.slice(0, messageIndex);
+        setHistory(trimmedHistory);
+        setInputValue(userMessage);
+        // Trigger send after state updates
+        setTimeout(() => {
+            setInputValue('');
+            handleSend();
+        }, 100);
+    };
+
+    const handleCopyMessage = (text: string, index: number) => {
+        navigator.clipboard.writeText(stripMarkdown(text));
+        setCopiedMessageId(index);
+        setTimeout(() => setCopiedMessageId(null), 2000);
+    };
+
+    const handlePinMessage = (index: number) => {
+        setPinnedMessages(prev => {
+            const next = new Set(prev);
+            if (next.has(index)) next.delete(index);
+            else next.add(index);
+            return next;
+        });
+    };
+
+    const handleClearChat = () => {
+        setHistory([]);
+        setPinnedMessages(new Set());
+        setShowPinnedOnly(false);
+    };
+
+    // Quick Actions Configuration
+    const QUICK_ACTIONS = [
+        { label: 'Draft Outreach', icon: FileText, command: 'Draft outreach for ', isTemplate: true },
+        { label: 'Pipeline Brief', icon: Users, command: 'Give me a pipeline brief', isTemplate: false },
+        { label: 'Search Prospects', icon: Search, command: 'Search prospects ', isTemplate: true },
+        { label: 'Pay Analysis', icon: DollarSign, command: 'Calculate pay for ', isTemplate: true },
+    ];
+
+    // Filter messages based on pin filter
+    const displayedHistory = showPinnedOnly
+        ? history.filter((_, i) => pinnedMessages.has(i))
+        : history;
+
     if (!isOpen) {
         return (
             <button
@@ -233,6 +301,22 @@ export const CommandCenter: React.FC = () => {
                             </div>
                         </div>
                         <div className="flex items-center gap-1 text-slate-400">
+                            {/* Pin Filter Toggle */}
+                            <button
+                                onClick={() => setShowPinnedOnly(!showPinnedOnly)}
+                                className={cn("p-2 rounded-xl transition-all", showPinnedOnly ? "bg-amber-500/20 text-amber-400" : "hover:bg-white/10")}
+                                title={showPinnedOnly ? "Show all messages" : "Show pinned only"}
+                            >
+                                <Bookmark size={16} />
+                            </button>
+                            {/* Clear Chat */}
+                            <button
+                                onClick={handleClearChat}
+                                className="p-2 hover:bg-white/10 rounded-xl hover:text-rose-400 transition-all"
+                                title="Clear conversation"
+                            >
+                                <Trash2 size={16} />
+                            </button>
                             <button onClick={() => setWorkspaceMode(workspaceMode === 'floating' ? 'split' : 'floating')} className="p-2 hover:bg-white/10 rounded-xl"><LayoutIcon size={16} /></button>
                             <button onClick={() => setIsMinimized(!isMinimized)} className="p-2 hover:bg-white/10 rounded-xl">{isMinimized ? <Maximize2 size={16} /> : <Minimize2 size={16} />}</button>
                             <button onClick={() => { setIsOpen(false); setWorkspaceMode('floating'); }} className="p-2 hover:bg-white/10 rounded-xl"><X size={16} /></button>
@@ -242,110 +326,149 @@ export const CommandCenter: React.FC = () => {
                     {!isMinimized && (
                         <>
                             <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
-                                {history.length === 0 && (
+                                {displayedHistory.length === 0 && (
                                     <div className="h-full flex flex-col items-center justify-center text-center pt-24 opacity-40">
-                                        <p className="text-white text-lg font-medium italic">Speak to the Pipeline.</p>
+                                        <p className="text-white text-lg font-medium italic">{showPinnedOnly ? 'No pinned messages' : 'Speak to the Pipeline.'}</p>
                                     </div>
                                 )}
-                                {history.map((msg, i) => (
-                                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                        {msg.role === 'model' ? (
-                                            <PrecisionCard variant="obsidian" className="max-w-[90%] border-white/5 p-4">
-                                                <div className="space-y-4">
-                                                    {/* Attachments from metadata */}
-                                                    {msg.metadata?.attachment_url && (
-                                                        <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/20">
-                                                            <img
-                                                                src={msg.metadata.attachment_url}
-                                                                alt="Attachment"
-                                                                className="w-full h-auto max-h-[300px] object-cover"
-                                                                onError={(e) => (e.currentTarget.style.display = 'none')}
-                                                            />
-                                                        </div>
-                                                    )}
-                                                    {(() => {
-                                                        const text = msg.parts[0]?.text || '';
-                                                        if (isLikelyEmail(text)) {
-                                                            const { subject, body } = extractEmailFields(text);
-                                                            const isExpanded = expandedCards.has(i);
-                                                            return (
-                                                                <div className="bg-black/20 rounded-2xl border border-white/5 overflow-hidden">
-                                                                    {/* Header with actions */}
-                                                                    <div className="px-4 py-3 bg-white/5 border-b border-white/5 flex items-center justify-between">
-                                                                        <span className="text-[10px] font-bold opacity-60 uppercase tracking-widest">Email Draft</span>
-                                                                        <div className="flex items-center gap-2">
-                                                                            {/* Copy Button */}
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    navigator.clipboard.writeText(stripMarkdown(text));
-                                                                                    // Visual feedback
-                                                                                    const btn = document.activeElement as HTMLButtonElement;
-                                                                                    if (btn) {
-                                                                                        btn.classList.add('!bg-emerald-500/20', '!text-emerald-400');
-                                                                                        setTimeout(() => btn.classList.remove('!bg-emerald-500/20', '!text-emerald-400'), 1500);
-                                                                                    }
-                                                                                }}
-                                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all text-[11px] font-semibold"
-                                                                                title="Copy to clipboard"
-                                                                            >
-                                                                                <Copy size={12} />
-                                                                                <span>Copy</span>
+                                {displayedHistory.map((msg, i) => {
+                                    const originalIndex = showPinnedOnly ? history.indexOf(msg) : i;
+                                    const isPinned = pinnedMessages.has(originalIndex);
+                                    const isCopied = copiedMessageId === originalIndex;
+                                    const isLastModelMsg = msg.role === 'model' && i === displayedHistory.filter(m => m.role === 'model').length - 1;
+
+                                    return (
+                                        <div key={originalIndex} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} group/msg`}>
+                                            {msg.role === 'model' ? (
+                                                <PrecisionCard variant="obsidian" className="max-w-[90%] border-white/5 p-4">
+                                                    <div className="space-y-4">
+                                                        {/* Attachments from metadata */}
+                                                        {msg.metadata?.attachment_url && (
+                                                            <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/20">
+                                                                <img
+                                                                    src={msg.metadata.attachment_url}
+                                                                    alt="Attachment"
+                                                                    className="w-full h-auto max-h-[300px] object-cover"
+                                                                    onError={(e) => (e.currentTarget.style.display = 'none')}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                        {(() => {
+                                                            const text = msg.parts[0]?.text || '';
+                                                            if (isLikelyEmail(text)) {
+                                                                const { subject, body } = extractEmailFields(text);
+                                                                const isExpanded = expandedCards.has(i);
+                                                                return (
+                                                                    <div className="bg-black/20 rounded-2xl border border-white/5 overflow-hidden">
+                                                                        {/* Header with actions */}
+                                                                        <div className="px-4 py-3 bg-white/5 border-b border-white/5 flex items-center justify-between">
+                                                                            <span className="text-[10px] font-bold opacity-60 uppercase tracking-widest">Email Draft</span>
+                                                                            <div className="flex items-center gap-2">
+                                                                                {/* Copy Button */}
+                                                                                <button
+                                                                                    onClick={() => {
+                                                                                        navigator.clipboard.writeText(stripMarkdown(text));
+                                                                                        // Visual feedback
+                                                                                        const btn = document.activeElement as HTMLButtonElement;
+                                                                                        if (btn) {
+                                                                                            btn.classList.add('!bg-emerald-500/20', '!text-emerald-400');
+                                                                                            setTimeout(() => btn.classList.remove('!bg-emerald-500/20', '!text-emerald-400'), 1500);
+                                                                                        }
+                                                                                    }}
+                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all text-[11px] font-semibold"
+                                                                                    title="Copy to clipboard"
+                                                                                >
+                                                                                    <Copy size={12} />
+                                                                                    <span>Copy</span>
+                                                                                </button>
+                                                                                {/* Open in Outlook Button */}
+                                                                                <a
+                                                                                    href={buildOutlookLink('', undefined, subject, stripMarkdown(body))}
+                                                                                    target="_blank"
+                                                                                    rel="noopener noreferrer"
+                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300 hover:text-blue-200 transition-all text-[11px] font-semibold"
+                                                                                    title="Open in Outlook"
+                                                                                >
+                                                                                    <Mail size={12} />
+                                                                                    <span>Open in Outlook</span>
+                                                                                </a>
+                                                                            </div>
+                                                                        </div>
+                                                                        {/* Email Content */}
+                                                                        <div className="p-4 space-y-2">
+                                                                            <div className="text-sm font-bold text-white leading-tight">{subject}</div>
+                                                                            <div className={cn("prose prose-invert prose-sm opacity-80", !isExpanded && "line-clamp-6")}>
+                                                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+                                                                            </div>
+                                                                            <button onClick={() => setExpandedCards(prev => {
+                                                                                const next = new Set(prev);
+                                                                                if (next.has(i)) next.delete(i); else next.add(i);
+                                                                                return next;
+                                                                            })} className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mt-2">
+                                                                                {isExpanded ? 'Collapse' : 'Expand Draft'}
                                                                             </button>
-                                                                            {/* Open in Outlook Button */}
-                                                                            <a
-                                                                                href={buildOutlookLink('', undefined, subject, stripMarkdown(body))}
-                                                                                target="_blank"
-                                                                                rel="noopener noreferrer"
-                                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300 hover:text-blue-200 transition-all text-[11px] font-semibold"
-                                                                                title="Open in Outlook"
-                                                                            >
-                                                                                <Mail size={12} />
-                                                                                <span>Open in Outlook</span>
-                                                                            </a>
                                                                         </div>
                                                                     </div>
-                                                                    {/* Email Content */}
-                                                                    <div className="p-4 space-y-2">
-                                                                        <div className="text-sm font-bold text-white leading-tight">{subject}</div>
-                                                                        <div className={cn("prose prose-invert prose-sm opacity-80", !isExpanded && "line-clamp-6")}>
-                                                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
-                                                                        </div>
-                                                                        <button onClick={() => setExpandedCards(prev => {
-                                                                            const next = new Set(prev);
-                                                                            if (next.has(i)) next.delete(i); else next.add(i);
-                                                                            return next;
-                                                                        })} className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mt-2">
-                                                                            {isExpanded ? 'Collapse' : 'Expand Draft'}
-                                                                        </button>
-                                                                    </div>
+                                                                );
+                                                            }
+                                                            return (
+                                                                <div className="prose prose-invert prose-sm opacity-90 leading-relaxed">
+                                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
                                                                 </div>
                                                             );
-                                                        }
-                                                        return (
-                                                            <div className="prose prose-invert prose-sm opacity-90 leading-relaxed">
-                                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-                                                            </div>
-                                                        );
-                                                    })()}
+                                                        })()}
+                                                    </div>
+                                                    {/* Message Action Strip */}
+                                                    <div className="flex items-center gap-1 pt-3 border-t border-white/5 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                                                        <button
+                                                            onClick={() => handleCopyMessage(msg.parts[0]?.text || '', originalIndex)}
+                                                            className={cn(
+                                                                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all",
+                                                                isCopied ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white"
+                                                            )}
+                                                        >
+                                                            {isCopied ? <CheckCircle size={10} /> : <Copy size={10} />}
+                                                            {isCopied ? 'Copied' : 'Copy'}
+                                                        </button>
+                                                        {isLastModelMsg && (
+                                                            <button
+                                                                onClick={() => handleRegenerate(originalIndex)}
+                                                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-[10px] font-semibold transition-all"
+                                                            >
+                                                                <RefreshCw size={10} />
+                                                                Regenerate
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => handlePinMessage(originalIndex)}
+                                                            className={cn(
+                                                                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all",
+                                                                isPinned ? "bg-amber-500/20 text-amber-400" : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white"
+                                                            )}
+                                                        >
+                                                            <Bookmark size={10} />
+                                                            {isPinned ? 'Pinned' : 'Pin'}
+                                                        </button>
+                                                    </div>
+                                                </PrecisionCard>
+                                            ) : msg.role === 'user' ? (
+                                                <div className="max-w-[85%] bg-indigo-500/10 border border-indigo-500/20 px-4 py-2.5 rounded-2xl">
+                                                    <span className="text-[13px] text-indigo-50 leading-relaxed font-medium">{msg.parts[0]?.text}</span>
                                                 </div>
-                                            </PrecisionCard>
-                                        ) : msg.role === 'user' ? (
-                                            <div className="max-w-[85%] bg-indigo-500/10 border border-indigo-500/20 px-4 py-2.5 rounded-2xl">
-                                                <span className="text-[13px] text-indigo-50 leading-relaxed font-medium">{msg.parts[0]?.text}</span>
-                                            </div>
-                                        ) : (
-                                            <div className="w-full">
-                                                {msg.parts.map((p, idx) => p.functionResponse && (
-                                                    <ToolResultRenderer
-                                                        key={idx}
-                                                        toolName={p.functionResponse.name}
-                                                        data={p.functionResponse.response.content}
-                                                    />
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
+                                            ) : (
+                                                <div className="w-full">
+                                                    {msg.parts.map((p, idx) => p.functionResponse && (
+                                                        <ToolResultRenderer
+                                                            key={idx}
+                                                            toolName={p.functionResponse.name}
+                                                            data={p.functionResponse.response.content}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                                 {isGenerating && (
                                     <div className="flex items-center gap-2 text-slate-500 italic text-xs px-2">
                                         <Loader2 size={12} className="animate-spin" /> Thinking...
@@ -354,6 +477,35 @@ export const CommandCenter: React.FC = () => {
                             </div>
 
                             <footer className="p-6 border-t border-white/10 space-y-4">
+                                {/* Quick Actions Rail - visible when input is empty */}
+                                <AnimatePresence>
+                                    {!inputValue && history.length === 0 && (
+                                        <motion.div
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0, y: 10 }}
+                                            className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none"
+                                        >
+                                            {QUICK_ACTIONS.map(action => (
+                                                <button
+                                                    key={action.label}
+                                                    onClick={() => {
+                                                        if (action.isTemplate) {
+                                                            setInputValue(action.command);
+                                                        } else {
+                                                            setInputValue(action.command);
+                                                            setTimeout(() => handleSend(), 100);
+                                                        }
+                                                    }}
+                                                    className="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-[11px] font-semibold transition-all"
+                                                >
+                                                    <action.icon size={12} />
+                                                    {action.label}
+                                                </button>
+                                            ))}
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                                 <div
                                     className={`relative group transition-all duration-300 ${isDraggingOver ? 'scale-[1.02]' : ''}`}
                                     onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
