@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, ShieldCheck, BarChart3, TrendingUp, DollarSign } from 'lucide-react';
+import { Activity, ShieldCheck, BarChart3, TrendingUp, DollarSign, Landmark } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface ToolResultRendererProps {
@@ -80,6 +80,38 @@ const ToolResultRenderer: React.FC<ToolResultRendererProps> = ({ toolName, data 
                             <PayLine label="Non-Taxable Stipend" value={`$${data.nontaxable_stipend || '0'}/wk`} />
                             <div className="pt-3 border-t border-white/10">
                                 <PayLine label="Estimated Net" value={`$${data.estimated_net || '0'}/wk`} highlight />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+
+        case 'calculate_pay_package':
+            const pkg = data.data || data;
+            return (
+                <div className="mt-4 bg-gradient-to-br from-emerald-600 to-teal-800 text-white rounded-2xl p-6 shadow-xl shadow-emerald-900/20 border border-white/10 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
+                        <Landmark size={80} />
+                    </div>
+                    <div className="relative z-10">
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <div className="text-[10px] font-bold uppercase text-white/50 tracking-widest mb-1">Weekly Gross Target</div>
+                                <div className="text-3xl font-bold tracking-tight">${pkg.gross_weekly?.toLocaleString() || (pkg.target_gross?.toLocaleString() || '0')}</div>
+                            </div>
+                            <div className="bg-white/10 px-3 py-1.5 rounded-lg text-right backdrop-blur-md border border-white/10">
+                                <div className="text-[10px] font-bold text-white/70">{pkg.job_city || 'Unknown'}, {pkg.job_state || pkg.state || 'US'}</div>
+                                <div className="text-[9px] font-black tracking-tighter uppercase opacity-50 text-emerald-300">GSA Compliant</div>
+                            </div>
+                        </div>
+                        <div className="space-y-2.5">
+                            <PayLine label="Taxable Hourly" value={`$${pkg.taxable_hourly?.toFixed(2) || '0.00'}/hr`} />
+                            <div className="grid grid-cols-2 gap-4">
+                                <PayLine label="Housing Stipend" value={`$${pkg.housing_weekly?.toLocaleString() || '0'}/wk`} />
+                                <PayLine label="Meals Stipend" value={`$${pkg.meals_weekly?.toLocaleString() || '0'}/wk`} />
+                            </div>
+                            <div className="pt-3 border-t border-white/10">
+                                <PayLine label="Total Weekly" value={`$${pkg.gross_weekly?.toLocaleString() || '0'}/wk`} highlight />
                             </div>
                         </div>
                     </div>

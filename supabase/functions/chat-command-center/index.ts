@@ -31,7 +31,8 @@ Deno.serve(async (req) => {
         SET_UI_STATE: 'set_ui_state',
         SEARCH_TRAVEL_LIST: 'search_travel_list',
         GET_TEMPLATE: 'get_template',
-        ADD_PROSPECT: 'add_prospect'
+        ADD_PROSPECT: 'add_prospect',
+        CALCULATE_PAY_PACKAGE: 'calculate_pay_package'
     };
 
     try {
@@ -136,6 +137,21 @@ Deno.serve(async (req) => {
                             notes: { type: "string" }
                         },
                         required: ["candidate_id", "scheduled_date", "follow_up_type"]
+                    }
+                },
+                {
+                    name: ToolName.CALCULATE_PAY_PACKAGE,
+                    description: "Calculate official GSA-compliant pay package from Target Gross.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            target_gross: { type: "number", description: "Target weekly gross pay (e.g., 2500)" },
+                            state: { type: "string", description: "Job state (e.g., 'CA', 'TX')" },
+                            city: { type: "string" },
+                            specialty: { type: "string" },
+                            hours: { type: "number", description: "Hours per week (default 36)" }
+                        },
+                        required: ["target_gross", "state"]
                     }
                 },
                 {
@@ -511,7 +527,9 @@ Senior Recruiter, Fulfillment Specialist`
                                 p_hours_per_week: args.hours || 36,
                                 p_state: args.state.toUpperCase(),
                                 p_city: args.city,
-                                p_profession: 'RN'
+                                p_profession: 'RN',
+                                p_specialty: args.specialty || 'General',
+                                p_job_id: 'generated'
                             });
                             if (error) throw error;
 
@@ -522,6 +540,24 @@ Senior Recruiter, Fulfillment Specialist`
                                     hours: args.hours || 36,
                                     specialty: args.specialty
                                 }
+                            });
+                            break;
+                        }
+                        case ToolName.CALCULATE_PAY_PACKAGE: {
+                            const { target_gross, state, city, specialty, hours } = args;
+                            const { data, error } = await supabase.rpc('calculate_pay_package', {
+                                p_target_gross: target_gross,
+                                p_hours_per_week: hours || 36,
+                                p_state: state.toUpperCase(),
+                                p_city: city,
+                                p_profession: 'RN',
+                                p_specialty: specialty || 'General',
+                                p_job_id: 'generated'
+                            });
+                            if (error) throw error;
+                            resultData = JSON.stringify({
+                                action: 'PAY_PACKAGE_GENERATED',
+                                data: { ...data, hours: hours || 36, specialty: specialty }
                             });
                             break;
                         }

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { AssignmentEmailModal } from './AssignmentEmailModal';
 import { AssignmentDetailModal } from './AssignmentDetailModal';
+import { DashboardShell } from './shared/DashboardShell';
 import { Tooltip } from './shared/Tooltip';
 import {
   useAssignments,
@@ -125,29 +126,39 @@ const formatDate = (dateStr: string | null) =>
 // STAT WIDGET
 // ============================================================================
 
-const StatWidget: React.FC<{
+const StatCard: React.FC<{
   label: string;
   value: number;
   onClick: () => void;
   isActive: boolean;
-}> = ({ label, value, onClick, isActive }) => (
+  color?: string;
+}> = ({ label, value, onClick, isActive, color }) => (
   <button
     onClick={onClick}
     className={cn(
-      `group relative flex flex-col items-start p-4 ${DESIGN.radius.md} border ${DESIGN.transition}`,
+      "relative flex flex-col items-start px-6 py-4 rounded-[18px] border transition-all duration-300 min-w-[150px] overflow-hidden group active:scale-[0.97]",
       isActive
-        ? `bg-${DESIGN.colors.primary} border-${DESIGN.colors.primary} ${DESIGN.elevation.card}`
-        : `bg-${DESIGN.colors.bgCard} border-${DESIGN.colors.border}/80 hover:border-${DESIGN.colors.borderHover} hover:bg-${DESIGN.colors.bgSubtle}/50`
+        ? "bg-slate-900 border-slate-900 shadow-lift"
+        : "bg-white border-slate-200/60 hover:border-slate-300 shadow-sm"
     )}
-    aria-label={`Filter by ${label}`}
-    aria-pressed={isActive}
   >
-    <div className={cn(DESIGN.text.label, isActive ? 'text-slate-400' : '')}>
+    <div className={cn(
+      "text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5",
+      isActive ? "text-slate-400" : "text-slate-400"
+    )}>
       {label}
     </div>
-    <div className={cn(DESIGN.text.stat, isActive ? 'text-white' : 'text-slate-900')}>
+    <div className={cn(
+      "text-[24px] font-bold tabular-nums tracking-tighter",
+      isActive ? "text-white" : color || "text-slate-900"
+    )}>
       {value}
     </div>
+    {isActive && (
+      <div className="absolute top-0 right-0 p-1.5">
+        <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+      </div>
+    )}
   </button>
 );
 
@@ -208,9 +219,9 @@ const AssignmentCard: React.FC<{
     <div
       onClick={onClick}
       className={cn(
-        `relative bg-${DESIGN.colors.bgCard} ${DESIGN.radius.sm} border p-4 cursor-pointer ${DESIGN.transition} group`,
-        `hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-${DESIGN.colors.borderHover} hover:-translate-y-0.5`,
-        isCritical ? 'border-red-200' : `border-${DESIGN.colors.border}`
+        "relative bg-white rounded-[16px] border p-4 cursor-pointer transition-all duration-300 group shadow-sm",
+        "hover:shadow-lift hover:border-slate-300 hover:-translate-y-0.5",
+        isCritical ? 'border-red-200 bg-red-50/10' : "border-slate-200"
       )}
       style={{ animationDelay: `${Math.min(index * 20, 200)}ms` }}
       role="button"
@@ -1000,115 +1011,128 @@ export default function ActiveAssignmentsDashboard() {
     return null;
   };
 
+  const HeaderActions = (
+    <div className="flex items-center gap-3">
+      <ViewSwitcher viewMode={viewMode} setViewMode={setViewMode} />
+      <div className="h-4 w-px bg-slate-200 mx-1" />
+      <button
+        onClick={() => setShowImport(true)}
+        className="p-2.5 bg-white border border-slate-200/60 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-[14px] transition-all active:scale-95 shadow-lift"
+        title="Import Assignments"
+      >
+        <Upload size={18} strokeWidth={2.5} />
+      </button>
+      <button
+        onClick={() => refetch()}
+        className="p-2.5 bg-white border border-slate-200/60 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-[14px] transition-all active:scale-95 shadow-lift"
+        title="Refresh"
+      >
+        <RefreshCw size={18} strokeWidth={2.5} className={cn(isLoading && 'animate-spin')} />
+      </button>
+    </div>
+  );
+
+  const StatCards = (
+    <div className="flex items-center gap-4 py-2">
+      <StatCard
+        label="All Active"
+        value={stats.all}
+        onClick={() => {
+          setSpecialView('all');
+          setViewMode('list');
+        }}
+        isActive={specialView === 'all'}
+      />
+      <StatCard
+        label="Requested"
+        value={stats.requested}
+        onClick={() => {
+          setSpecialView('requested');
+          setViewMode('list');
+        }}
+        isActive={specialView === 'requested'}
+        color="text-amber-600"
+      />
+      <StatCard
+        label="Retention"
+        value={stats.retentions}
+        onClick={() => {
+          setSpecialView('retentions');
+          setViewMode('list');
+        }}
+        isActive={specialView === 'retentions'}
+        color="text-blue-600"
+      />
+      <StatCard
+        label="Prestarts"
+        value={stats.prestarts}
+        onClick={() => {
+          setSpecialView('prestarts');
+          setViewMode('list');
+        }}
+        isActive={specialView === 'prestarts'}
+        color="text-emerald-600"
+      />
+      <StatCard
+        label="Exiting"
+        value={stats.exiting}
+        onClick={() => {
+          setSpecialView('exiting');
+          setViewMode('list');
+        }}
+        isActive={specialView === 'exiting'}
+        color="text-red-500"
+      />
+    </div>
+  );
+
   return (
-    <div className="h-full bg-slate-50 flex flex-col font-sans text-slate-800">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-20">
-        <div className="px-8 py-5">
-          {/* Stats Grid */}
-          <div className="grid grid-cols-5 gap-4 mb-6">
-            <StatWidget
-              label="All Active"
-              value={stats.all}
-              onClick={() => {
-                setSpecialView('all');
-                setViewMode('list');
-              }}
-              isActive={specialView === 'all'}
-            />
-            <StatWidget
-              label="Requested"
-              value={stats.requested}
-              onClick={() => {
-                setSpecialView('requested');
-                setViewMode('list');
-              }}
-              isActive={specialView === 'requested'}
-            />
-            <StatWidget
-              label="Retention"
-              value={stats.retentions}
-              onClick={() => {
-                setSpecialView('retentions');
-                setViewMode('list');
-              }}
-              isActive={specialView === 'retentions'}
-            />
-            <StatWidget
-              label="Prestarts"
-              value={stats.prestarts}
-              onClick={() => {
-                setSpecialView('prestarts');
-                setViewMode('list');
-              }}
-              isActive={specialView === 'prestarts'}
-            />
-            <StatWidget
-              label="Exiting"
-              value={stats.exiting}
-              onClick={() => {
-                setSpecialView('exiting');
-                setViewMode('list');
-              }}
-              isActive={specialView === 'exiting'}
-            />
-          </div>
-
-          {/* Controls */}
-          <div className="flex items-center justify-between">
-            <ViewSwitcher viewMode={viewMode} setViewMode={setViewMode} />
-
-            <div className="flex items-center gap-2">
-              {/* Search */}
-              <div className="relative">
-                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" strokeWidth={2} />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by name or facility..."
-                  className={`w-72 pl-10 pr-4 py-2.5 text-[13px] bg-white border border-${DESIGN.colors.border}/80 ${DESIGN.radius.sm} focus:outline-none focus:ring-2 focus:ring-slate-800 focus:border-slate-800 ${DESIGN.transition}`}
-                  aria-label="Search"
-                />
-                {search && (
-                  <button
-                    onClick={() => setSearch('')}
-                    className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 ${DESIGN.radius.full} hover:bg-${DESIGN.colors.bgSubtle}`}
-                    aria-label="Clear search"
-                  >
-                    <X size={14} className="text-slate-500" strokeWidth={2} />
-                  </button>
-                )}
-              </div>
-
-              {/* Import */}
-              <Tooltip content="Import">
+    <DashboardShell
+      title="Fleet Operations"
+      subtitle="Manage extensions, retentions, and active contracts across the system."
+      eyebrow="Mission Control"
+      actions={HeaderActions}
+      stats={StatCards}
+    >
+      <div className="space-y-6">
+        {/* Advanced Filter Bar */}
+        <div className="precision-glass rounded-[28px] p-5 flex items-center justify-between gap-4 shadow-lift border-white/20">
+          <div className="flex items-center gap-4 flex-1">
+            <div className="relative group flex-1 max-w-md">
+              <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or facility..."
+                className="w-full pl-11 pr-4 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 focus:bg-white transition-all text-[14px] font-medium tracking-tight shadow-sm"
+              />
+              {search && (
                 <button
-                  onClick={() => setShowImport(true)}
-                  className={`p-2.5 ${DESIGN.radius.sm} text-slate-500 hover:bg-${DESIGN.colors.bgSubtle} hover:text-slate-800 ${DESIGN.transition}`}
-                  aria-label="Import"
+                  onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-slate-100 text-slate-400"
                 >
-                  <Upload size={18} strokeWidth={2} />
+                  <X size={14} />
                 </button>
-              </Tooltip>
-
-              {/* Refresh */}
-              <Tooltip content="Refresh">
-                <button
-                  onClick={() => refetch()}
-                  className={`p-2.5 ${DESIGN.radius.sm} text-slate-500 hover:bg-${DESIGN.colors.bgSubtle} hover:text-slate-800 ${DESIGN.transition}`}
-                  aria-label="Refresh"
-                >
-                  <RefreshCw size={18} className={cn(isLoading && 'animate-spin')} strokeWidth={2} />
-                </button>
-              </Tooltip>
+              )}
             </div>
           </div>
-        </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="flex-1 p-8 overflow-hidden">{renderContent()}</main>
+          <button
+            onClick={() => {
+              setSearch('');
+              setSpecialView('all');
+            }}
+            className="text-[12px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-[0.12em] px-2 active:scale-95"
+          >
+            Clear
+          </button>
+        </div>
+
+        <div className="min-h-[500px]">
+          {renderContent()}
+        </div>
+      </div>
 
       {/* Import Modal */}
       {showImport && (
@@ -1235,6 +1259,6 @@ export default function ActiveAssignmentsDashboard() {
           -ms-overflow-style: none; 
         }
       `}</style>
-    </div>
+    </DashboardShell>
   );
 }

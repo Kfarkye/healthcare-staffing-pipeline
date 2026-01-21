@@ -368,20 +368,22 @@ const Toast: React.FC<{ toast: Toast; onDismiss: () => void }> = ({ toast, onDis
   }, [onDismiss]);
 
   const Icon = toast.type === 'success' ? Check : X;
-  const bg = toast.type === 'success' ? 'bg-green-600' :
+  const bg = toast.type === 'success' ? 'bg-emerald-600' :
     toast.type === 'error' ? 'bg-red-600' : 'bg-slate-900';
 
   return (
     <div
       className={cn(
-        'fixed bottom-6 right-6 px-5 py-3.5 rounded-2xl z-50',
-        'flex items-center gap-3 animate-slideUp backdrop-blur-xl border border-white/20 text-white shadow-2xl',
+        'fixed bottom-8 right-8 px-6 py-4 rounded-[20px] z-[100]',
+        'flex items-center gap-3 animate-slideUp backdrop-blur-3xl border border-white/20 text-white shadow-floating',
         bg
       )}
       role="alert"
     >
-      <Icon size={18} strokeWidth={2.5} />
-      <span className="text-[13px] font-semibold tracking-tight">{toast.message}</span>
+      <div className="shrink-0 bg-white/20 p-1 rounded-full">
+        <Icon size={16} strokeWidth={3} />
+      </div>
+      <span className="text-[14px] font-bold tracking-tight">{toast.message}</span>
     </div>
   );
 };
@@ -430,8 +432,8 @@ const PackageModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl">
+    <div className="fixed inset-0 bg-slate-950/40 flex items-center justify-center z-50 p-4 backdrop-blur-md">
+      <div className="bg-white rounded-[32px] max-w-2xl w-full max-h-[90vh] flex flex-col shadow-floating border border-white/20 overflow-hidden">
         {/* Header */}
         <header className="p-6 border-b border-slate-200 flex justify-between items-center">
           <div>
@@ -557,8 +559,8 @@ const JobFilterModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl">
+    <div className="fixed inset-0 bg-slate-950/40 flex items-center justify-center z-50 p-4 backdrop-blur-md">
+      <div className="bg-white rounded-[32px] max-w-2xl w-full shadow-floating border border-white/20 overflow-hidden">
         {/* Header */}
         <header className="p-6 border-b border-slate-200 flex justify-between items-center">
           <div>
@@ -1102,24 +1104,24 @@ export default function ProspectDashboard() {
   ];
 
   const HeaderActions = (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3">
       <button
         onClick={() => setShowPackageUpload(true)}
-        className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 rounded-xl transition-all shadow-sm font-semibold text-[13px]"
+        className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200/60 text-slate-600 hover:bg-slate-50 hover:border-slate-300 rounded-[14px] transition-all shadow-lift font-bold text-[13px] active:scale-95"
       >
-        <FileUp size={16} />
-        <span>Pay Packages</span>
+        <FileUp size={16} strokeWidth={2.5} />
+        <span>Ingest Manifests</span>
       </button>
       <button
         onClick={() => setShowSync(true)}
-        className="p-2.5 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100 rounded-xl transition-all active:scale-95"
+        className="p-2.5 bg-blue-50/80 text-blue-600 hover:bg-blue-100/80 border border-blue-200/40 rounded-[14px] transition-all active:scale-95 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.4)]"
         title="Sync CSV"
       >
         <Upload size={18} strokeWidth={2.5} />
       </button>
       <button
         onClick={() => loadData(false)}
-        className="p-2.5 bg-white border border-slate-200 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-xl transition-all active:scale-95"
+        className="p-2.5 bg-white border border-slate-200/60 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-[14px] transition-all active:scale-95 shadow-lift"
         title="Refresh"
       >
         <RefreshCw size={18} strokeWidth={2.5} className={loading ? "animate-spin" : ""} />
@@ -1161,24 +1163,24 @@ export default function ProspectDashboard() {
     >
       <div className="space-y-6">
         {/* Advanced Filter Bar */}
-        <div className="bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-[24px] p-4 flex flex-wrap items-center justify-between gap-4 shadow-sm">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="precision-glass rounded-[28px] p-5 flex flex-wrap items-center justify-between gap-4 shadow-lift border-white/20">
+          <div className="flex flex-wrap items-center gap-4">
             <div className="relative group">
-              <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+              <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
               <input
                 type="text"
                 placeholder="Search leads..."
                 value={filters.search}
                 onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                className="w-[300px] min-w-0 pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 focus:bg-white transition-all text-[14px]"
+                className="w-[320px] min-w-0 pl-11 pr-4 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 focus:bg-white transition-all text-[14px] font-medium tracking-tight shadow-sm"
               />
             </div>
 
             <select
               value={filters.specialty}
               onChange={(e) => setFilters(prev => ({ ...prev, specialty: e.target.value }))}
-              className="pl-3 pr-8 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 text-[13px] font-medium appearance-none cursor-pointer"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center', backgroundSize: '14px' }}
+              className="pl-4 pr-10 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 text-[13px] font-bold text-slate-600 appearance-none cursor-pointer transition-all shadow-sm"
+              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '14px' }}
             >
               <option value="all">Specialty: All</option>
               {specialties.map(s => <option key={s} value={s}>{s}</option>)}
@@ -1187,8 +1189,8 @@ export default function ProspectDashboard() {
             <select
               value={filters.recruiter}
               onChange={(e) => setFilters(prev => ({ ...prev, recruiter: e.target.value }))}
-              className="pl-3 pr-8 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 text-[13px] font-medium appearance-none cursor-pointer"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center', backgroundSize: '14px' }}
+              className="pl-4 pr-10 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 text-[13px] font-bold text-slate-600 appearance-none cursor-pointer transition-all shadow-sm"
+              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '14px' }}
             >
               <option value="all">Recruiter: All</option>
               {recruiters.map(r => <option key={r} value={r}>{r}</option>)}
@@ -1197,10 +1199,10 @@ export default function ProspectDashboard() {
             <button
               onClick={() => setFilters(prev => ({ ...prev, localOnly: !prev.localOnly }))}
               className={cn(
-                "px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all border",
+                "px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all border active:scale-95",
                 filters.localOnly
-                  ? "bg-slate-900 border-slate-900 text-white shadow-md shadow-slate-900/20"
-                  : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                  ? "bg-slate-900 border-slate-900 text-white shadow-lift"
+                  : "bg-white/50 border-slate-200/60 text-slate-500 hover:border-slate-300 hover:bg-white shadow-sm"
               )}
             >
               Local Only
@@ -1209,13 +1211,13 @@ export default function ProspectDashboard() {
             <button
               onClick={() => setShowJobFilter(true)}
               className={cn(
-                "px-4 py-2.5 rounded-xl text-[13px] font-bold transition-all border flex items-center gap-2",
+                "px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all border flex items-center gap-2 active:scale-95",
                 jobIds.size > 0
-                  ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-600/20"
-                  : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                  ? "bg-blue-600 border-blue-600 text-white shadow-lift"
+                  : "bg-white/50 border-slate-200/60 text-slate-500 hover:border-slate-300 hover:bg-white shadow-sm"
               )}
             >
-              <Filter size={14} />
+              <Filter size={14} strokeWidth={2.5} />
               Job Filter {jobIds.size > 0 && `(${jobIds.size})`}
             </button>
           </div>
@@ -1226,9 +1228,9 @@ export default function ProspectDashboard() {
               setSort({ key: 'last_note_date', dir: 'desc' });
               setJobIds(new Set());
             }}
-            className="text-[12px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-widest px-2"
+            className="text-[12px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-[0.12em] px-2 active:scale-95"
           >
-            Clear Filters
+            Clear
           </button>
         </div>
 

@@ -3,56 +3,106 @@
 @tailwind utilities;
 
 :root {
-    /* Radiant HSL Palette */
+    /* Radiant 2.0 HSL Palette - Refined Neutral Depth */
     --radiant-bg: 240 20% 98%;
     --radiant-surface: 0 0% 100%;
     --radiant-border: 220 13% 91%;
     --radiant-primary: 221 83% 53%;
+    --radiant-accent: 250 84% 63%;
+    /* Deep Indigo Accent */
     --radiant-text-main: 222 47% 11%;
     --radiant-text-muted: 215 16% 47%;
 
-    /* Elevation Layers */
-    --shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.03);
-    --shadow-floating: 0 12px 24px -10px rgba(0, 0, 0, 0.08), 0 40px 80px -20px rgba(0, 0, 0, 0.04);
+    /* Premium Elevation System - Multi-layered for realistic depth */
+    --shadow-lift:
+        0 1px 2px rgba(0, 0, 0, 0.02),
+        0 4px 12px rgba(0, 0, 0, 0.03),
+        0 8px 24px -4px rgba(0, 0, 0, 0.02);
+
+    --shadow-floating:
+        0 12px 24px -10px rgba(0, 0, 0, 0.08),
+        0 40px 80px -20px rgba(0, 0, 0, 0.04),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+
+    --shadow-obsidian:
+        0 0 80px -20px rgba(0, 0, 0, 0.6),
+        inset 1px 0 0 0 rgba(255, 255, 255, 0.15);
 }
 
 @layer base {
     body {
         @apply antialiased text-slate-900 bg-[#F9F9FB];
         font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
-        letter-spacing: -0.014em;
+        letter-spacing: -0.011em;
+        scroll-behavior: smooth;
+    }
+
+    ::selection {
+        @apply bg-blue-500/10 text-blue-900;
+    }
+
+    /* Selection - More premium subtle blue */
+    ::-moz-selection {
+        @apply bg-blue-500/10 text-blue-900;
+    }
+
+    /* Global Scrollbar Refinement */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        @apply bg-transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        @apply bg-slate-300/50 rounded-full border-4 border-transparent bg-clip-padding hover:bg-slate-400/50 transition-colors;
+    }
+
+    /* High Precision Focus Rings */
+    :focus-visible {
+        @apply outline-none ring-2 ring-blue-500/20 border-blue-500/50 transition-all duration-200;
     }
 }
 
 @layer components {
-    .radiant-glass {
-        @apply backdrop-blur-2xl bg-white/70 border border-white/40 shadow-[var(--shadow-lift)];
+
+    /* Glassmorphism 2.0 - Unified across Chat & Dash */
+    .precision-glass {
+        @apply backdrop-blur-xl bg-white/70 border border-white/40;
+        box-shadow: inset 1px 0 0 0 rgba(255, 255, 255, 0.1);
     }
 
-    .radiant-obsidian {
-        @apply backdrop-blur-2xl bg-slate-950/90 border border-white/10 shadow-[var(--shadow-floating)];
+    .obsidian-glass {
+        @apply backdrop-blur-2xl bg-slate-950/90 border border-white/10;
+        box-shadow: var(--shadow-obsidian);
     }
 
     .precision-badge {
-        @apply px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider border transition-all duration-200;
+        @apply px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all duration-200;
     }
 
+    /* Editorial Typography */
     .editorial-title {
         @apply text-slate-900 font-bold tracking-tight leading-tight;
-        font-size: clamp(1.5rem, 4vw, 2rem);
+        font-size: clamp(1.5rem, 4vw, 2.25rem);
     }
 
     .editorial-caption {
-        @apply text-slate-500 text-[11px] font-bold uppercase tracking-[0.12em] leading-none;
+        @apply text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em] leading-none opacity-80;
     }
 
+    /* Physical Cards */
     .radiant-card {
-        @apply bg-white border border-slate-200/60 rounded-[24px] transition-all duration-300;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 12px 24px -10px rgba(0, 0, 0, 0.03);
+        @apply bg-white border border-slate-200/50 rounded-[32px] transition-all duration-500 ease-[cubic-bezier(0.2, 0.8, 0.2, 1)];
+        box-shadow: var(--shadow-lift);
     }
 
     .radiant-card:hover {
+        @apply border-slate-300/80;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 20px 40px -12px rgba(0, 0, 0, 0.06);
+        transform: translateY(-2px);
     }
 }
 

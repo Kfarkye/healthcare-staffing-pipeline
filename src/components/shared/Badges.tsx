@@ -19,13 +19,13 @@ interface BadgeProps {
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
-  default: 'bg-slate-50 text-slate-500 border-slate-200/60',
-  accent: 'bg-blue-50 text-blue-600 border-blue-200/50',
-  success: 'bg-emerald-50 text-emerald-600 border-emerald-200/50',
-  warning: 'bg-amber-50 text-amber-600 border-amber-200/50',
-  info: 'bg-sky-50 text-sky-600 border-sky-200/50',
-  purple: 'bg-purple-50 text-purple-600 border-purple-200/50',
-  orange: 'bg-orange-50 text-orange-600 border-orange-200/50',
+  default: 'bg-slate-100/50 text-slate-500 border-slate-200/50',
+  accent: 'bg-blue-50/80 text-blue-600 border-blue-200/40 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.4)]',
+  success: 'bg-emerald-50/80 text-emerald-700 border-emerald-200/40 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.4)]',
+  warning: 'bg-amber-50/80 text-amber-700 border-amber-200/40 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.4)]',
+  info: 'bg-sky-50/80 text-sky-700 border-sky-200/40 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.4)]',
+  purple: 'bg-purple-50/80 text-purple-700 border-purple-200/40 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.4)]',
+  orange: 'bg-orange-50/80 text-orange-700 border-orange-200/40 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.4)]',
 };
 
 /**

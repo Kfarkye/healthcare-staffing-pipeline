@@ -395,18 +395,53 @@ RETURNS jsonb
 LANGUAGE plpgsql
 AS $$
 DECLARE
+  v_min_hourly numeric;
   v_taxable_hourly numeric;
   v_meals_weekly numeric;
   v_housing_weekly numeric;
   v_total_stipend numeric;
   v_gross_weekly numeric;
-  v_state_tax_rate numeric;
+  v_max_possible_stipend numeric;
+  v_remainder_for_stipend numeric;
 BEGIN
-  v_state_tax_rate := 0.25;
+  -- 1. Determine State Minimum Hourly Rate (Driver)
+  -- Data sourced from 'Minimum Wage Audit 7-1-25.xlsx'
+  CASE 
+    WHEN p_state = 'CA' THEN v_min_hourly := 24.00;
+    WHEN p_state = 'WA' THEN v_min_hourly := 20.24;
+    WHEN p_state = 'DC' THEN v_min_hourly := 17.95;
+    WHEN p_state = 'MD' THEN v_min_hourly := 17.65;
+    WHEN p_state = 'IL' THEN v_min_hourly := 16.60;
+    WHEN p_state = 'OR' THEN v_min_hourly := 16.30;
+    WHEN p_state IN ('NY', 'MA') THEN v_min_hourly := 18.00; -- Estimated high-cost fallback
+    ELSE v_min_hourly := 15.00; -- National Floor
+  END CASE;
+
+  -- 1b. Apply "RN & 4-Year Degree" Minimum ($20.00)
+  -- If profession implies RN, Therapist, Scientist, Sw, etc., floor is $20.00
+  IF (
+    p_profession ILIKE '%RN%' OR p_profession ILIKE '%Nurse%' OR 
+    p_specialty ILIKE '%RN%' OR p_specialty ILIKE '%Therapist%' OR -- PT, OT, RRT
+    p_specialty ILIKE '%Speech%' OR -- SLP
+    p_profession ILIKE '%Therapist%' OR
+    p_specialty ILIKE '%Scientist%' OR -- CLS, MLS
+    p_specialty ILIKE '%Dietitian%' OR 
+    p_specialty ILIKE '%Social Worker%' OR
+    p_specialty ILIKE '%Perfusion%'
+  ) THEN
+    IF v_min_hourly < 20.00 THEN
+      v_min_hourly := 20.00;
+    END IF;
+  END IF;
+
+  -- 2. Establish Max GSA Stipends (Optimization Ceiling)
   CASE 
     WHEN p_state IN ('CA', 'NY', 'MA') THEN
       v_meals_weekly := 350;
       v_housing_weekly := 1500;
+    WHEN p_state = 'WA' THEN
+      v_meals_weekly := 340;
+      v_housing_weekly := 1400;
     WHEN p_state IN ('TX', 'FL', 'AZ') THEN
       v_meals_weekly := 300;
       v_housing_weekly := 1200;
@@ -414,19 +449,51 @@ BEGIN
       v_meals_weekly := 325;
       v_housing_weekly := 1350;
   END CASE;
-  v_total_stipend := v_meals_weekly + v_housing_weekly;
-  v_taxable_hourly := (p_target_gross - v_total_stipend) / p_hours_per_week;
-  IF v_taxable_hourly < 25 THEN
-    v_taxable_hourly := 25;
+  
+  v_max_possible_stipend := v_meals_weekly + v_housing_weekly;
+
+  -- 3. Calculate Logic: "Minimums Drive, Stipends Fill"
+  -- Minimum Wage Cost
+  v_taxable_hourly := v_min_hourly;
+  
+  -- Remainder available for Stipends
+  v_remainder_for_stipend := p_target_gross - (v_taxable_hourly * p_hours_per_week);
+
+  IF v_remainder_for_stipend >= v_max_possible_stipend THEN
+    -- Scenario A: Target Gross is high enough to pay Max Stipend + Min Wage + Extra
+    -- We max out the stipend, and put the rest into Taxable Hourly (increasing it above min)
+    v_total_stipend := v_max_possible_stipend;
+    v_taxable_hourly := (p_target_gross - v_total_stipend) / p_hours_per_week;
+  ELSIF v_remainder_for_stipend > 0 THEN
+    -- Scenario B: Target Gross covers Min Wage, but not full Max Stipend
+    -- We keep Min Wage fixed, and use whatever is left for Stipend (Partial GSA)
+    v_total_stipend := v_remainder_for_stipend;
+    -- Distribute partial stipend proportionally roughly 20/80 meals/housing or just raw split
+    -- For simplicity, we just cap the totals. 
+    -- If really low, just reduce housing/meals proportional to their maxes
+    v_housing_weekly := ROUND((v_housing_weekly / v_max_possible_stipend) * v_total_stipend, 2);
+    v_meals_weekly := v_total_stipend - v_housing_weekly;
+  ELSE
+    -- Scenario C: Target Gross is BELOW the Minimum Wage cost alone
+    -- COMPLIANCE TRIGGER: We must raise the Target to meet Minimum Wage. Stipend is 0 or minimal? 
+    -- Actually, usually agencies require some stipend. But strictly speaking, if target is $500, and min wage is $800, we must pay $800 taxable.
+    v_taxable_hourly := v_min_hourly;
+    v_total_stipend := 0;
+    v_meals_weekly := 0;
+    v_housing_weekly := 0;
+    -- The Final Gross will automatically be higher than p_target_gross in the return calculation
   END IF;
+
   v_gross_weekly := (v_taxable_hourly * p_hours_per_week) + v_total_stipend;
+
   RETURN jsonb_build_object(
     'job_id', p_job_id,
     'taxable_hourly', ROUND(v_taxable_hourly, 2),
     'meals_weekly', ROUND(v_meals_weekly, 2),
     'housing_weekly', ROUND(v_housing_weekly, 2),
     'total_stipend', ROUND(v_total_stipend, 2),
-    'gross_weekly', ROUND(v_gross_weekly, 2)
+    'gross_weekly', ROUND(v_gross_weekly, 2),
+    'compliance_note', CASE WHEN v_gross_weekly > p_target_gross THEN 'Target raised to meet RN Minimum Wage' ELSE 'Target met' END
   );
 END;
 $$;

@@ -24,8 +24,8 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
 }) => {
     return (
         <div className={cn("flex flex-col h-full bg-[#F9F9FB] overflow-hidden", className)}>
-            {/* Radiant Header */}
-            <header className="shrink-0 bg-white/40 backdrop-blur-2xl border-b border-slate-200/50 sticky top-0 z-30 px-10 py-8">
+            {/* Radiant Header - Unified with Command Center */}
+            <header className="shrink-0 precision-glass sticky top-0 z-30 px-10 py-10 transition-all duration-500">
                 <div className="max-w-[1600px] mx-auto flex flex-col gap-6">
                     <div className="flex justify-between items-start">
                         <div className="space-y-1.5">
@@ -38,7 +38,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                                 {title}
                             </h1>
                             {subtitle && (
-                                <p className="text-[14px] text-slate-500 font-medium tracking-tight">
+                                <p className="text-[15px] text-slate-500/80 font-medium tracking-tight mt-1">
                                     {subtitle}
                                 </p>
                             )}
