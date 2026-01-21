@@ -56,7 +56,7 @@ const PRISMATIC_GLOW = "after:absolute after:inset-0 after:rounded-[inherit] aft
 // TYPES & CONSTANTS
 // ============================================================================
 
-type StatusId = 'New' | 'Contacted' | 'Interested' | 'Profile Updates' | 'Not Interested' | 'Submittal Ready' | 'Archived';
+type StatusId = 'New' | 'Contacted' | 'Interested' | 'Profile Updates' | 'Not Interested' | 'Submittal Ready' | 'Submitted' | 'Archived';
 type ViewMode = 'kanban' | 'list' | 'ranking';
 type ReadinessFilter = 'notReady' | 'almostReady' | 'ready' | 'stalled' | null;
 type ModalType = 'add' | 'edit' | 'email' | 'batch_reference' | 'batch_reassignment' | null;
@@ -91,6 +91,7 @@ const PIPELINE_COLUMNS: { id: StatusId; label: string }[] = [
   { id: 'Interested', label: 'Engaged' },
   { id: 'Profile Updates', label: 'Profiling' },
   { id: 'Submittal Ready', label: 'Ready' },
+  { id: 'Submitted', label: 'Submitted' },
 ];
 
 const SPECIALTY_COLORS = [
@@ -277,9 +278,18 @@ export default function ProspectsDashboard() {
   }, [load]);
 
   const byStatus = useMemo(() => {
-    const map: Record<StatusId, Prospect[]> = { 'New': [], 'Contacted': [], 'Interested': [], 'Profile Updates': [], 'Not Interested': [], 'Submittal Ready': [], 'Archived': [] };
+    const map: Record<StatusId, Prospect[]> = { 'New': [], 'Contacted': [], 'Interested': [], 'Profile Updates': [], 'Not Interested': [], 'Submittal Ready': [], 'Submitted': [], 'Archived': [] };
     prospects.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.specialty?.toLowerCase().includes(search.toLowerCase()))
-      .forEach(p => { if (map[p.status]) map[p.status].push(p); });
+      .forEach(p => {
+        // Resiliency: Find matching status key case-insensitively to handle DB impurities
+        const statusKey = Object.keys(map).find(k => k.toLowerCase() === (p.status || '').toLowerCase());
+        if (statusKey && map[statusKey as StatusId]) {
+          map[statusKey as StatusId].push(p);
+        } else {
+          // Fallback to New if status is unknown/mismatched
+          map['New'].push(p);
+        }
+      });
     return map;
   }, [prospects, search]);
 

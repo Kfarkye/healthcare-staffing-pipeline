@@ -679,6 +679,13 @@ Senior Recruiter, Fulfillment Specialist`
                             break;
                         }
                         case ToolName.ADD_PROSPECT: {
+
+                            const validStatuses = ['New', 'Contacted', 'Interested', 'Profile Updates', 'Submittal Ready', 'Submitted', 'Archived'];
+                            const inputStatus = args.status || 'New';
+                            // Normalize input: capitalize first letter of each word to match enum if possible, or fallback
+                            // Actually, let's just find the best match case-insensitive
+                            const matchedStatus = validStatuses.find(s => s.toLowerCase() === inputStatus.toLowerCase()) || 'New';
+
                             const { data: prospectData, error: prospectError } = await supabase
                                 .from('prospects')
                                 .insert({
@@ -688,7 +695,7 @@ Senior Recruiter, Fulfillment Specialist`
                                     email: args.email,
                                     phone: args.phone,
                                     home_state: args.home_state,
-                                    status: args.status || 'New',
+                                    status: matchedStatus,
                                     notes: args.notes,
                                     recruiter: 'Kofi Farkye' // Default recruiter
                                 })
