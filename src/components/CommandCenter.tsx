@@ -62,6 +62,7 @@ export const CommandCenter: React.FC = () => {
     const [history, setHistory] = useState<ChatMessage[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
     const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
+    const [isDraggingOver, setIsDraggingOver] = useState(false);
     const [attachment, setAttachment] = useState<{ file: File; base64: string; mimeType: string } | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -320,14 +321,33 @@ export const CommandCenter: React.FC = () => {
                             </div>
 
                             <footer className="p-6 border-t border-white/10 space-y-4">
-                                <div className="relative group">
+                                <div
+                                    className={`relative group transition-all duration-300 ${isDraggingOver ? 'scale-[1.02]' : ''}`}
+                                    onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
+                                    onDragLeave={() => setIsDraggingOver(false)}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        setIsDraggingOver(false);
+                                        const json = e.dataTransfer.getData('application/json');
+                                        if (json) {
+                                            try {
+                                                const data = JSON.parse(json);
+                                                if (data.contextType === 'candidate') {
+                                                    const contextString = `Context: ${data.name} (${data.specialty}) - ID: ${data.id}\n`;
+                                                    setInputValue(prev => contextString + prev);
+                                                    // Optional: Flash success or something
+                                                }
+                                            } catch (err) { console.error('Drop parse error', err); }
+                                        }
+                                    }}
+                                >
                                     <textarea
                                         value={inputValue}
                                         onChange={(e) => setInputValue(e.target.value)}
                                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                                         onPaste={handlePaste}
-                                        placeholder="Execute command..."
-                                        className="w-full bg-white/5 border border-white/5 rounded-2xl py-4 pl-5 pr-12 focus:ring-1 focus:ring-indigo-500/50 focus:bg-white/10 transition-all resize-none text-[13px] text-white h-24 no-scrollbar"
+                                        placeholder={isDraggingOver ? "Drop candidate here to set context..." : "Execute command..."}
+                                        className={`w-full bg-white/5 border rounded-2xl py-4 pl-5 pr-12 focus:ring-1 focus:ring-indigo-500/50 focus:bg-white/10 transition-all resize-none text-[13px] text-white h-24 no-scrollbar ${isDraggingOver ? 'border-indigo-500 ring-1 ring-indigo-500/50 bg-indigo-500/10' : 'border-white/5'}`}
                                     />
                                     <div className="absolute right-3 bottom-3 flex items-center gap-2">
                                         <button onClick={() => fileInputRef.current?.click()} className="p-2 text-slate-400 hover:text-white transition-colors"><Paperclip size={18} /></button>

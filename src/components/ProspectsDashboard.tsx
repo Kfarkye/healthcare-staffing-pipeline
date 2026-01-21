@@ -153,17 +153,39 @@ const ViewSwitcher: React.FC<{ viewMode: ViewMode; setViewMode: (mode: ViewMode)
 const ProspectCard: React.FC<{ prospect: Prospect; onSelect: () => void; onOpenEmail: () => void; onOpenSMS: () => void; onArchive: () => void; index: number }> = ({ prospect, onSelect, onOpenEmail, onOpenSMS, onArchive }) => {
   const stop = (e: React.MouseEvent, fn: () => void) => { e.stopPropagation(); fn(); };
   const isDiamond = prospect.is_diamond_verified;
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Drag handler: Attaches prospect data to the drag payload
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('application/json', JSON.stringify({
+      contextType: 'candidate',
+      id: prospect.id,
+      name: prospect.name,
+      specialty: prospect.specialty,
+      status: prospect.status,
+      email: prospect.email
+    }));
+    e.dataTransfer.effectAllowed = 'copy';
+    setIsDragging(true);
+  };
+
+  const handleDragEnd = () => setIsDragging(false);
 
   return (
     <motion.div
-      layout
-      initial={{ opacity: 0, scale: 0.98 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.98 }}
-      whileHover={{ y: -4, boxShadow: '0 20px 40px -12px rgba(0,0,0,0.06)' }}
+      layoutId={prospect.id.toString()}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: isDragging ? 0.5 : 1, y: 0, scale: isDragging ? 0.95 : 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      whileHover={{ y: -2, transition: { duration: 0.2 } }}
+      style={{ cursor: 'grab' }}
+      draggable="true"
+      onDragStart={handleDragStart as any}
+      onDragEnd={handleDragEnd as any}
       onClick={onSelect}
       className={cn(
-        `group relative p-4 mb-3 ${DESIGN.radius.md} bg-white border border-slate-200/60 cursor-pointer overflow-hidden transition-all`,
+        `group relative bg-white p-4 rounded-xl border border-slate-200/60 hover:border-blue-400/30 hover:shadow-lg hover:shadow-blue-900/5 transition-all duration-300`,
+        isDragging ? 'ring-2 ring-indigo-400 rotate-2 opacity-50' : '',
         isDiamond ? PRISMATIC_GLOW : ''
       )}
     >
