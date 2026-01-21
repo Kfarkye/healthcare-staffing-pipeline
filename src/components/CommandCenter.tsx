@@ -18,7 +18,10 @@ import {
     FileText,
     DollarSign,
     Users,
-    CheckCircle
+    CheckCircle,
+    Phone,
+    MessageSquare,
+    ClipboardList
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -242,6 +245,66 @@ export const CommandCenter: React.FC = () => {
         setShowPinnedOnly(false);
     };
 
+    // ============================================================================
+    // RingCentral Workflow Helpers
+    // ============================================================================
+
+    // Extract phone numbers from text
+    const extractPhoneNumbers = (text: string): string[] => {
+        const phonePattern = /(?:\+1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}/g;
+        const matches = text.match(phonePattern) || [];
+        // Normalize to digits only for tel: links
+        return [...new Set(matches.map(p => p.replace(/\D/g, '')))];
+    };
+
+    // Format phone for display
+    const formatPhoneDisplay = (phone: string): string => {
+        if (phone.length === 10) return `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6)}`;
+        if (phone.length === 11) return `+${phone[0]} (${phone.slice(1, 4)}) ${phone.slice(4, 7)}-${phone.slice(7)}`;
+        return phone;
+    };
+
+    // Build SMS deep link
+    const buildSmsLink = (phone: string, body: string): string => {
+        const cleanBody = stripMarkdown(body).slice(0, 300); // SMS limit safety
+        return `sms:+1${phone.replace(/\D/g, '')}?body=${encodeURIComponent(cleanBody)}`;
+    };
+
+    // Shrink text to SMS (160 chars)
+    const shrinkForSms = async (text: string): Promise<string> => {
+        // Quick local shrink - take first sentence + key info
+        const clean = stripMarkdown(text);
+        if (clean.length <= 160) return clean;
+
+        // Extract key elements
+        const firstSentence = clean.split(/[.!?]/)[0] + '.';
+        if (firstSentence.length <= 160) return firstSentence;
+        return clean.slice(0, 157) + '...';
+    };
+
+    // Format for Call Ledger (bulleted summary)
+    const formatForCallLog = (text: string): string => {
+        const clean = stripMarkdown(text);
+        const lines = clean.split('\n').filter(l => l.trim());
+
+        // Try to extract key fields
+        const nameMatch = clean.match(/(?:Name|Candidate|Traveler)[:\s]+([^\n,]+)/i);
+        const facilityMatch = clean.match(/(?:Facility|Hospital|Location)[:\s]+([^\n,]+)/i);
+        const payMatch = clean.match(/(?:\$[\d,]+(?:\/\w+)?|\$[\d,]+)/);
+        const specialtyMatch = clean.match(/(?:Specialty|Role|Position)[:\s]+([^\n,]+)/i);
+
+        let log = '📋 CALL LOG\n';
+        log += '─'.repeat(20) + '\n';
+        if (nameMatch) log += `• Name: ${nameMatch[1].trim()}\n`;
+        if (specialtyMatch) log += `• Role: ${specialtyMatch[1].trim()}\n`;
+        if (facilityMatch) log += `• Facility: ${facilityMatch[1].trim()}\n`;
+        if (payMatch) log += `• Pay: ${payMatch[0]}\n`;
+        log += '─'.repeat(20) + '\n';
+        log += `• Notes: ${lines[0]?.slice(0, 100) || 'Follow up scheduled'}`;
+
+        return log;
+    };
+
     // Quick Actions Configuration
     const QUICK_ACTIONS = [
         { label: 'Draft Outreach', icon: FileText, command: 'Draft outreach for ', isTemplate: true },
@@ -416,21 +479,23 @@ export const CommandCenter: React.FC = () => {
                                                             // Check if message contains an email address
                                                             const emailPattern = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
                                                             const foundEmails = text.match(emailPattern);
+                                                            const foundPhones = extractPhoneNumbers(text);
 
                                                             return (
                                                                 <div className="space-y-3">
                                                                     <div className="prose prose-invert prose-sm opacity-90 leading-relaxed">
                                                                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
                                                                     </div>
-                                                                    {/* Show Copy Email button if email found */}
-                                                                    {foundEmails && foundEmails.length > 0 && (
-                                                                        <div className="flex items-center gap-2 pt-2">
-                                                                            {foundEmails.map((email, idx) => (
+                                                                    {/* Action buttons row */}
+                                                                    {((foundEmails?.length ?? 0) > 0 || foundPhones.length > 0) && (
+                                                                        <div className="flex flex-wrap items-center gap-2 pt-2">
+                                                                            {/* Copy Email buttons */}
+                                                                            {foundEmails?.map((email, idx) => (
                                                                                 <button
-                                                                                    key={idx}
+                                                                                    key={`email-${idx}`}
                                                                                     onClick={() => {
                                                                                         navigator.clipboard.writeText(email);
-                                                                                        setCopiedMessageId(originalIndex * 1000 + idx); // Unique ID per email
+                                                                                        setCopiedMessageId(originalIndex * 1000 + idx);
                                                                                         setTimeout(() => setCopiedMessageId(null), 2000);
                                                                                     }}
                                                                                     className={cn(
@@ -447,6 +512,27 @@ export const CommandCenter: React.FC = () => {
                                                                                     )}
                                                                                 </button>
                                                                             ))}
+                                                                            {/* Stealth Dial - Call buttons */}
+                                                                            {foundPhones.map((phone, idx) => (
+                                                                                <a
+                                                                                    key={`call-${idx}`}
+                                                                                    href={`tel:+1${phone}`}
+                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-300 hover:text-green-200 text-[11px] font-semibold transition-all"
+                                                                                >
+                                                                                    <Phone size={12} />
+                                                                                    Call {formatPhoneDisplay(phone)}
+                                                                                </a>
+                                                                            ))}
+                                                                            {/* Open in SMS button */}
+                                                                            {foundPhones.length > 0 && (
+                                                                                <a
+                                                                                    href={buildSmsLink(foundPhones[0], text)}
+                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 hover:text-purple-200 text-[11px] font-semibold transition-all"
+                                                                                >
+                                                                                    <MessageSquare size={12} />
+                                                                                    Open in SMS
+                                                                                </a>
+                                                                            )}
                                                                         </div>
                                                                     )}
                                                                 </div>
@@ -483,6 +569,44 @@ export const CommandCenter: React.FC = () => {
                                                         >
                                                             <Bookmark size={10} />
                                                             {isPinned ? 'Pinned' : 'Pin'}
+                                                        </button>
+                                                        {/* Call Ledger - Format for CRM notes */}
+                                                        <button
+                                                            onClick={() => {
+                                                                const log = formatForCallLog(msg.parts[0]?.text || '');
+                                                                navigator.clipboard.writeText(log);
+                                                                setCopiedMessageId(originalIndex * 10000 + 1);
+                                                                setTimeout(() => setCopiedMessageId(null), 2000);
+                                                            }}
+                                                            className={cn(
+                                                                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all",
+                                                                copiedMessageId === originalIndex * 10000 + 1
+                                                                    ? "bg-emerald-500/20 text-emerald-400"
+                                                                    : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white"
+                                                            )}
+                                                            title="Copy formatted call log"
+                                                        >
+                                                            <ClipboardList size={10} />
+                                                            {copiedMessageId === originalIndex * 10000 + 1 ? 'Copied!' : 'Call Log'}
+                                                        </button>
+                                                        {/* Shrink for SMS */}
+                                                        <button
+                                                            onClick={async () => {
+                                                                const sms = await shrinkForSms(msg.parts[0]?.text || '');
+                                                                navigator.clipboard.writeText(sms);
+                                                                setCopiedMessageId(originalIndex * 10000 + 2);
+                                                                setTimeout(() => setCopiedMessageId(null), 2000);
+                                                            }}
+                                                            className={cn(
+                                                                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all",
+                                                                copiedMessageId === originalIndex * 10000 + 2
+                                                                    ? "bg-emerald-500/20 text-emerald-400"
+                                                                    : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white"
+                                                            )}
+                                                            title="Shrink to 160 chars for SMS"
+                                                        >
+                                                            <MessageSquare size={10} />
+                                                            {copiedMessageId === originalIndex * 10000 + 2 ? 'Copied!' : 'SMS Text'}
                                                         </button>
                                                     </div>
                                                 </PrecisionCard>
