@@ -211,11 +211,16 @@ export const CommandCenter: React.FC = () => {
                         width: workspaceMode === 'full' ? '100%' : workspaceMode === 'split' ? '50%' : 440,
                         bottom: workspaceMode === 'floating' ? 32 : 0,
                         right: workspaceMode === 'floating' ? 32 : 0,
-                        borderRadius: workspaceMode === 'floating' ? 32 : 0,
+                        borderRadius: workspaceMode === 'floating' ? 32 : '40px 0 0 40px', // Persistent "Sheet" Squircle
                     }}
                     exit={{ opacity: 0, y: 40, scale: 0.95 }}
-                    transition={DESIGN.animation.layout}
-                    className={`fixed z-50 ${DESIGN.glass.obsidian} ${DESIGN.shadow.obsidian} flex flex-col overflow-hidden`}
+                    // Jony Ive Physics: Inertial Snap (Mass 1.2, Damping 35)
+                    transition={{ type: 'spring', mass: 1.2, stiffness: 200, damping: 35 }}
+                    className={`fixed z-50 ${DESIGN.glass.obsidian} shadow-[0_0_80px_-20px_rgba(0,0,0,0.6)] flex flex-col overflow-hidden outline outline-1 outline-white/10`}
+                    style={{
+                        // Specular Highlight: Inner glow on left edge to catch light
+                        boxShadow: 'inset 1px 0 0 0 rgba(255,255,255,0.15), -20px 0 60px -10px rgba(0,0,0,0.5)'
+                    }}
                 >
                     <header className="h-16 flex items-center justify-between px-6 border-b border-white/10 shrink-0">
                         <div className="flex items-center gap-3">

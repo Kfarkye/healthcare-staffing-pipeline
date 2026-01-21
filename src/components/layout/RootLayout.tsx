@@ -18,10 +18,15 @@ export default function RootLayout() {
         animate={{
           width: workspaceMode === 'full' ? '0%' : workspaceMode === 'split' ? '50%' : '100%',
           opacity: workspaceMode === 'full' ? 0 : 1,
-          pointerEvents: workspaceMode === 'full' ? 'none' : 'auto'
+          pointerEvents: workspaceMode === 'full' ? 'none' : 'auto',
+          // Jony Ive Depth: Push content back in Z-space when split
+          scale: workspaceMode === 'split' ? 0.98 : 1,
+          filter: workspaceMode === 'split' ? 'brightness(0.96) saturate(0.9)' : 'brightness(1) saturate(1)',
+          borderRadius: workspaceMode === 'split' ? '24px' : '0px',
         }}
-        transition={{ type: 'spring', damping: 30, stiffness: 300, mass: 0.8 }}
-        className="flex-1 overflow-auto bg-[#F9F9FB] relative z-10"
+        // Jony Ive Physics: Confident Click (Stiffness 280, Damping 28)
+        transition={{ type: 'spring', damping: 28, stiffness: 280, mass: 0.8 }}
+        className="flex-1 overflow-auto bg-[#F9F9FB] relative z-10 origin-center"
       >
         <AnimatePresence mode="wait">
           <motion.div
