@@ -78,6 +78,7 @@ export const CommandCenter: React.FC = () => {
     const [pinnedMessages, setPinnedMessages] = useState<Set<number>>(new Set());
     const [copiedMessageId, setCopiedMessageId] = useState<number | null>(null);
     const [showPinnedOnly, setShowPinnedOnly] = useState(false);
+    const [showQuickActions, setShowQuickActions] = useState(true);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -546,7 +547,7 @@ export const CommandCenter: React.FC = () => {
                             <footer className="p-6 border-t border-white/10 space-y-4">
                                 {/* Quick Actions Rail - visible when input is empty */}
                                 <AnimatePresence>
-                                    {!inputValue && history.length === 0 && (
+                                    {showQuickActions && !inputValue && (
                                         <motion.div
                                             initial={{ opacity: 0, y: 10 }}
                                             animate={{ opacity: 1, y: 0 }}
@@ -570,9 +571,26 @@ export const CommandCenter: React.FC = () => {
                                                     {action.label}
                                                 </button>
                                             ))}
+                                            {/* Collapse button */}
+                                            <button
+                                                onClick={() => setShowQuickActions(false)}
+                                                className="flex-shrink-0 p-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-slate-400 hover:text-white transition-all"
+                                                title="Hide quick actions"
+                                            >
+                                                <X size={10} />
+                                            </button>
                                         </motion.div>
                                     )}
                                 </AnimatePresence>
+                                {/* Show button when collapsed */}
+                                {!showQuickActions && !inputValue && (
+                                    <button
+                                        onClick={() => setShowQuickActions(true)}
+                                        className="mb-2 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-slate-400 hover:text-white text-[10px] font-semibold transition-all"
+                                    >
+                                        ✨ Show Quick Actions
+                                    </button>
+                                )}
                                 <div
                                     className={`relative group transition-all duration-300 ${isDraggingOver ? 'scale-[1.02]' : ''}`}
                                     onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
