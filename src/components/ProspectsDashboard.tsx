@@ -264,9 +264,17 @@ export default function ProspectsDashboard() {
       if (s.view_mode !== undefined) setViewMode(s.view_mode);
       if (s.filter_status !== undefined) setReadinessFilter(s.filter_status as any);
     };
+
+    const handleRefresh = () => load();
+
     window.addEventListener('set_dashboard_ui_state' as any, handleUI as any);
-    return () => window.removeEventListener('set_dashboard_ui_state' as any, handleUI as any);
-  }, []);
+    window.addEventListener('refresh_dashboard' as any, handleRefresh as any);
+
+    return () => {
+      window.removeEventListener('set_dashboard_ui_state' as any, handleUI as any);
+      window.removeEventListener('refresh_dashboard' as any, handleRefresh as any);
+    };
+  }, [load]);
 
   const byStatus = useMemo(() => {
     const map: Record<StatusId, Prospect[]> = { 'New': [], 'Contacted': [], 'Interested': [], 'Profile Updates': [], 'Not Interested': [], 'Submittal Ready': [], 'Archived': [] };

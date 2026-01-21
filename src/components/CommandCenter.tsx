@@ -10,8 +10,6 @@ import {
     Copy,
     Mail,
     Layout as LayoutIcon,
-    ChevronDown,
-    ChevronUp,
     Send,
     Loader2
 } from 'lucide-react';
@@ -152,6 +150,9 @@ export const CommandCenter: React.FC = () => {
                         if (part.functionResponse?.name === 'set_ui_state') {
                             const state = part.functionResponse.response?.content;
                             if (state) window.dispatchEvent(new CustomEvent('set_dashboard_ui_state', { detail: state }));
+                        }
+                        if (['add_prospect', 'update_negotiation', 'create_follow_up'].includes(part.functionResponse?.name || '')) {
+                            window.dispatchEvent(new CustomEvent('refresh_dashboard'));
                         }
                     });
                 }
