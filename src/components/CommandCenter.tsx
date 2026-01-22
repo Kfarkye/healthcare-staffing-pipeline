@@ -73,7 +73,7 @@ export const CommandCenter: React.FC = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
     const [isDraggingOver, setIsDraggingOver] = useState(false);
-    const [attachment, setAttachment] = useState<{ file: File; base64: string; mimeType: string } | null>(null);
+    const [attachments, setAttachments] = useState<{ file: File; base64: string; mimeType: string }[]>([]);
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -89,54 +89,69 @@ export const CommandCenter: React.FC = () => {
         }
     }, [history, isGenerating]);
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const base64 = event.target?.result as string;
-            setAttachment({ file, base64: base64.split(',')[1], mimeType: file.type });
-        };
-        reader.readAsDataURL(file);
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
+        files.forEach(file => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const base64 = event.target?.result as string;
+                setAttachments(prev => [...prev, { file, base64: base64.split(',')[1], mimeType: file.type }]);
+            };
+            reader.readAsDataURL(file);
+        });
+        // Reset input to allow re-selecting same files
+        e.target.value = '';
     };
 
     const handleSend = async () => {
-        if (!inputValue.trim() && !attachment) return;
+        if (!inputValue.trim() && attachments.length === 0) return;
         const userMessage = inputValue.trim();
-        const currentAttachment = attachment;
+        const currentAttachments = [...attachments];
 
         setInputValue('');
-        setAttachment(null);
+        setAttachments([]);
         setIsGenerating(true);
 
         const newHistory: ChatMessage[] = [...history, { role: 'user', parts: [{ text: userMessage }] }];
         setHistory(newHistory);
 
         try {
-            let fileUrl = '';
-            let metadata = {};
+            let metadata: Record<string, any> = {};
 
-            // 1. If there's an attachment, upload it to Supabase Storage
-            if (currentAttachment) {
+            // 1. If there are attachments, upload them to Supabase Storage
+            if (currentAttachments.length > 0) {
                 const { data: sessionRes } = await supabase.auth.getSession();
                 const userId = sessionRes?.session?.user?.id;
 
                 if (userId) {
-                    const fileExt = currentAttachment.file.name.split('.').pop();
-                    const fileName = `${userId}/${Date.now()}.${fileExt}`;
+                    const uploadedUrls: string[] = [];
+                    const fileNames: string[] = [];
 
-                    const { error: uploadError } = await supabase.storage
-                        .from('command-center-attachments')
-                        .upload(fileName, currentAttachment.file);
+                    for (const att of currentAttachments) {
+                        const fileExt = att.file.name.split('.').pop();
+                        const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
 
-                    if (!uploadError) {
-                        const { data: { publicUrl } } = supabase.storage
+                        const { error: uploadError } = await supabase.storage
                             .from('command-center-attachments')
-                            .getPublicUrl(fileName);
-                        fileUrl = publicUrl;
-                        metadata = { attachment_url: fileUrl, file_name: currentAttachment.file.name };
-                    } else {
-                        console.error('Upload error:', uploadError);
+                            .upload(fileName, att.file);
+
+                        if (!uploadError) {
+                            const { data: { publicUrl } } = supabase.storage
+                                .from('command-center-attachments')
+                                .getPublicUrl(fileName);
+                            uploadedUrls.push(publicUrl);
+                            fileNames.push(att.file.name);
+                        } else {
+                            console.error('Upload error:', uploadError);
+                        }
+                    }
+
+                    if (uploadedUrls.length > 0) {
+                        metadata = {
+                            attachment_url: uploadedUrls[0],
+                            attachment_urls: uploadedUrls,
+                            file_names: fileNames
+                        };
                     }
                 }
             }
@@ -149,9 +164,9 @@ export const CommandCenter: React.FC = () => {
             const response = await AIService.sendCommand(
                 userMessage,
                 history,
-                currentAttachment ? {
-                    base64: currentAttachment.base64,
-                    mimeType: currentAttachment.mimeType
+                currentAttachments.length > 0 ? {
+                    base64: currentAttachments[0].base64,
+                    mimeType: currentAttachments[0].mimeType
                 } : undefined,
                 undefined, // context
                 metadata
@@ -194,7 +209,7 @@ export const CommandCenter: React.FC = () => {
                     const reader = new FileReader();
                     reader.onload = (event) => {
                         const base64 = event.target?.result as string;
-                        setAttachment({ file, base64: base64.split(',')[1], mimeType: file.type });
+                        setAttachments(prev => [...prev, { file, base64: base64.split(',')[1], mimeType: file.type }]);
                     };
                     reader.readAsDataURL(file);
                     return;
@@ -747,12 +762,23 @@ export const CommandCenter: React.FC = () => {
                                         <button onClick={() => fileInputRef.current?.click()} className="p-2 text-slate-400 hover:text-white transition-colors"><Paperclip size={18} /></button>
                                         <button onClick={handleSend} className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-600/20 hover:scale-105 transition-all"><Send size={18} /></button>
                                     </div>
-                                    <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+                                    <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple accept="image/*,.pdf,.doc,.docx,.txt" />
                                 </div>
-                                {attachment && (
-                                    <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 p-2 rounded-xl text-[10px] text-indigo-200">
-                                        <Paperclip size={12} /> {attachment.file.name}
-                                        <button onClick={() => setAttachment(null)} className="ml-auto opacity-50 hover:opacity-100">×</button>
+                                {/* Attachment Preview - Multiple Files */}
+                                {attachments.length > 0 && (
+                                    <div className="flex flex-wrap gap-2">
+                                        {attachments.map((att, idx) => (
+                                            <div key={idx} className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3 py-1.5 rounded-xl text-[10px] text-indigo-200">
+                                                <Paperclip size={12} />
+                                                <span className="max-w-[120px] truncate">{att.file.name}</span>
+                                                <button
+                                                    onClick={() => setAttachments(prev => prev.filter((_, i) => i !== idx))}
+                                                    className="opacity-50 hover:opacity-100 hover:text-red-400 transition-all"
+                                                >
+                                                    ×
+                                                </button>
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
                             </footer>
