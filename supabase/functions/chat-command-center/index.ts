@@ -16,6 +16,10 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const googleApiKey = Deno.env.get('GEMINI_API_KEY')!;
 
+    // Model fallback strategy: Pro -> Flash
+    const MODEL_PRIMARY = 'gemini-3-pro-preview';
+    const MODEL_FALLBACK = 'gemini-3-flash-preview';
+
     const ToolName = {
         SEARCH_PROSPECTS: 'search_prospects',
         GET_PROSPECT_DETAILS: 'get_prospect_details',
@@ -338,8 +342,8 @@ Senior Recruiter, Fulfillment Specialist`
         while (iteration < maxIterations) {
             iteration++;
 
-            // Retry wrapper with exponential backoff
-            const callGeminiWithRetry = async (payload: any, maxRetries = 3): Promise<any> => {
+            // Retry wrapper with exponential backoff and model fallback
+            const callGeminiWithRetry = async (payload: any, model: string = MODEL_PRIMARY, maxRetries = 3): Promise<any> => {
                 const safetySettings = [
                     { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
                     { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -367,9 +371,9 @@ Senior Recruiter, Fulfillment Specialist`
                 }));
 
                 for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                    console.log(`[Command] API Call attempt ${attempt + 1}/${maxRetries + 1}`);
+                    console.log(`[Command] API Call attempt ${attempt + 1}/${maxRetries + 1} using ${model}`);
 
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${googleApiKey}`, {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -377,7 +381,6 @@ Senior Recruiter, Fulfillment Specialist`
                             contents: sanitizedContents,
                             safetySettings,
                             generationConfig: {
-                                // ...
                                 thinkingConfig: {
                                     includeThoughts: false,
                                     thinkingLevel: "high"
@@ -400,6 +403,7 @@ Senior Recruiter, Fulfillment Specialist`
                     // Check for retryable errors
                     const isOverloaded = result.error?.message?.includes('overloaded') ||
                         result.error?.message?.includes('rate limit') ||
+                        result.error?.message?.includes('quota') ||
                         result.error?.code === 503 ||
                         result.error?.code === 429;
 
@@ -408,6 +412,12 @@ Senior Recruiter, Fulfillment Specialist`
                         console.log(`[Command] Retry ${attempt + 1}/${maxRetries} after ${delay}ms (${result.error.message})`);
                         await new Promise(resolve => setTimeout(resolve, delay));
                         continue;
+                    }
+
+                    // If primary model exhausted retries due to overload, try fallback
+                    if (result.error && isOverloaded && model === MODEL_PRIMARY) {
+                        console.log(`[Command] Primary model exhausted, falling back to ${MODEL_FALLBACK}`);
+                        return callGeminiWithRetry(payload, MODEL_FALLBACK, 2);
                     }
 
                     return result;
@@ -424,9 +434,39 @@ Senior Recruiter, Fulfillment Specialist`
             // Handle known problematic finish reasons
             if (finishReason === 'MALFORMED_FUNCTION_CALL') {
                 console.error('[Command] MALFORMED_FUNCTION_CALL detected. Content:', JSON.stringify(content, null, 2));
-                await logToAudit(null, finishReason, 'Model attempted malformed function call', { content });
+                console.log('[Command] Attempting recovery with fallback model...');
+
+                // Try fallback model with a text-only recovery prompt
+                const recoveryContents = [
+                    ...contents,
+                    { role: 'user', parts: [{ text: 'Please provide a helpful text response. Do not call any functions.' }] }
+                ];
+
+                const fallbackResult = await callGeminiWithRetry(
+                    { contents: recoveryContents, tools: [], system_instruction: systemInstruction },
+                    MODEL_FALLBACK,
+                    1
+                );
+
+                if (fallbackResult.candidates?.[0]?.content?.parts?.[0]?.text) {
+                    console.log('[Command] Fallback recovery successful');
+                    await logToAudit(fallbackResult.candidates[0].content.parts[0].text, 'STOP', null, {
+                        original_error: 'MALFORMED_FUNCTION_CALL',
+                        recovery_model: MODEL_FALLBACK
+                    });
+                    return new Response(JSON.stringify({
+                        text: fallbackResult.candidates[0].content.parts[0].text,
+                        history: contents,
+                    }), {
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                    });
+                }
+
+                // If fallback also fails, return graceful error
+                console.error('[Command] Fallback recovery also failed');
+                await logToAudit(null, finishReason, 'Model attempted malformed function call, fallback failed', { content });
                 return new Response(JSON.stringify({
-                    text: "I tried to call a tool but encountered an issue. Could you rephrase your request with more details? For example, try 'Draft reply for [Candidate Name]'.",
+                    text: "I encountered an issue processing that request. Could you try rephrasing with more specific details?",
                     history: contents,
                 }), {
                     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
