@@ -21,7 +21,7 @@ import {
     CheckCircle,
     Phone,
     MessageSquare,
-    ClipboardList
+    ExternalLink
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -443,16 +443,26 @@ export const CommandCenter: React.FC = () => {
                                             {msg.role === 'model' ? (
                                                 <PrecisionCard variant="obsidian" className="max-w-[90%] border-white/5 p-4">
                                                     <div className="space-y-4">
-                                                        {/* Attachments from metadata */}
+                                                        {/* Attachments from metadata - Clickable to open in new tab */}
                                                         {msg.metadata?.attachment_url && (
-                                                            <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/20">
-                                                                <img
-                                                                    src={msg.metadata.attachment_url}
-                                                                    alt="Attachment"
-                                                                    className="w-full h-auto max-h-[300px] object-cover"
-                                                                    onError={(e) => (e.currentTarget.style.display = 'none')}
-                                                                />
-                                                            </div>
+                                                            <a
+                                                                href={msg.metadata.attachment_url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="block rounded-2xl overflow-hidden border border-white/10 bg-black/20 hover:border-white/20 transition-all group cursor-pointer"
+                                                            >
+                                                                <div className="relative">
+                                                                    <img
+                                                                        src={msg.metadata.attachment_url}
+                                                                        alt="Attachment"
+                                                                        className="w-full h-auto max-h-[300px] object-cover group-hover:opacity-90 transition-opacity"
+                                                                        onError={(e) => (e.currentTarget.style.display = 'none')}
+                                                                    />
+                                                                    <div className="absolute top-2 right-2 p-1.5 bg-black/60 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        <ExternalLink size={12} className="text-white" />
+                                                                    </div>
+                                                                </div>
+                                                            </a>
                                                         )}
                                                         {(() => {
                                                             const text = msg.parts[0]?.text || '';
@@ -608,25 +618,50 @@ export const CommandCenter: React.FC = () => {
                                                             <Bookmark size={10} />
                                                             {isPinned ? 'Pinned' : 'Pin'}
                                                         </button>
-                                                        {/* Call Ledger - Format for CRM notes */}
-                                                        <button
-                                                            onClick={() => {
-                                                                const log = formatForCallLog(msg.parts[0]?.text || '');
-                                                                navigator.clipboard.writeText(log);
-                                                                setCopiedMessageId(originalIndex * 10000 + 1);
-                                                                setTimeout(() => setCopiedMessageId(null), 2000);
-                                                            }}
-                                                            className={cn(
-                                                                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all",
-                                                                copiedMessageId === originalIndex * 10000 + 1
-                                                                    ? "bg-emerald-500/20 text-emerald-400"
-                                                                    : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white"
-                                                            )}
-                                                            title="Copy formatted call log"
-                                                        >
-                                                            <ClipboardList size={10} />
-                                                            {copiedMessageId === originalIndex * 10000 + 1 ? 'Copied!' : 'Call Log'}
-                                                        </button>
+                                                        {/* Quick Reference - Email (extracted from response) */}
+                                                        {(() => {
+                                                            const text = msg.parts[0]?.text || '';
+                                                            const emailMatch = text.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                                                            const candidateIdMatch = text.match(/(?:candidate[_\s]?id|ID)[:\s]*(\d{5,})/i) || text.match(/\/candidates\/(\d+)/);
+                                                            const extractedEmail = emailMatch?.[1];
+                                                            const extractedCandidateId = candidateIdMatch?.[1];
+
+                                                            return (
+                                                                <>
+                                                                    {extractedEmail && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                navigator.clipboard.writeText(extractedEmail);
+                                                                                setCopiedMessageId(originalIndex * 10000 + 1);
+                                                                                setTimeout(() => setCopiedMessageId(null), 2000);
+                                                                            }}
+                                                                            className={cn(
+                                                                                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all",
+                                                                                copiedMessageId === originalIndex * 10000 + 1
+                                                                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                                                                    : "bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-300 hover:text-blue-200"
+                                                                            )}
+                                                                            title={`Copy: ${extractedEmail}`}
+                                                                        >
+                                                                            <Mail size={10} />
+                                                                            {copiedMessageId === originalIndex * 10000 + 1 ? 'Copied!' : extractedEmail.length > 25 ? extractedEmail.slice(0, 22) + '...' : extractedEmail}
+                                                                        </button>
+                                                                    )}
+                                                                    {extractedCandidateId && (
+                                                                        <a
+                                                                            href={`https://nova.ayahealthcare.com/#/recruiting/candidates/${extractedCandidateId}/new-profile/about`}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 text-purple-300 hover:text-purple-200 text-[10px] font-semibold transition-all"
+                                                                            title="Open in Nova"
+                                                                        >
+                                                                            <ExternalLink size={10} />
+                                                                            Nova
+                                                                        </a>
+                                                                    )}
+                                                                </>
+                                                            );
+                                                        })()}
                                                         {/* Shrink for SMS */}
                                                         <button
                                                             onClick={async () => {
