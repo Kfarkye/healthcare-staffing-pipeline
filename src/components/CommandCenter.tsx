@@ -353,11 +353,11 @@ export const CommandCenter: React.FC = () => {
                         opacity: 1,
                         y: 0,
                         scale: 1,
-                        height: isMinimized ? 64 : workspaceMode === 'floating' ? 640 : '100vh',
-                        width: workspaceMode === 'full' ? '100%' : workspaceMode === 'split' ? '50%' : 440,
+                        height: isMinimized ? 48 : workspaceMode === 'floating' ? 640 : '100vh',
+                        width: isMinimized ? 180 : workspaceMode === 'full' ? '100%' : workspaceMode === 'split' ? '50%' : 440,
                         bottom: workspaceMode === 'floating' ? 32 : 0,
                         right: workspaceMode === 'floating' ? 32 : 0,
-                        borderRadius: workspaceMode === 'floating' ? 32 : '40px 0 0 40px', // Persistent "Sheet" Squircle
+                        borderRadius: isMinimized ? 999 : workspaceMode === 'floating' ? 32 : '40px 0 0 40px',
                     }}
                     exit={{ opacity: 0, y: 40, scale: 0.95 }}
                     // Jony Ive Physics: Inertial Snap (Mass 1.2, Damping 35)
@@ -368,38 +368,61 @@ export const CommandCenter: React.FC = () => {
                         boxShadow: 'inset 1px 0 0 0 rgba(255,255,255,0.15), -20px 0 60px -10px rgba(0,0,0,0.5)'
                     }}
                 >
-                    <header className="h-16 flex items-center justify-between px-6 border-b border-white/10 shrink-0">
-                        <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                                <Zap size={16} fill="white" className="text-white" />
-                            </div>
-                            <div className="flex flex-col">
-                                <span className={DESIGN.text.title}>Ambient AI</span>
-                                <span className={DESIGN.text.system}>{isGenerating ? 'Thinking...' : 'Connected'}</span>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-1 text-slate-400">
-                            {/* Pin Filter Toggle */}
-                            <button
-                                onClick={() => setShowPinnedOnly(!showPinnedOnly)}
-                                className={cn("p-2 rounded-xl transition-all", showPinnedOnly ? "bg-amber-500/20 text-amber-400" : "hover:bg-white/10")}
-                                title={showPinnedOnly ? "Show all messages" : "Show pinned only"}
+                    {isMinimized ? (
+                        /* Minimized Pill View */
+                        <button
+                            onClick={() => setIsMinimized(false)}
+                            className="h-full w-full flex items-center justify-center gap-2 px-4 hover:bg-white/5 transition-all cursor-pointer"
+                        >
+                            <motion.div
+                                animate={isGenerating ? { scale: [1, 1.15, 1], opacity: [1, 0.7, 1] } : { scale: 1, opacity: 1 }}
+                                transition={{ repeat: isGenerating ? Infinity : 0, duration: 1.5, ease: "easeInOut" }}
+                                className="w-6 h-6 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/20"
                             >
-                                <Bookmark size={16} />
-                            </button>
-                            {/* Clear Chat */}
-                            <button
-                                onClick={handleClearChat}
-                                className="p-2 hover:bg-white/10 rounded-xl hover:text-rose-400 transition-all"
-                                title="Clear conversation"
-                            >
-                                <Trash2 size={16} />
-                            </button>
-                            <button onClick={() => setWorkspaceMode(workspaceMode === 'floating' ? 'split' : 'floating')} className="p-2 hover:bg-white/10 rounded-xl"><LayoutIcon size={16} /></button>
-                            <button onClick={() => setIsMinimized(!isMinimized)} className="p-2 hover:bg-white/10 rounded-xl">{isMinimized ? <Maximize2 size={16} /> : <Minimize2 size={16} />}</button>
-                            <button onClick={() => { setIsOpen(false); setWorkspaceMode('floating'); }} className="p-2 hover:bg-white/10 rounded-xl"><X size={16} /></button>
-                        </div>
-                    </header>
+                                <Zap size={12} fill="white" className="text-white" />
+                            </motion.div>
+                            <span className="text-[11px] font-semibold text-white/80">
+                                {isGenerating ? 'Thinking...' : 'Ambient AI'}
+                            </span>
+                        </button>
+                    ) : (
+                        <header className="h-16 flex items-center justify-between px-6 border-b border-white/10 shrink-0">
+                            <div className="flex items-center gap-3">
+                                <motion.div
+                                    animate={isGenerating ? { scale: [1, 1.15, 1], opacity: [1, 0.7, 1] } : { scale: 1, opacity: 1 }}
+                                    transition={{ repeat: isGenerating ? Infinity : 0, duration: 1.5, ease: "easeInOut" }}
+                                    className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/20"
+                                >
+                                    <Zap size={16} fill="white" className="text-white" />
+                                </motion.div>
+                                <div className="flex flex-col">
+                                    <span className={DESIGN.text.title}>Ambient AI</span>
+                                    <span className={DESIGN.text.system}>{isGenerating ? 'Thinking...' : 'Connected'}</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-1 text-slate-400">
+                                {/* Pin Filter Toggle */}
+                                <button
+                                    onClick={() => setShowPinnedOnly(!showPinnedOnly)}
+                                    className={cn("p-2 rounded-xl transition-all", showPinnedOnly ? "bg-amber-500/20 text-amber-400" : "hover:bg-white/10")}
+                                    title={showPinnedOnly ? "Show all messages" : "Show pinned only"}
+                                >
+                                    <Bookmark size={16} />
+                                </button>
+                                {/* Clear Chat */}
+                                <button
+                                    onClick={handleClearChat}
+                                    className="p-2 hover:bg-white/10 rounded-xl hover:text-rose-400 transition-all"
+                                    title="Clear conversation"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                                <button onClick={() => setWorkspaceMode(workspaceMode === 'floating' ? 'split' : 'floating')} className="p-2 hover:bg-white/10 rounded-xl"><LayoutIcon size={16} /></button>
+                                <button onClick={() => setIsMinimized(!isMinimized)} className="p-2 hover:bg-white/10 rounded-xl">{isMinimized ? <Maximize2 size={16} /> : <Minimize2 size={16} />}</button>
+                                <button onClick={() => { setIsOpen(false); setWorkspaceMode('floating'); }} className="p-2 hover:bg-white/10 rounded-xl"><X size={16} /></button>
+                            </div>
+                        </header>
+                    )}
 
                     {!isMinimized && (
                         <>
@@ -433,7 +456,7 @@ export const CommandCenter: React.FC = () => {
                                                         )}
                                                         {(() => {
                                                             const text = msg.parts[0]?.text || '';
-                                                            if (isLikelyEmail(text)) {
+                                                            if (isLikelyEmail(text) || msg.metadata?.recipient_email) {
                                                                 const { to: extractedTo, subject, body } = extractEmailFields(text);
                                                                 // Try metadata first (from prospect context), then extracted 'To:'  
                                                                 const recipientEmail = msg.metadata?.recipient_email || msg.metadata?.email || extractedTo || '';
@@ -755,12 +778,32 @@ export const CommandCenter: React.FC = () => {
                                         onChange={(e) => setInputValue(e.target.value)}
                                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                                         onPaste={handlePaste}
-                                        placeholder={isDraggingOver ? "Drop candidate here to set context..." : "Execute command..."}
-                                        className={`w-full bg-white/5 border rounded-2xl py-4 pl-5 pr-12 focus:ring-1 focus:ring-indigo-500/50 focus:bg-white/10 transition-all resize-none text-[13px] text-white h-24 no-scrollbar ${isDraggingOver ? 'border-indigo-500 ring-1 ring-indigo-500/50 bg-indigo-500/10' : 'border-white/5'}`}
+                                        placeholder={isDraggingOver ? "Drop candidate here to set context..." : "Ask anything..."}
+                                        className={`w-full bg-black/40 backdrop-blur-xl border rounded-2xl py-4 pl-5 pr-14 
+                                            focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 focus:bg-black/50
+                                            shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05),inset_0_-1px_0_0_rgba(0,0,0,0.2)]
+                                            transition-all resize-none text-[13px] text-white/90 h-24 no-scrollbar placeholder:text-white/30
+                                            ${isDraggingOver ? 'border-indigo-500 ring-2 ring-indigo-500/40 bg-indigo-500/10' : 'border-white/10'}`}
                                     />
-                                    <div className="absolute right-3 bottom-3 flex items-center gap-2">
-                                        <button onClick={() => fileInputRef.current?.click()} className="p-2 text-slate-400 hover:text-white transition-colors"><Paperclip size={18} /></button>
-                                        <button onClick={handleSend} className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-600/20 hover:scale-105 transition-all"><Send size={18} /></button>
+                                    <div className="absolute right-3 bottom-3 flex items-center gap-1.5">
+                                        <button
+                                            onClick={() => fileInputRef.current?.click()}
+                                            className="p-2.5 text-white/40 hover:text-white/80 hover:bg-white/5 rounded-xl transition-all"
+                                        >
+                                            <Paperclip size={16} />
+                                        </button>
+                                        <button
+                                            onClick={handleSend}
+                                            disabled={!inputValue.trim() && attachments.length === 0}
+                                            className={cn(
+                                                "p-2.5 rounded-xl transition-all",
+                                                inputValue.trim() || attachments.length > 0
+                                                    ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-600/30 hover:shadow-indigo-600/50 hover:scale-105"
+                                                    : "bg-white/5 text-white/30 cursor-not-allowed"
+                                            )}
+                                        >
+                                            <Send size={16} />
+                                        </button>
                                     </div>
                                     <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple accept="image/*,.pdf,.doc,.docx,.txt" />
                                 </div>

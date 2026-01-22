@@ -77,9 +77,15 @@ export const isLikelyEmail = (text: string): boolean => {
         'subject:',
         'hi ',
         'hello ',
+        'dear ',
         'best,',
+        'regards,',
+        'thanks,',
+        'thank you,',
         'talk soon',
         'sincerely',
+        'warm regards',
+        'looking forward',
         'kofi farkye',
         'fulfillment specialist'
     ];
