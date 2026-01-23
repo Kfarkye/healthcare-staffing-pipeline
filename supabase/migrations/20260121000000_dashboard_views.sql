@@ -2,6 +2,10 @@
 -- Created: 2026-01-21
 -- Purpose: Restore missing submittals_dashboard and prospects_dashboard views for unified pipeline tracking.
 
+-- Drop existing views to allow column changes
+DROP VIEW IF EXISTS public.submittals_dashboard CASCADE;
+DROP VIEW IF EXISTS public.prospects_dashboard CASCADE;
+
 -- 1. SUBMITTALS DASHBOARD VIEW
 CREATE OR REPLACE VIEW public.submittals_dashboard AS
 -- PROSPECTS IN SUBMITTAL CYCLE

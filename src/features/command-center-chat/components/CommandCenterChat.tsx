@@ -1,18 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, RefreshCw, Trash2, Shield } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Send, Loader2, RefreshCw, Trash2, Shield, Mail } from 'lucide-react';
 import { useCommandCenterChat } from '../hooks/useCommandCenterChat';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '../../../lib/utils';
-
-export interface ChatMessageWithMeta extends ChatMessage {
-    provider?: string;
-    model?: string;
-}
+import { parseEmailFromResponse, buildMailtoLink } from '../utils/emailParser';
 
 export const CommandCenterChat: React.FC = () => {
-    const { messages, isLoading, error, sendMessage, clearChat } = useCommandCenterChat();
+    const { messages, isLoading, error, sendMessage, clearChat, status } = useCommandCenterChat();
     const [inputValue, setInputValue] = useState('');
     const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -53,29 +48,64 @@ export const CommandCenterChat: React.FC = () => {
                     </div>
                 )}
                 {messages.map((msg: any, i) => (
-                    <div key={i} className={cn("flex flex-col gap-1.5", msg.role === 'user' ? "items-end" : "items-start")}>
+                    <div key={msg.id || i} className={cn("flex flex-col gap-1.5", msg.role === 'user' ? "items-end" : "items-start")}>
                         <div className={cn(
                             "max-w-[85%] px-4 py-3 rounded-2xl text-[13px] leading-relaxed shadow-sm",
                             msg.role === 'user'
                                 ? "bg-indigo-600/20 border border-indigo-500/30 text-indigo-50"
                                 : "bg-white/5 border border-white/10 text-slate-200"
                         )}>
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-invert prose-sm">
-                                {msg.content}
-                            </ReactMarkdown>
+                            {/* AI SDK parts-based rendering */}
+                            {msg.parts ? (
+                                msg.parts.map((part: any, idx: number) => {
+                                    if (part.type === 'text') {
+                                        return (
+                                            <div key={idx} className="prose prose-invert prose-sm">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                    {part.text}
+                                                </ReactMarkdown>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                })
+                            ) : (
+                                // Fallback for legacy content format
+                                <div className="prose prose-invert prose-sm">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {msg.content}
+                                    </ReactMarkdown>
+                                </div>
+                            )}
                         </div>
-                        {msg.role === 'assistant' && msg.provider && (
-                            <span className="text-[9px] font-mono text-slate-500 uppercase tracking-tighter px-2">
-                                {msg.provider} • {msg.model}
-                            </span>
-                        )}
+                        {/* Quick Actions for AI messages with email content */}
+                        {msg.role === 'assistant' && (() => {
+                            const msgText = msg.parts?.find((p: any) => p.type === 'text')?.text || msg.content || '';
+                            const parsed = parseEmailFromResponse(msgText);
+                            if (parsed.hasEmail && parsed.subject && parsed.body) {
+                                return (
+                                    <div className="flex gap-2 mt-2">
+                                        <a
+                                            href={buildMailtoLink('', parsed.subject, parsed.body)}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-300 text-[11px] font-medium hover:bg-blue-600/30 transition-colors"
+                                        >
+                                            <Mail size={12} />
+                                            Open in Outlook
+                                        </a>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        })()}
                     </div>
                 ))}
                 {isLoading && (
                     <div className="flex justify-start">
                         <div className="bg-white/5 border border-white/10 px-4 py-3 rounded-2xl flex items-center gap-3">
                             <Loader2 size={14} className="animate-spin text-indigo-400" />
-                            <span className="text-xs text-slate-400 italic">Routing request...</span>
+                            <span className="text-xs text-slate-400 italic">
+                                {status === 'streaming' ? 'Streaming response...' : 'Routing request...'}
+                            </span>
                         </div>
                     </div>
                 )}
@@ -84,7 +114,11 @@ export const CommandCenterChat: React.FC = () => {
                         <div className="w-full bg-rose-500/10 border border-rose-500/20 px-4 py-2 rounded-xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1">
                             <span className="text-[11px] text-rose-400 font-medium">{error}</span>
                             <button
-                                onClick={() => sendMessage(messages[messages.length - 1]?.content || '')}
+                                onClick={() => {
+                                    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+                                    const textPart = lastUserMsg?.parts?.find((p: any) => p.type === 'text');
+                                    if (textPart && 'text' in textPart) sendMessage(textPart.text);
+                                }}
                                 className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-rose-400 hover:text-rose-300 transition-colors"
                             >
                                 <RefreshCw size={10} />

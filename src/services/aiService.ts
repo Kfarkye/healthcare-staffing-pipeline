@@ -49,26 +49,69 @@ class AIServiceClass {
         const { data: sessionRes } = await supabase.auth.getSession();
         const accessToken = sessionRes?.session?.access_token ?? '';
 
-        const { data, error } = await supabase.functions.invoke('chat-command-center', {
+        // Convert history to AI SDK message format
+        const messages = [
+            ...history.map(msg => ({
+                role: msg.role === 'model' ? 'assistant' : msg.role,
+                content: msg.parts[0]?.text || '',
+            })),
+            { role: 'user', content: message }
+        ];
+
+        const response = await fetch('/api/chat/command-center', {
+            method: 'POST',
             headers: {
+                'Content-Type': 'application/json',
                 ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
             },
-            body: {
-                message,
-                history,
-                attachment,
+            body: JSON.stringify({
+                messages,
                 context,
-                metadata
-            },
+                metadata,
+            }),
         });
 
-        if (error) {
-            console.error('[AIService] Error calling chat-command-center:', error);
-            throw new Error(error.message || 'Failed to send command');
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('[AIService] Error calling command-center:', errorData);
+            throw new Error(errorData.error || 'Failed to send command');
         }
 
-        // The edge function now returns { text, thought, history } as its standard response format
-        return data as { text: string, thought?: string, history: ChatMessage[] };
+        // Read the streaming response
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+
+        if (reader) {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                fullText += decoder.decode(value, { stream: true });
+            }
+        }
+
+        // Parse the streamed response - AI SDK streams data prefixed with "0:", "8:", etc.
+        // Extract the text content from the stream
+        const textContent = fullText
+            .split('\n')
+            .filter(line => line.startsWith('0:'))
+            .map(line => {
+                try {
+                    return JSON.parse(line.slice(2));
+                } catch {
+                    return '';
+                }
+            })
+            .join('');
+
+        // Build updated history
+        const newHistory: ChatMessage[] = [
+            ...history,
+            { role: 'user', parts: [{ text: message }], metadata },
+            { role: 'model', parts: [{ text: textContent }] }
+        ];
+
+        return { text: textContent, history: newHistory };
     }
     async sendResearchQuery(message: string, history: ChatMessage[] = []): Promise<any> {
         const { data, error } = await supabase.functions.invoke('research-chat', {

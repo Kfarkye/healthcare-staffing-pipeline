@@ -36,7 +36,9 @@ Deno.serve(async (req) => {
         SEARCH_TRAVEL_LIST: 'search_travel_list',
         GET_TEMPLATE: 'get_template',
         ADD_PROSPECT: 'add_prospect',
-        CALCULATE_PAY_PACKAGE: 'calculate_pay_package'
+        CALCULATE_PAY_PACKAGE: 'calculate_pay_package',
+        GENERATE_SUBMITTAL_HIGHLIGHTS: 'generate_submittal_highlights',
+        SEARCH_ALL_CANDIDATES: 'search_all_candidates'
     };
 
     try {
@@ -75,7 +77,7 @@ Deno.serve(async (req) => {
             function_declarations: [
                 {
                     name: ToolName.SEARCH_PROSPECTS,
-                    description: "Search for candidates (prospects) in the database.",
+                    description: "Search for NEW candidates (prospects) who are not yet on assignment. For active travelers, use search_all_candidates.",
                     parameters: {
                         type: "object",
                         properties: {
@@ -84,6 +86,17 @@ Deno.serve(async (req) => {
                             status: { type: "string", enum: ['New', 'Contacted', 'Interested', 'Passive', 'Rotation'] },
                             name_contains: { type: "string" }
                         }
+                    }
+                },
+                {
+                    name: ToolName.SEARCH_ALL_CANDIDATES,
+                    description: "Search for ANY candidate by name - searches both prospects AND active travelers (engagements). Use this as the DEFAULT when looking up a person by name.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            name: { type: "string", description: "Name to search for" }
+                        },
+                        required: ["name"]
                     }
                 },
                 {
@@ -264,9 +277,24 @@ Deno.serve(async (req) => {
                             phone: { type: "string", description: "Phone number (optional)" },
                             home_state: { type: "string", description: "Two-letter state code (e.g. CA, TX)" },
                             status: { type: "string", enum: ['New', 'Contacted', 'Interested', 'Profile Updates', 'Submittal Ready', 'Submitted'], description: "Initial status (default: New)" },
-                            notes: { type: "string", description: "Initial notes or context" }
+                            notes: { type: "string", description: "Initial notes or context" },
+                            candidate_id: { type: "number", description: "The unique ID from Nova (e.g., 1576542)" },
+                            nova_url: { type: "string", description: "The full profile URL from Nova" }
                         },
                         required: ["name"]
+                    }
+                },
+                {
+                    name: ToolName.GENERATE_SUBMITTAL_HIGHLIGHTS,
+                    description: "Generate a formatted 'Submittal Highlights' summary for a candidate. Use when the user asks to create or draft submittal highlights, a candidate brief, or a profile summary.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            candidate_id: { type: "number", description: "Candidate ID to look up" },
+                            name: { type: "string", description: "Candidate name to search for" },
+                            certifications: { type: "array", items: { type: "string" }, description: "Override certifications list" },
+                            profession: { type: "string", description: "Profession type (e.g., RN, CMA, SPT)" }
+                        }
                     }
                 }
             ]
@@ -279,6 +307,9 @@ Deno.serve(async (req) => {
 AMBIENT AWARENESS:
 - You are aware of the user's dashboard view via the 'context' object (active candidate, current filters).
 - If the user asks about 'this person' or 'this list', refer to the context.
+- ALWAYS extract the **Candidate ID** (e.g., 1576542) and **Nova URL** from provided links or text.
+- When adding or updating a candidate, ENSURE these fields are populated.
+- When queried about a candidate, prioritize showing their ID and Nova URL if available.
 
 Pillars of Operation:
 1. Executive Reporting: Use 'get_pipeline_brief' to summarize the recruiter's entire world.
@@ -287,19 +318,29 @@ Pillars of Operation:
 
 DYNAMIC TEMPLATE GROUNDING:
 When the user asks to draft, send, or compose ANY standard communication, you MUST:
-1. Call 'get_template' with the appropriate category.
-2. Call 'search_travel_list' to fetch the REAL candidate data (specifically 'current_end_date').
-3. COMPUTE DATES:
+1. FIRST call 'list_email_templates' to discover available templates (returns template_key, name, category, description).
+2. Call 'get_template' with the matching template_key from step 1.
+3. Call 'search_travel_list' to fetch the REAL candidate data (specifically 'current_end_date') if needed.
+4. COMPUTE DATES:
    - If the user specifies a duration (e.g., "13 weeks"), ADD that duration to the 'current_end_date' to find the 'Proposed Extension Dates'.
    - Format: "[Duration] (Starting [Current End Date + 1 day] - Ending [Calculated Date])"
-4. Replace all {{placeholders}} in the template with the real data and your calculated dates.
-5. Present the FULLY POPULATED template.
+5. Replace all {{placeholders}} in the template with the real data and your calculated dates.
+6. Present the FULLY POPULATED template.
 
-Available Templates:
-- extension_request (active): For candidates wanting to extend contracts.
-- margin_approval (active): For low-margin or custom pay package requests.
-- cold_outreach (prospect): For initial candidate outreach.
-- reassignment_request (retention): For internal OPS requests to reassign a traveler.
+Template Categories: active (extensions), prospect (outreach/licensing), retention (reassignments), margin (pay approvals).
+
+EMAIL OUTPUT FORMAT:
+When drafting any email, you MUST wrap the email content in tags for the One-Click Outlook button:
+[SUBJECT]Your subject line here[/SUBJECT]
+[BODY]
+Your email body here...
+
+Best,
+Kofi Farkye
+Senior Recruiter, Fulfillment Specialist
+[/BODY]
+
+This allows the 'Open in Outlook' button to extract ONLY the email content, not your conversational explanation.
 
 SIGNATURE:
 Best,
@@ -559,6 +600,57 @@ Senior Recruiter, Fulfillment Specialist`
                             resultData = error ? { error: error.message } : (data?.length ? data : { message: "No candidates found." });
                             break;
                         }
+                        case ToolName.SEARCH_ALL_CANDIDATES: {
+                            // Search prospects
+                            const { data: prospects, error: pErr } = await supabase
+                                .from('prospects')
+                                .select('id, candidate_id, name, specialty, home_state, status, email, phone, nova_url')
+                                .ilike('name', `%${args.name}%`)
+                                .limit(10);
+
+                            // Search engagements (active travelers) via joined prospects
+                            const { data: engagements, error: eErr } = await supabase
+                                .from('engagements')
+                                .select(`
+                                    id,
+                                    prospect_id,
+                                    specialty,
+                                    facility_name,
+                                    start_date,
+                                    end_date,
+                                    extension_stage,
+                                    bill_rate,
+                                    prospects!inner(candidate_id, name, email, phone, nova_url, home_state)
+                                `)
+                                .ilike('prospects.name', `%${args.name}%`)
+                                .limit(10);
+
+                            const activeTravelers = (engagements || []).map((e: any) => ({
+                                engagement_id: e.id,
+                                candidate_id: e.prospects?.candidate_id,
+                                name: e.prospects?.name,
+                                email: e.prospects?.email,
+                                phone: e.prospects?.phone,
+                                nova_url: e.prospects?.nova_url,
+                                specialty: e.specialty,
+                                facility_name: e.facility_name,
+                                start_date: e.start_date,
+                                end_date: e.end_date,
+                                extension_stage: e.extension_stage,
+                                source: 'active_traveler'
+                            }));
+
+                            resultData = {
+                                prospects: prospects || [],
+                                active_travelers: activeTravelers,
+                                total_found: (prospects?.length || 0) + activeTravelers.length
+                            };
+
+                            if (pErr || eErr) {
+                                resultData.error = pErr?.message || eErr?.message;
+                            }
+                            break;
+                        }
                         case ToolName.GET_PROSPECT_DETAILS: {
                             let query = supabase.from('prospects').select('*');
                             if (args.candidate_id) query = query.eq('candidate_id', args.candidate_id);
@@ -568,11 +660,15 @@ Senior Recruiter, Fulfillment Specialist`
                             break;
                         }
                         case ToolName.LIST_EMAIL_TEMPLATES: {
-                            const { data, error } = await supabase.from('email_templates').select('id, name, category, description').eq('is_active', true);
-                            resultData = error ? { error: error.message } : (data?.length ? data : [
-                                { id: 'initial_outreach', description: 'Initial outreach' },
-                                { id: 'reengagement', description: 'Check-in' }
-                            ]);
+                            // Query the communication_templates table
+                            const { data, error } = await supabase
+                                .from('communication_templates')
+                                .select('name, category, description')
+                                .eq('is_active', true)
+                                .order('category');
+                            resultData = error
+                                ? { error: error.message }
+                                : (data?.length ? data : { message: "No templates found." });
                             break;
                         }
                         case ToolName.SEARCH_KNOWLEDGE: {
@@ -810,6 +906,47 @@ Senior Recruiter, Fulfillment Specialist`
                                     message: `Successfully added ${args.name} to the pipeline.`
                                 };
                             }
+                            break;
+                        }
+                        case ToolName.GENERATE_SUBMITTAL_HIGHLIGHTS: {
+                            // Fetch candidate data if ID or name provided
+                            let candidateData: any = null;
+                            if (args.candidate_id || args.name) {
+                                let query = supabase.from('prospects').select('*');
+                                if (args.candidate_id) query = query.eq('candidate_id', args.candidate_id);
+                                else if (args.name) query = query.ilike('name', `%${args.name}%`);
+                                const { data } = await query.maybeSingle();
+                                candidateData = data;
+                            }
+
+                            // Get certifications from args or candidate
+                            const certs = args.certifications || (candidateData?.certifications as string[]) || [];
+                            const profession = args.profession || candidateData?.specialty || 'Healthcare Professional';
+                            const candidateName = candidateData?.name || args.name || 'Unknown';
+
+                            // Build highlights
+                            const titleLine = certs.length > 0 ? certs.join(' | ') : profession;
+                            const experienceLine = candidateData?.specialty
+                                ? `Experience in ${candidateData.specialty}`
+                                : 'Healthcare experience';
+                            const proficiencies = ['Patient Intake', 'Vitals Monitoring', 'Acute Care Settings'];
+                            const tenureLine = 'Tenure information available on request';
+
+                            // Build markdown
+                            const lines = [
+                                `• **${titleLine}**`,
+                                `• ${experienceLine}`,
+                                `• **Highly Proficient In:**`,
+                                ...proficiencies.map(p => `  - ${p}`),
+                                `• ${tenureLine}`
+                            ];
+
+                            resultData = {
+                                action: 'SUBMITTAL_HIGHLIGHTS_GENERATED',
+                                candidate_name: candidateName,
+                                highlights: lines.join('\n'),
+                                raw: { titleLine, experienceLine, proficiencies, tenureLine }
+                            };
                             break;
                         }
                         default:

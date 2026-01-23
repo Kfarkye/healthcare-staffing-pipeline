@@ -53,24 +53,23 @@ VALUES
     'extension_request', 
     'Sent to Account Manager when a candidate wants to extend their contract.',
     'EXTENSION REQUEST – {{candidate_name}} – {{facility_name}}',
-    'Hi Team,\n\n{{candidate_name}} would like to extend for {{extension_duration}}.\n\nCandidate: {{candidate_name}}\nLocal (Y/N): {{is_local}}\nFacility: {{facility_name}}\nUnit: {{specialty}}\nCurrent Bill Rate: {{current_bill_rate}}\nCurrent Shift/Hours: {{current_shift}}\nCurrent End Date: {{current_end_date}}\nProposed Extension Dates: {{proposed_dates}}\nRequested Time Off Between Assignments: {{time_off_between}}\nRequested Time Off During Assignment: {{time_off_during}}\nWas this Extension Discussed with Manager (name)?: Yes\nAny other details we need to confirm?: N/A',
+    E'Hi Team,\n\n{{candidate_name}} would like to extend for {{extension_duration}}.\n\nCandidate: {{candidate_name}}\nLocal (Y/N): {{is_local}}\nFacility: {{facility_name}}\nUnit: {{specialty}}\nCurrent Bill Rate: {{current_bill_rate}}\nCurrent Shift/Hours: {{current_shift}}\nCurrent End Date: {{current_end_date}}\nProposed Extension Dates: {{proposed_dates}}\nRequested Time Off Between Assignments: {{time_off_between}}\nRequested Time Off During Assignment: {{time_off_during}}\nWas this Extension Discussed with Manager (name)?: Yes\nAny other details we need to confirm?: N/A',
     '["candidate_name", "facility_name", "is_local", "specialty", "current_bill_rate", "current_shift", "current_end_date", "proposed_dates", "time_off_between", "time_off_during", "extension_duration"]'::jsonb
 ),
-    -- Reassignment Request (Retention)
-    ('retention', 'reassignment_request', 'Reassignment Request – {{candidate_name}}', 'Hi Team,
-
-Can we please reassign {{candidate_name}}?
-
-Email: {{candidate_email}}
-Nova Profile: {{nova_url}}
-
-Thank you!', '["candidate_name", "candidate_email", "nova_url"]'::jsonb),
+(
+    'retention',
+    'reassignment_request',
+    'Sent to Reassignments team when a candidate needs to be reassigned.',
+    'Please Reassign - {{candidate_name}}',
+    E'Hi Team,\n\nCan we please reassign - {{candidate_name}}\n\n{{nova_url}}\n\nThank you!',
+    '["candidate_name", "nova_url"]'::jsonb
+),
 (
     'active',
     'margin_approval',
     'Requesting internal approval for low margin or custom pay packages.',
     'Margin Approval – {{candidate_name}} – {{margin_percentage}}%',
-    'To: Colton.Valdez@ayahealthcare.com\n\nReason needed for approval? {{reason}}\nIs this a New Placement, Extension, or Change of Contract? {{placement_type}}\nIs premium approval needed? {{premium_needed}}\nWas this sent to Comp Info (Y/N)? {{sent_to_comp}}\n\nBest,\nKofi Farkye\nSenior Recruiter, Fulfillment Specialist',
+    E'To: Colton.Valdez@ayahealthcare.com\n\nReason needed for approval? {{reason}}\nIs this a New Placement, Extension, or Change of Contract? {{placement_type}}\nIs premium approval needed? {{premium_needed}}\nWas this sent to Comp Info (Y/N)? {{sent_to_comp}}\n\nBest,\nKofi Farkye\nSenior Recruiter, Fulfillment Specialist',
     '["candidate_name", "margin_percentage", "reason", "placement_type", "premium_needed", "sent_to_comp"]'::jsonb
 ),
 (
@@ -78,6 +77,14 @@ Thank you!', '["candidate_name", "candidate_email", "nova_url"]'::jsonb),
     'cold_outreach',
     'Standard Aya Editorial Standard for initial candidate outreach.',
     '{{position_name}} – {{facility_name}} | ${{gross_weekly_pay}}/week',
-    'Hi {{first_name}},\n\n{{hook}}\n\nFacility: {{facility_name}}\nLocation: {{city}}, {{state}}\nAssignment Dates: {{start_date}} – {{end_date}}\nShifts & Hours: {{shift_type}} ({{hours_per_week}} hours/week)\n\nPay Package:\nTaxable Hourly Rate: ${{taxable_rate}}/hr\nMeals & Housing Stipend: ${{stipend_weekly}}/week\nTotal Gross Weekly Pay: ${{gross_weekly_pay}}\n\n{{closing}}\n\nTo move forward, just confirm:\n- Are you available to start {{start_date}}?\n- Do you have any time-off requests during the contract?\n- Is your Aya profile current (work history, certs, skills checklist)?\n\nThank you!',
+    E'Hi {{first_name}},\n\n{{hook}}\n\nFacility: {{facility_name}}\nLocation: {{city}}, {{state}}\nAssignment Dates: {{start_date}} – {{end_date}}\nShifts & Hours: {{shift_type}} ({{hours_per_week}} hours/week)\n\nPay Package:\nTaxable Hourly Rate: ${{taxable_rate}}/hr\nMeals & Housing Stipend: ${{stipend_weekly}}/week\nTotal Gross Weekly Pay: ${{gross_weekly_pay}}\n\n{{closing}}\n\nTo move forward, just confirm:\n- Are you available to start {{start_date}}?\n- Do you have any time-off requests during the contract?\n- Is your Aya profile current (work history, certs, skills checklist)?\n\nThank you!',
     '["position_name", "facility_name", "gross_weekly_pay", "first_name", "hook", "city", "state", "start_date", "end_date", "shift_type", "hours_per_week", "taxable_rate", "stipend_weekly", "closing"]'::jsonb
+),
+(
+    'prospect',
+    'licensing_info_request',
+    'Request licensing information from the Allied Licensing team.',
+    'Licensing - {{specialty}} - {{state}}',
+    E'Hi Team,\n\nCan I please have {{state}} {{specialty}} licensing information.\n\nThank you!',
+    '["specialty", "state"]'::jsonb
 );

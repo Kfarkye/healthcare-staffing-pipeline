@@ -1,66 +1,39 @@
-import { useState, useCallback } from 'react';
-import { supabase } from '../../../lib/supabase';
-import { ChatMessage, ChatRequest, ChatResponse } from '../types';
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 
 export function useCommandCenterChat() {
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    const sendMessage = useCallback(async (content: string) => {
-        if (!content.trim()) return;
-
-        const userMessage: ChatMessage = { role: 'user', content };
-        const newMessages = [...messages, userMessage];
-        setMessages(newMessages);
-        setIsLoading(true);
-        setError(null);
-
-        try {
-            const { data: sessionRes } = await supabase.auth.getSession();
-            const accessToken = sessionRes?.session?.access_token;
-
-            const { data, error: invokeError } = await supabase.functions.invoke('ai-chat', {
-                headers: {
-                    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-                },
-                body: {
-                    messages: newMessages,
-                    primary_provider: 'gemini',
-                    secondary_provider: 'openai',
-                    temperature: 0.7,
-                    max_tokens: 1024
-                } as ChatRequest,
-            });
-
-            if (invokeError) throw invokeError;
-
-            const chatResponse = data as ChatResponse;
-            if (chatResponse.error) {
-                throw new Error(chatResponse.text || chatResponse.error.message);
-            }
-
-            setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: chatResponse.text,
-                provider: chatResponse.provider,
-                model: chatResponse.model
-            } as any]);
-        } catch (err: any) {
+    const {
+        messages,
+        sendMessage,
+        status,
+        error,
+        setMessages,
+    } = useChat({
+        transport: new DefaultChatTransport({
+            api: '/api/chat',
+        }),
+        onError: (err) => {
             console.error('[CommandCenterChat] Error:', err);
-            setError(err.message || "Failed to send message");
-        } finally {
-            setIsLoading(false);
-        }
-    }, [messages]);
+        },
+    });
+
+    // Derive isLoading from status for backwards compatibility
+    const isLoading = status === 'submitted' || status === 'streaming';
+
+    // Wrapper for sendMessage to match old interface
+    const handleSendMessage = async (content: string) => {
+        if (!content.trim()) return;
+        sendMessage({ text: content });
+    };
 
     const clearChat = () => setMessages([]);
 
     return {
         messages,
         isLoading,
-        error,
-        sendMessage,
-        clearChat
+        error: error?.message || null,
+        sendMessage: handleSendMessage,
+        clearChat,
+        status, // Expose new status for streaming UI
     };
 }
