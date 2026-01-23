@@ -643,12 +643,9 @@ Senior Recruiter, Fulfillment Specialist`
                             resultData = {
                                 prospects: prospects || [],
                                 active_travelers: activeTravelers,
-                                total_found: (prospects?.length || 0) + activeTravelers.length
+                                total_found: (prospects?.length || 0) + activeTravelers.length,
+                                error: (pErr || eErr) ? (pErr?.message || eErr?.message) : null
                             };
-
-                            if (pErr || eErr) {
-                                resultData.error = pErr?.message || eErr?.message;
-                            }
                             break;
                         }
                         case ToolName.GET_PROSPECT_DETAILS: {
