@@ -732,10 +732,14 @@ const InputDeck: FC<InputDeckProps> = memo(
             <motion.div
                 layout
                 className={cn(
-                    'flex flex-col gap-2 p-1.5 relative overflow-hidden transition-colors duration-500',
+                    'flex flex-col p-1.5 relative overflow-hidden',
+                    'transition-all duration-300',
                     SYSTEM.geo.input,
                     'bg-[#0A0A0B] shadow-2xl',
-                    SYSTEM.surface.milled
+                    SYSTEM.surface.milled,
+                    // Focus-within glow effect for elite interaction feedback
+                    'focus-within:border-indigo-500/30',
+                    'focus-within:shadow-[0_0_20px_-5px_rgba(99,102,241,0.15)]'
                 )}
                 transition={SYSTEM.anim.fluid}
             >
@@ -758,7 +762,8 @@ const InputDeck: FC<InputDeckProps> = memo(
                             'flex-1 bg-transparent border-none outline-none resize-none py-4',
                             'min-h-[52px] max-h-[120px]',
                             SYSTEM.type.body,
-                            'text-white placeholder:text-zinc-600',
+                            // Improved placeholder contrast for better legibility
+                            'text-white placeholder:text-zinc-500',
                             'disabled:opacity-50'
                         )}
                     />
@@ -783,13 +788,6 @@ const InputDeck: FC<InputDeckProps> = memo(
                             <ArrowUp size={18} strokeWidth={2.5} />
                         )}
                     </motion.button>
-                </div>
-
-                {/* Keyboard hint */}
-                <div className="px-4 pb-1">
-                    <span className={cn(SYSTEM.type.mono, 'text-zinc-700')}>
-                        Enter to send · Shift+Enter for new line · Esc to stop
-                    </span>
                 </div>
             </motion.div>
         );
