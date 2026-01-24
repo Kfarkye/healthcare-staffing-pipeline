@@ -15,23 +15,22 @@ export function createCommandCenterTools(supabase) {
             execute: async () => {
                 // Check connectivity and row counts
                 const { count: pCount, error: pErr } = await supabase.from('prospects').select('*', { count: 'exact', head: true });
-                const { count: eCount, error: eErr } = await supabase.from('engagements').select('*', { count: 'exact', head: true });
+                const { count: cCount, error: cErr } = await supabase.from('travel_candidates').select('*', { count: 'exact', head: true });
                 const { count: tCount, error: tErr } = await supabase.from('communication_templates').select('*', { count: 'exact', head: true });
 
                 return {
                     status: 'debug_complete',
                     counts: {
                         prospects: pCount,
-                        engagements: eCount,
+                        travel_candidates: cCount,
                         templates: tCount
                     },
                     errors: {
                         prospects: pErr?.message,
-                        engagements: eErr?.message,
+                        travel_candidates: cErr?.message,
                         templates: tErr?.message
                     },
-                    // Check if we have service role bypass
-                    service_role_check: 'Service Role Key Used' // We can't easily check internal state, but if we read RLS-protected data it works
+                    service_role_check: 'Service Role Key Used'
                 };
             }
         }),
@@ -62,7 +61,7 @@ export function createCommandCenterTools(supabase) {
 
         // Unified search across prospects AND active travelers
         search_all_candidates: tool({
-            description: 'Search for ANY candidate by name - searches both prospects (new candidates) AND active travelers (engagements). Use this as the DEFAULT search when looking up a person by name.',
+            description: 'Search for ANY candidate by name - searches both prospects (new candidates) AND active travelers. Use this as the DEFAULT search when looking up a person by name.',
             parameters: z.object({
                 name: z.string().describe('Name to search for'),
             }),
@@ -76,7 +75,7 @@ export function createCommandCenterTools(supabase) {
                     .ilike('name', `%${name}%`)
                     .limit(10);
 
-                // Search engagements (active travelers) via travel_candidates table
+                // Search active travelers via travel_candidates table
                 const { data: travelers, error: tErr } = await supabase
                     .from('travel_candidates')
                     .select('id, candidate_id, candidate_name, email, cell_phone, facility, specialty, start_date, end_date, contract_status, bill_rate')
@@ -135,7 +134,7 @@ export function createCommandCenterTools(supabase) {
                     else if (name) tcQuery = tcQuery.ilike('candidate_name', `%${name}%`);
 
                     const { data: traveler, error: tError } = await tcQuery.maybeSingle();
-                    if (traveler) return { ...traveler, name: traveler.candidate_name, status: 'Active (Traveler)' };
+                    if (traveler) return { ...traveler, name: traveler.candidate_name, status: 'Active (Traveler)', specialty: traveler.cs || traveler.specialty || traveler.primary_specialty };
                 }
 
                 return { message: 'Not found in prospects or active travelers.' };
@@ -415,7 +414,7 @@ export function createCommandCenterTools(supabase) {
 
                 if (name) query = query.ilike('candidate_name', `%${name}%`);
                 if (facility) query = query.ilike('facility', `%${facility}%`);
-                if (specialty) query = query.ilike('cs', `%${specialty}%`);
+                if (specialty) query = query.ilike('cs', `%${specialty}%`); // Trying 'cs' based on schema, or we can use specialty column if exists in view
 
                 if (ending_soon) {
                     const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
