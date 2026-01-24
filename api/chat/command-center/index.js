@@ -178,8 +178,13 @@ export default async function handler(req) {
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
     const googleApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
 
+    // Debug logging for env var diagnostics
+    console.log('[Config] SUPABASE_URL:', supabaseUrl ? 'set' : 'MISSING');
+    console.log('[Config] SUPABASE_KEY:', supabaseKey ? 'set' : 'MISSING');
+    console.log('[Config] GOOGLE_API_KEY:', googleApiKey ? 'set' : 'MISSING');
+
     if (!supabaseUrl || !supabaseKey) {
-        console.error('[Config] Missing Supabase configuration');
+        console.error('[Config] Missing Supabase configuration. Available env vars:', Object.keys(process.env).filter(k => k.includes('SUPABASE')).join(', '));
         return errorResponse('Server configuration error: database', 500);
     }
 
