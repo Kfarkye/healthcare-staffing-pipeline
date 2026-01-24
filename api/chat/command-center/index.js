@@ -78,7 +78,8 @@ RULES:
 - Never ask for data you can look up with tools
 - Always show Nova URLs and Candidate IDs when available
 - Calculate dates dynamically (don't ask the user)
-- Be concise - recruiters are busy`;
+- Be concise - recruiters are busy
+- CRITICAL: After any tool calls, you MUST write a final user-facing response summarizing the results. Never end with just tool calls.`;
 
 // ============================================================================
 // UTILITIES
@@ -160,10 +161,12 @@ export default async function handler(req, ctx) {
 
     // Strip quotes and whitespace from env vars
     let supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim().replace(/^["']|["']$/g, '');
-    let supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim().replace(/^["']|["']$/g, '');
+    // CRITICAL: Service role key is required for audit logging - no fallback to anon
+    let supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim().replace(/^["']|["']$/g, '');
     const googleApiKey = (process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
 
     console.log('[Config] SUPABASE_URL:', supabaseUrl ? `${supabaseUrl.substring(0, 30)}...` : 'MISSING');
+    console.log('[Config] SUPABASE_SERVICE_ROLE_KEY:', supabaseKey ? 'set' : 'MISSING (audit logs will fail)');
     console.log('[Config] GOOGLE_API_KEY:', googleApiKey ? 'set' : 'MISSING');
 
     if (!supabaseUrl || !googleApiKey) {
@@ -247,7 +250,7 @@ export default async function handler(req, ctx) {
                 system: systemPrompt,
                 messages: safeMessages,
                 tools,
-                maxSteps: 5,
+                maxSteps: 2, // Reduced: 1 for tool calls, 1 for final response
                 maxTokens: 2048,
                 // CRITICAL: Stop generating if client disconnects (saves costs)
                 abortSignal: req.signal,
