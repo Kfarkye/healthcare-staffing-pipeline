@@ -76,45 +76,33 @@ export function createCommandCenterTools(supabase) {
                     .ilike('name', `%${name}%`)
                     .limit(10);
 
-                // Search engagements (active travelers) via joined prospects
-                const { data: engagements, error: eErr } = await supabase
-                    .from('engagements')
-                    .select(`
-                        id,
-                        prospect_id,
-                        specialty,
-                        facility_name,
-                        start_date,
-                        end_date,
-                        extension_stage,
-                        bill_rate,
-                        prospects!inner(candidate_id, name, email, phone, nova_url, home_state)
-                    `)
-                    .ilike('prospects.name', `%${name}%`)
+                // Search engagements (active travelers) via travel_candidates table
+                const { data: travelers, error: tErr } = await supabase
+                    .from('travel_candidates')
+                    .select('id, candidate_id, candidate_name, email, cell_phone, facility, specialty, start_date, end_date, contract_status, bill_rate')
+                    .ilike('candidate_name', `%${name}%`)
                     .limit(10);
 
                 const results = {
                     prospects: prospects || [],
-                    active_travelers: (engagements || []).map((e) => ({
-                        engagement_id: e.id,
-                        candidate_id: e.prospects?.candidate_id,
-                        name: e.prospects?.name,
-                        email: e.prospects?.email,
-                        phone: e.prospects?.phone,
-                        nova_url: e.prospects?.nova_url,
-                        specialty: e.specialty,
-                        facility_name: e.facility_name,
-                        start_date: e.start_date,
-                        end_date: e.end_date,
-                        extension_stage: e.extension_stage,
-                        bill_rate: e.bill_rate,
+                    active_travelers: (travelers || []).map((t) => ({
+                        candidate_id: t.candidate_id,
+                        name: t.candidate_name,
+                        email: t.email,
+                        phone: t.cell_phone,
+                        specialty: t.specialty,
+                        facility_name: t.facility,
+                        start_date: t.start_date,
+                        end_date: t.end_date,
+                        status: t.contract_status,
+                        bill_rate: t.bill_rate,
                         source: 'active_traveler'
                     })),
-                    total_found: (prospects?.length || 0) + (engagements?.length || 0)
+                    total_found: (prospects?.length || 0) + (travelers?.length || 0)
                 };
 
-                if (pErr || eErr) {
-                    return { error: pErr?.message || eErr?.message, partial_results: results };
+                if (pErr || tErr) {
+                    return { error: pErr?.message || tErr?.message, partial_results: results };
                 }
 
                 return results;
@@ -130,12 +118,27 @@ export function createCommandCenterTools(supabase) {
             }),
             execute: async (args) => {
                 const { candidate_id, name } = args;
+
+                // Try finding in prospects first
                 let query = supabase.from('prospects').select('*');
-                // candidate_id in the schema is the Nova ID, not 'id'
                 if (candidate_id) query = query.eq('candidate_id', candidate_id);
                 else if (name) query = query.ilike('name', `%${name}%`);
-                const { data, error } = await query.maybeSingle();
-                return error ? { error: error.message } : (data || { message: 'Not found' });
+
+                const { data: prospect, error: pError } = await query.maybeSingle();
+
+                if (prospect) return prospect;
+
+                // Fallback: Try travel_candidates if not in prospects
+                if (candidate_id || name) {
+                    let tcQuery = supabase.from('travel_candidates').select('*');
+                    if (candidate_id) tcQuery = tcQuery.eq('candidate_id', candidate_id);
+                    else if (name) tcQuery = tcQuery.ilike('candidate_name', `%${name}%`);
+
+                    const { data: traveler, error: tError } = await tcQuery.maybeSingle();
+                    if (traveler) return { ...traveler, name: traveler.candidate_name, status: 'Active (Traveler)' };
+                }
+
+                return { message: 'Not found in prospects or active travelers.' };
             },
         }),
 
@@ -408,26 +411,12 @@ export function createCommandCenterTools(supabase) {
             }),
             execute: async (args) => {
                 const { name, facility, specialty, ending_soon } = args;
-                // Query engagements table with prospect join (actual schema)
-                let query = supabase
-                    .from('engagements')
-                    .select(`
-                        id,
-                        prospect_id,
-                        specialty,
-                        facility_name,
-                        start_date,
-                        end_date,
-                        extension_stage,
-                        bill_rate,
-                        status,
-                        prospects(candidate_id, name, email, phone, nova_url, home_state)
-                    `)
-                    .eq('status', 'Active');
+                let query = supabase.from('travel_candidates').select('*');
 
-                if (name) query = query.ilike('prospects.name', `%${name}%`);
-                if (facility) query = query.ilike('facility_name', `%${facility}%`);
-                if (specialty) query = query.ilike('specialty', `%${specialty}%`);
+                if (name) query = query.ilike('candidate_name', `%${name}%`);
+                if (facility) query = query.ilike('facility', `%${facility}%`);
+                if (specialty) query = query.ilike('cs', `%${specialty}%`);
+
                 if (ending_soon) {
                     const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
                     query = query.lte('end_date', thirtyDaysOut);
@@ -435,25 +424,7 @@ export function createCommandCenterTools(supabase) {
 
                 const { data, error } = await query.limit(20);
 
-                // Flatten for easier use
-                const travelers = (data || []).map(e => ({
-                    engagement_id: e.id,
-                    candidate_id: e.prospects?.candidate_id,
-                    candidate_name: e.prospects?.name,
-                    email: e.prospects?.email,
-                    phone: e.prospects?.phone,
-                    nova_url: e.prospects?.nova_url,
-                    home_state: e.prospects?.home_state,
-                    specialty: e.specialty,
-                    facility_name: e.facility_name,
-                    start_date: e.start_date,
-                    end_date: e.end_date,
-                    extension_stage: e.extension_stage,
-                    bill_rate: e.bill_rate,
-                    status: e.status
-                }));
-
-                return error ? { error: error.message } : { travelers, count: travelers.length };
+                return error ? { error: error.message } : { travelers: data, count: data?.length || 0 };
             },
         }),
 
