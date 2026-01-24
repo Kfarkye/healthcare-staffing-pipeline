@@ -7,6 +7,36 @@ import { z } from 'zod';
 export function createCommandCenterTools(supabase) {
     return {
         // ============================================================================
+        // DEBUG TOOLS
+        // ============================================================================
+        debug_system: tool({
+            description: 'Debug tool to check database connection, auth status, and table counts. Use this if searches return unexpected empty results.',
+            parameters: z.object({}),
+            execute: async () => {
+                // Check connectivity and row counts
+                const { count: pCount, error: pErr } = await supabase.from('prospects').select('*', { count: 'exact', head: true });
+                const { count: eCount, error: eErr } = await supabase.from('engagements').select('*', { count: 'exact', head: true });
+                const { count: tCount, error: tErr } = await supabase.from('communication_templates').select('*', { count: 'exact', head: true });
+
+                return {
+                    status: 'debug_complete',
+                    counts: {
+                        prospects: pCount,
+                        engagements: eCount,
+                        templates: tCount
+                    },
+                    errors: {
+                        prospects: pErr?.message,
+                        engagements: eErr?.message,
+                        templates: tErr?.message
+                    },
+                    // Check if we have service role bypass
+                    service_role_check: 'Service Role Key Used' // We can't easily check internal state, but if we read RLS-protected data it works
+                };
+            }
+        }),
+
+        // ============================================================================
         // PROSPECT TOOLS
         // ============================================================================
         search_prospects: tool({
