@@ -280,6 +280,7 @@ export default async function handler(req) {
 
             try {
                 console.log(`[AI] Attempt ${attempt + 1}/${RETRY_CONFIG.maxAttempts} with ${model}`);
+                console.log(`[AI] Message count: ${normalizedMessages.length}`);
 
                 const result = await streamText({
                     model: google(model),
@@ -288,6 +289,7 @@ export default async function handler(req) {
                     tools,
                     maxSteps: 10,
                     onFinish: async ({ text, finishReason, usage }) => {
+                        console.log(`[AI] onFinish called: ${finishReason}, text length: ${text?.length || 0}`);
                         // Async audit log - non-blocking
                         writeAuditLog(supabase, {
                             user_id: userId,
@@ -307,6 +309,7 @@ export default async function handler(req) {
                     },
                 });
 
+                console.log(`[AI] streamText returned successfully`);
                 modelUsed = model;
                 return result;
 
