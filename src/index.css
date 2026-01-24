@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Command Center Chat Design Tokens */
+@import './design-system/tokens/chat-tokens.css';
+
 :root {
     /* Radiant 2.0 HSL Palette - Refined Neutral Depth */
     --radiant-bg: 240 20% 98%;

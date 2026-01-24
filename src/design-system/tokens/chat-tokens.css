@@ -1,0 +1,348 @@
+/**
+ * Command Center Chat Design Tokens
+ * 
+ * Architecture Notes:
+ * - No icons allowed - typography and spacing do the work
+ * - Dark mode only (Command Center is always dark)
+ * - Based on Vercel Geist + Apple HIG 8pt grid
+ * 
+ * @see https://vercel.com/geist/colors
+ * @see Apple HIG 8pt grid system
+ */
+
+:root {
+    /* ============================================================================
+   * SPACING (8pt Grid - Apple HIG)
+   * Multiples: 4, 8, 12, 16, 24, 32, 48
+   * ============================================================================ */
+    --chat-space-1: 4px;
+    --chat-space-2: 8px;
+    --chat-space-3: 12px;
+    --chat-space-4: 16px;
+    --chat-space-5: 24px;
+    --chat-space-6: 32px;
+    --chat-space-8: 48px;
+
+    /* ============================================================================
+   * TYPOGRAPHY (Weighted for no-icon clarity)
+   * Scale: 12, 14, 16, 20, 24, 32
+   * ============================================================================ */
+    --chat-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --chat-font-mono: 'JetBrains Mono', 'Geist Mono', 'SF Mono', monospace;
+
+    --chat-text-xs: 12px;
+    --chat-text-sm: 14px;
+    --chat-text-base: 16px;
+    --chat-text-lg: 20px;
+    --chat-text-xl: 24px;
+    --chat-text-2xl: 32px;
+
+    --chat-line-height-tight: 1.25;
+    --chat-line-height-normal: 1.5;
+    --chat-line-height-relaxed: 1.75;
+
+    --chat-font-weight-regular: 400;
+    --chat-font-weight-medium: 500;
+    --chat-font-weight-semibold: 600;
+    --chat-font-weight-bold: 700;
+
+    /* ============================================================================
+   * COLORS - Dark Mode (Geist-inspired)
+   * @see https://vercel.com/geist/colors
+   * ============================================================================ */
+
+    /* Backgrounds */
+    --chat-bg-primary: #0a0a0a;
+    /* Near-black base */
+    --chat-bg-elevated: #141414;
+    /* Elevated surfaces */
+    --chat-bg-card: #1c1c1c;
+    /* Cards, message bubbles */
+    --chat-bg-hover: #262626;
+    /* Hover states */
+    --chat-bg-active: #333333;
+    /* Active/pressed states */
+
+    /* Borders (Geist Color 4-6) */
+    --chat-border-default: rgba(255, 255, 255, 0.1);
+    --chat-border-hover: rgba(255, 255, 255, 0.15);
+    --chat-border-active: rgba(255, 255, 255, 0.2);
+
+    /* Text (Geist Color 9-10) */
+    --chat-text-primary: #fafafa;
+    /* Primary text - high contrast */
+    --chat-text-secondary: #a1a1a1;
+    /* Secondary text */
+    --chat-text-tertiary: #707070;
+    /* Tertiary/disabled */
+    --chat-text-inverse: #0a0a0a;
+    /* For light backgrounds */
+
+    /* Accent Colors */
+    --chat-accent-blue: #3b82f6;
+    --chat-accent-blue-hover: #2563eb;
+    --chat-accent-green: #22c55e;
+    --chat-accent-red: #ef4444;
+    --chat-accent-amber: #f59e0b;
+    --chat-accent-purple: #a855f7;
+
+    /* User message accent */
+    --chat-user-bg: rgba(99, 102, 241, 0.1);
+    --chat-user-border: rgba(99, 102, 241, 0.2);
+    --chat-user-text: #c7d2fe;
+
+    /* ============================================================================
+   * ANIMATION (Apple HIG Easing)
+   * @see Apple iOS animation timing
+   * ============================================================================ */
+    --chat-duration-fast: 150ms;
+    --chat-duration-normal: 300ms;
+    --chat-duration-slow: 500ms;
+
+    /* Easing curves */
+    --chat-easing-default: cubic-bezier(0.4, 0, 0.2, 1);
+    /* Smooth decel */
+    --chat-easing-enter: cubic-bezier(0, 0, 0.2, 1);
+    /* Enter */
+    --chat-easing-exit: cubic-bezier(0.4, 0, 1, 1);
+    /* Exit */
+    --chat-easing-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    /* Bounce */
+
+    /* ============================================================================
+   * RADIUS
+   * ============================================================================ */
+    --chat-radius-sm: 6px;
+    --chat-radius-md: 12px;
+    --chat-radius-lg: 16px;
+    --chat-radius-xl: 24px;
+    --chat-radius-full: 9999px;
+
+    /* ============================================================================
+   * FOCUS (Accessibility - WCAG)
+   * ============================================================================ */
+    --chat-focus-ring: 0 0 0 2px var(--chat-accent-blue);
+    --chat-focus-ring-offset: 0 0 0 4px var(--chat-bg-primary);
+
+    /* ============================================================================
+   * SHADOWS
+   * ============================================================================ */
+    --chat-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --chat-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --chat-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+    --chat-shadow-glow: 0 0 24px -6px var(--chat-accent-blue);
+}
+
+/* ============================================================================
+ * COMPONENT CLASSES
+ * ============================================================================ */
+
+/* Loading Dots Animation (NO ICONS - CSS only) */
+@keyframes chat-pulse {
+
+    0%,
+    80%,
+    100% {
+        opacity: 0.3;
+        transform: scale(0.8);
+    }
+
+    40% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.chat-loading-dots {
+    display: inline-flex;
+    gap: var(--chat-space-2);
+    align-items: center;
+}
+
+.chat-loading-dots span {
+    width: 6px;
+    height: 6px;
+    background: var(--chat-text-secondary);
+    border-radius: 50%;
+    animation: chat-pulse 1.4s ease-in-out infinite both;
+}
+
+.chat-loading-dots span:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.chat-loading-dots span:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+.chat-loading-dots span:nth-child(3) {
+    animation-delay: 0s;
+}
+
+/* Markdown Prose Styles (Dark Mode) */
+.chat-prose {
+    color: var(--chat-text-primary);
+    font-size: var(--chat-text-base);
+    line-height: var(--chat-line-height-normal);
+}
+
+.chat-prose strong {
+    font-weight: var(--chat-font-weight-semibold);
+    color: var(--chat-text-primary);
+}
+
+.chat-prose code {
+    font-family: var(--chat-font-mono);
+    font-size: var(--chat-text-sm);
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: var(--chat-radius-sm);
+}
+
+.chat-prose pre {
+    font-family: var(--chat-font-mono);
+    font-size: var(--chat-text-sm);
+    background: var(--chat-bg-elevated);
+    border: 1px solid var(--chat-border-default);
+    border-radius: var(--chat-radius-md);
+    padding: var(--chat-space-4);
+    overflow-x: auto;
+    margin: var(--chat-space-3) 0;
+}
+
+.chat-prose pre code {
+    background: transparent;
+    padding: 0;
+}
+
+.chat-prose ul,
+.chat-prose ol {
+    padding-left: var(--chat-space-5);
+    margin: var(--chat-space-3) 0;
+}
+
+.chat-prose li {
+    margin: var(--chat-space-2) 0;
+}
+
+.chat-prose p {
+    margin: var(--chat-space-3) 0;
+}
+
+.chat-prose p:first-child {
+    margin-top: 0;
+}
+
+.chat-prose p:last-child {
+    margin-bottom: 0;
+}
+
+.chat-prose a {
+    color: var(--chat-accent-blue);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.chat-prose a:hover {
+    color: var(--chat-accent-blue-hover);
+}
+
+/* Auto-growing textarea */
+.chat-textarea {
+    font-family: var(--chat-font-sans);
+    font-size: var(--chat-text-base);
+    line-height: var(--chat-line-height-normal);
+    color: var(--chat-text-primary);
+    background: var(--chat-bg-card);
+    border: 1px solid var(--chat-border-default);
+    border-radius: var(--chat-radius-md);
+    padding: var(--chat-space-3) var(--chat-space-4);
+    min-height: 48px;
+    max-height: 200px;
+    resize: none;
+    width: 100%;
+    transition: border-color var(--chat-duration-fast) var(--chat-easing-default),
+        box-shadow var(--chat-duration-fast) var(--chat-easing-default);
+}
+
+.chat-textarea::placeholder {
+    color: var(--chat-text-tertiary);
+}
+
+.chat-textarea:focus {
+    outline: none;
+    border-color: var(--chat-accent-blue);
+    box-shadow: var(--chat-focus-ring);
+}
+
+/* Text-only button (NO ICONS) */
+.chat-btn {
+    font-family: var(--chat-font-sans);
+    font-size: var(--chat-text-sm);
+    font-weight: var(--chat-font-weight-medium);
+    line-height: 1;
+    padding: var(--chat-space-2) var(--chat-space-4);
+    border-radius: var(--chat-radius-md);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all var(--chat-duration-fast) var(--chat-easing-default);
+}
+
+.chat-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--chat-focus-ring);
+}
+
+.chat-btn-primary {
+    background: var(--chat-accent-blue);
+    color: white;
+    border-color: var(--chat-accent-blue);
+}
+
+.chat-btn-primary:hover:not(:disabled) {
+    background: var(--chat-accent-blue-hover);
+}
+
+.chat-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.chat-btn-ghost {
+    background: transparent;
+    color: var(--chat-text-secondary);
+    border-color: transparent;
+}
+
+.chat-btn-ghost:hover:not(:disabled) {
+    background: var(--chat-bg-hover);
+    color: var(--chat-text-primary);
+}
+
+.chat-btn-danger {
+    background: transparent;
+    color: var(--chat-accent-red);
+    border-color: transparent;
+}
+
+.chat-btn-danger:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* Scrollbar for chat area */
+.chat-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+
+.chat-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb {
+    background: var(--chat-border-default);
+    border-radius: var(--chat-radius-full);
+}
+
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--chat-border-hover);
+}
