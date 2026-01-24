@@ -500,6 +500,7 @@ interface EmailCardProps {
 
 const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
     const [copiedField, setCopiedField] = useState<'subject' | 'body' | 'all' | null>(null);
+    const [isExpanded, setIsExpanded] = useState(false);
 
     const copyToClipboard = useCallback(async (text: string, field: 'subject' | 'body' | 'all') => {
         await navigator.clipboard.writeText(text);
@@ -514,10 +515,14 @@ const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
         triggerHaptic();
     }, [subject, body]);
 
-    // Parse body for proper line breaks
+    // Parse body for proper line breaks and clean up
     const formattedBody = body
         .replace(/  \n/g, '\n') // Convert markdown line breaks
+        .replace(/^---\s*$/gm, '') // Remove stray horizontal rules
         .trim();
+
+    // Determine if body is long (needs expand/collapse)
+    const isLongBody = formattedBody.length > 600 || formattedBody.split('\n').length > 15;
 
     return (
         <motion.div
@@ -544,10 +549,10 @@ const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
                     whileTap={{ scale: 0.95 }}
                     onClick={() => copyToClipboard(`Subject: ${subject}\n\n${formattedBody}`, 'all')}
                     className={cn(
-                        'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg',
-                        'bg-white/[0.05] hover:bg-white/[0.08] transition-colors',
+                        'flex items-center gap-1.5 px-3 py-2 rounded-lg',
+                        'bg-white/[0.06] hover:bg-white/[0.1] transition-all',
                         'text-[11px] font-medium',
-                        copiedField === 'all' ? 'text-emerald-400' : 'text-zinc-400'
+                        copiedField === 'all' ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-300'
                     )}
                 >
                     {copiedField === 'all' ? <Check size={12} /> : <Copy size={12} />}
@@ -557,19 +562,19 @@ const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
 
             {/* Subject Line */}
             <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01]">
-                <div className="flex items-center justify-between">
+                <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                         <span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>Subject</span>
-                        <p className="text-[14px] font-medium text-white mt-0.5 truncate">{subject}</p>
+                        <p className="text-[14px] font-medium text-white mt-0.5 line-clamp-2">{subject}</p>
                     </div>
                     <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
+                        whileHover={{ scale: 1.05, backgroundColor: 'rgba(255,255,255,0.08)' }}
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => copyToClipboard(subject, 'subject')}
                         className={cn(
-                            'ml-3 p-2 rounded-lg transition-colors',
-                            'hover:bg-white/[0.05]',
-                            copiedField === 'subject' ? 'text-emerald-400' : 'text-zinc-500'
+                            'shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all',
+                            'bg-white/[0.04] hover:bg-white/[0.08]',
+                            copiedField === 'subject' ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-400'
                         )}
                     >
                         {copiedField === 'subject' ? <Check size={14} /> : <Copy size={14} />}
@@ -578,26 +583,43 @@ const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
             </div>
 
             {/* Body Content */}
-            <div className="px-5 py-4">
+            <div className="px-5 py-4 relative">
                 <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
+                    <div className={cn(
+                        'flex-1 min-w-0 relative',
+                        !isExpanded && isLongBody && 'max-h-[280px] overflow-hidden'
+                    )}>
                         <p className={cn(SYSTEM.type.body, 'text-[#C4C4C4] whitespace-pre-wrap leading-relaxed')}>
                             {formattedBody}
                         </p>
+                        {/* Fade gradient for collapsed state */}
+                        {!isExpanded && isLongBody && (
+                            <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0A0A0B] to-transparent pointer-events-none" />
+                        )}
                     </div>
                     <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
+                        whileHover={{ scale: 1.05, backgroundColor: 'rgba(255,255,255,0.08)' }}
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => copyToClipboard(formattedBody, 'body')}
                         className={cn(
-                            'shrink-0 p-2 rounded-lg transition-colors',
-                            'hover:bg-white/[0.05]',
-                            copiedField === 'body' ? 'text-emerald-400' : 'text-zinc-500'
+                            'shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all',
+                            'bg-white/[0.04] hover:bg-white/[0.08]',
+                            copiedField === 'body' ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-400'
                         )}
                     >
                         {copiedField === 'body' ? <Check size={14} /> : <Copy size={14} />}
                     </motion.button>
                 </div>
+
+                {/* Show More / Less toggle */}
+                {isLongBody && (
+                    <button
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        className="mt-3 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+                    >
+                        {isExpanded ? '↑ Show Less' : '↓ Show Full Email'}
+                    </button>
+                )}
             </div>
 
             {/* Action Bar */}
@@ -623,6 +645,69 @@ const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
 EmailCard.displayName = 'EmailCard';
 
 // ============================================================================
+// 8.6. USER ATTACHMENT (Inline Thumbnail for User Messages)
+// ============================================================================
+
+interface UserAttachmentProps {
+    filename: string;
+    url: string;
+}
+
+const UserAttachment: FC<UserAttachmentProps> = memo(({ filename, url }) => {
+    const isImage = /\.(png|jpg|jpeg|gif|webp|heic)$/i.test(filename);
+    const isPDF = /\.pdf$/i.test(filename);
+
+    return (
+        <motion.a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            whileHover={{ scale: 1.02 }}
+            className={cn(
+                'flex items-center gap-3 mt-3 p-2 rounded-xl',
+                'bg-black/20 border border-white/10',
+                'hover:bg-black/30 transition-all cursor-pointer group'
+            )}
+        >
+            {isImage ? (
+                <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-white/5 shrink-0">
+                    <img
+                        src={url}
+                        alt={filename}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                    />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                        <Maximize2 size={14} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                </div>
+            ) : (
+                <div className="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
+                    {isPDF ? (
+                        <FileText size={20} className="text-rose-400" />
+                    ) : (
+                        <File size={20} className="text-zinc-400" />
+                    )}
+                </div>
+            )}
+            <div className="flex-1 min-w-0">
+                <p className="text-[12px] text-indigo-400 truncate group-hover:text-indigo-300 transition-colors">
+                    {filename}
+                </p>
+                <p className="text-[10px] text-zinc-500 mt-0.5">
+                    {isImage ? 'Image' : isPDF ? 'PDF Document' : 'Attachment'}
+                </p>
+            </div>
+        </motion.a>
+    );
+});
+UserAttachment.displayName = 'UserAttachment';
+
+// ============================================================================
 // 9. MESSAGE BUBBLE
 // ============================================================================
 
@@ -641,12 +726,70 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
     const renderContent = useMemo(() => {
         if (!content) return null;
 
+        // For USER messages: Check for attachment pattern [Attached: Filename](url)
+        if (isUser) {
+            const attachmentPattern = /\[Attached:\s*([^\]]+)\]\(([^)]+)\)/g;
+            const attachments: { filename: string; url: string }[] = [];
+            let match;
+            while ((match = attachmentPattern.exec(content)) !== null) {
+                attachments.push({ filename: match[1].trim(), url: match[2] });
+            }
+
+            if (attachments.length > 0) {
+                // Get the text content without attachment links
+                const textContent = content.replace(attachmentPattern, '').trim();
+
+                return (
+                    <>
+                        {textContent && (
+                            <p className={cn(SYSTEM.type.body, 'text-[#1a1a1a]')}>{textContent}</p>
+                        )}
+                        {attachments.map((att, idx) => (
+                            <UserAttachment key={idx} filename={att.filename} url={att.url} />
+                        ))}
+                    </>
+                );
+            }
+        }
+
         // Check for EMAIL DRAFT pattern (new structured format)
-        const emailDraftMatch = content.match(/^#\s*EMAIL\s*DRAFT\s*\n+\*\*Subject:\*\*\s*(.+?)\n+---\n+([\s\S]+?)(?:\n+---\s*$|\n+IMPORTANT\s|$)/i);
+        // Improved regex: explicit newline handling, captures trailing separator
+        const emailDraftMatch = content.match(/^#\s*EMAIL\s*DRAFT[\r\n]+\*\*Subject:\*\*\s*(.+?)[\r\n]+---[\r\n]+([\s\S]+?)(?:[\r\n]+---[\r\n]*(?:$|[\r\n])|$)/i);
         if (emailDraftMatch) {
             const subject = emailDraftMatch[1].trim();
-            const body = emailDraftMatch[2].trim();
-            return <EmailCard subject={subject} body={body} />;
+            // Clean body: remove trailing --- and any IMPORTANT rules text
+            let body = emailDraftMatch[2].trim();
+            body = body.replace(/[\r\n]+---\s*$/g, '').replace(/[\r\n]+IMPORTANT[\s\S]*$/i, '').trim();
+
+            // Check if there's remaining content after the email (AI follow-up)
+            const fullMatch = emailDraftMatch[0];
+            const remainingContent = content.slice(fullMatch.length).replace(/^[\r\n]+---[\r\n]*/g, '').trim();
+
+            return (
+                <>
+                    <EmailCard subject={subject} body={body} />
+                    {remainingContent && (
+                        <div className="mt-4">
+                            <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                    p: ({ children }) => (
+                                        <p className={cn(SYSTEM.type.body, 'text-[#A1A1AA]', 'mb-4 last:mb-0')}>
+                                            {children}
+                                        </p>
+                                    ),
+                                    strong: ({ children }) => (
+                                        <strong className="font-semibold text-white">{children}</strong>
+                                    ),
+                                    hr: () => null, // Suppress stray horizontal rules
+                                }}
+                            >
+                                {remainingContent}
+                            </ReactMarkdown>
+                        </div>
+                    )}
+                </>
+            );
         }
 
         // Check for legacy [SUBJECT][BODY] format (backwards compatibility)
@@ -1091,7 +1234,7 @@ const InputDeck: FC<InputDeckProps> = memo(
                         onChange={(e) => onChange(e.target.value)}
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
-                        placeholder={isDragActive ? 'Drop files here...' : 'Ask about candidates, jobs, or pay packages...'}
+                        placeholder={isDragActive ? 'Drop files here...' : 'Message Command Center...'}
                         rows={1}
                         disabled={isProcessing}
                         className={cn(
