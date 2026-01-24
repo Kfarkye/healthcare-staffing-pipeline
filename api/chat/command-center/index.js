@@ -261,9 +261,9 @@ export default async function handler(req, ctx) {
                     // Schedule audit log using waitUntil (guaranteed to complete)
                     scheduleAuditLog(ctx, supabase, {
                         function_name: 'command-center',
-                        model_used: currentModel,
                         input_message: messages[messages.length - 1]?.content || '',
                         input_metadata: {
+                            model_used: currentModel,
                             context_keys: context ? Object.keys(context) : [],
                             message_count: safeMessages.length,
                             ...metadata
@@ -312,10 +312,9 @@ export default async function handler(req, ctx) {
     // Log failure using waitUntil
     scheduleAuditLog(ctx, supabase, {
         function_name: 'command-center',
-        model_used: currentModel,
         input_message: messages[messages.length - 1]?.content || '',
+        input_metadata: { model_used: currentModel },
         error_message: finalError?.message,
-        status: 'failed',
         latency_ms: Date.now() - startTime,
     });
 
