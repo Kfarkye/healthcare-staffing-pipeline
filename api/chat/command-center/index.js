@@ -286,8 +286,8 @@ export default async function handler(req, ctx) {
                 },
             });
 
-            // Success - return UI message stream response
-            return result.toUIMessageStreamResponse({
+            // Success - return text stream response (simpler, works with native fetch)
+            return result.toTextStreamResponse({
                 headers: CORS_HEADERS,
             });
 

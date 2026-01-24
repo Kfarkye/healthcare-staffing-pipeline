@@ -5,13 +5,12 @@
  * - 60fps Render Throttling (prevents UI freeze)
  * - Deep Comparison for Context Stability
  * - Ref-based State Management (prevents stale closures)
- * - Strict Type Safety
+ * - Native Text Stream Parsing
  * 
- * @version 3.0.0
+ * @version 3.1.0
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { readUIMessageStream } from 'ai';
 
 // ============================================================================
 // TYPES
@@ -59,7 +58,7 @@ function generateId(): string {
 
 /**
  * Custom hook to memoize context objects using deep equality.
- * Prevents infinite loops when consumers pass inline objects like {{ id: 1 }}
+ * Prevents infinite loops when consumers pass inline objects.
  */
 function useDeepCompareMemoize(value: any) {
     const ref = useRef<any>(null);
@@ -76,7 +75,7 @@ function useDeepCompareMemoize(value: any) {
 export function useCommandCenterChat(
     options: UseCommandCenterChatOptions = {}
 ): UseCommandCenterChatReturn {
-    const { context, onError, onToolCall } = options;
+    const { context, onError, onToolCall: _onToolCall } = options;
 
     // Stabilize context to prevent dependency thrashing
     const stableContext = useDeepCompareMemoize(context);
@@ -124,7 +123,6 @@ export function useCommandCenterChat(
             role: 'assistant',
             content: '',
             createdAt: new Date(),
-            toolInvocations: [],
         };
 
         // 2. Optimistic Update
@@ -160,44 +158,24 @@ export function useCommandCenterChat(
 
             setIsStreaming(true);
 
-            // 3. Stream Reading with Render Throttling
-            const reader = readUIMessageStream({
-                getReader: () => response.body!.getReader(),
-            });
+            // 3. Native text stream parsing with throttling
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
 
             let accumulatedText = '';
-            let toolInvocations: any[] = [];
             let lastRenderTime = 0;
             const RENDER_THROTTLE_MS = 16; // Cap at ~60fps
 
-            for await (const chunk of reader) {
-                if (signal.aborted) break;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done || signal.aborted) break;
 
-                let shouldUpdate = false;
+                // Decode text chunk
+                const text = decoder.decode(value, { stream: true });
+                accumulatedText += text;
 
-                if (chunk.type === 'text') {
-                    accumulatedText += chunk.text;
-                    // Only update React state if throttle time has passed
-                    if (Date.now() - lastRenderTime > RENDER_THROTTLE_MS) {
-                        shouldUpdate = true;
-                    }
-                } else if (chunk.type === 'tool-invocation') {
-                    // Always process tools immediately
-                    const existingIdx = toolInvocations.findIndex(t => t.toolCallId === chunk.toolCallId);
-                    if (existingIdx >= 0) {
-                        toolInvocations[existingIdx] = chunk;
-                    } else {
-                        toolInvocations.push(chunk);
-                        if (onToolCall && chunk.toolName) {
-                            try { onToolCall(chunk.toolName, chunk.args); } catch (e) { console.error(e); }
-                        }
-                    }
-                    shouldUpdate = true;
-                } else if (chunk.type === 'finish' || chunk.type === 'step-finish') {
-                    shouldUpdate = true;
-                }
-
-                if (shouldUpdate) {
+                // Throttle React state updates
+                if (Date.now() - lastRenderTime > RENDER_THROTTLE_MS) {
                     setMessages(prev => {
                         const updated = [...prev];
                         const lastIdx = updated.length - 1;
@@ -205,7 +183,6 @@ export function useCommandCenterChat(
                             updated[lastIdx] = {
                                 ...updated[lastIdx],
                                 content: accumulatedText,
-                                toolInvocations: [...toolInvocations],
                             };
                         }
                         return updated;
@@ -214,7 +191,7 @@ export function useCommandCenterChat(
                 }
             }
 
-            // Final sync to ensure no dropped frames
+            // Final sync to ensure no dropped content
             if (!signal.aborted) {
                 setMessages(prev => {
                     const updated = [...prev];
@@ -223,7 +200,6 @@ export function useCommandCenterChat(
                         updated[lastIdx] = {
                             ...updated[lastIdx],
                             content: accumulatedText,
-                            toolInvocations: [...toolInvocations],
                         };
                     }
                     return updated;
@@ -237,10 +213,10 @@ export function useCommandCenterChat(
             setError(err.message || 'An error occurred');
             onError?.(err);
 
-            // Rollback empty assistant message if it failed completely
+            // Rollback empty assistant message
             setMessages(prev => {
                 const last = prev[prev.length - 1];
-                if (last?.role === 'assistant' && !last.content && (!last.toolInvocations || last.toolInvocations.length === 0)) {
+                if (last?.role === 'assistant' && !last.content) {
                     return prev.slice(0, -1);
                 }
                 return prev;
@@ -251,7 +227,7 @@ export function useCommandCenterChat(
                 setIsStreaming(false);
             }
         }
-    }, [stableContext, onError, onToolCall]);
+    }, [stableContext, onError]);
 
     // ========================================================================
     // ACTIONS
@@ -273,7 +249,6 @@ export function useCommandCenterChat(
         const history = messagesRef.current;
         const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
         if (lastUserMsg) {
-            // Rollback to just before the last user message
             const keepIdx = history.findIndex(m => m.id === lastUserMsg.id);
             if (keepIdx !== -1) {
                 setMessages(history.slice(0, keepIdx));
