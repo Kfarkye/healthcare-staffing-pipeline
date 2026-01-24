@@ -311,6 +311,12 @@ export default async function handler(req) {
                             output_metadata: { usage, error: finishError?.message },
                         });
                     },
+                    onError: (error) => {
+                        console.error(`[AI] onError callback:`, error.message || error);
+                    },
+                    onStepFinish: ({ text, finishReason }) => {
+                        console.log(`[AI] onStepFinish: ${finishReason}, text length: ${text?.length || 0}`);
+                    },
                 });
 
                 console.log(`[AI] streamText returned successfully`);
