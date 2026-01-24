@@ -101,7 +101,8 @@ export function createCommandCenterTools(supabase) {
             execute: async (args) => {
                 const { candidate_id, name } = args;
                 let query = supabase.from('prospects').select('*');
-                if (candidate_id) query = query.eq('id', candidate_id);
+                // candidate_id in the schema is the Nova ID, not 'id'
+                if (candidate_id) query = query.eq('candidate_id', candidate_id);
                 else if (name) query = query.ilike('name', `%${name}%`);
                 const { data, error } = await query.maybeSingle();
                 return error ? { error: error.message } : (data || { message: 'Not found' });
@@ -377,16 +378,52 @@ export function createCommandCenterTools(supabase) {
             }),
             execute: async (args) => {
                 const { name, facility, specialty, ending_soon } = args;
-                let query = supabase.from('travel_candidates').select('*');
-                if (name) query = query.ilike('candidate_name', `%${name}%`);
+                // Query engagements table with prospect join (actual schema)
+                let query = supabase
+                    .from('engagements')
+                    .select(`
+                        id,
+                        prospect_id,
+                        specialty,
+                        facility_name,
+                        start_date,
+                        end_date,
+                        extension_stage,
+                        bill_rate,
+                        status,
+                        prospects(candidate_id, name, email, phone, nova_url, home_state)
+                    `)
+                    .eq('status', 'Active');
+
+                if (name) query = query.ilike('prospects.name', `%${name}%`);
                 if (facility) query = query.ilike('facility_name', `%${facility}%`);
                 if (specialty) query = query.ilike('specialty', `%${specialty}%`);
                 if (ending_soon) {
-                    const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-                    query = query.lte('current_end_date', thirtyDaysOut);
+                    const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                    query = query.lte('end_date', thirtyDaysOut);
                 }
+
                 const { data, error } = await query.limit(20);
-                return error ? { error: error.message } : { travelers: data, count: data?.length || 0 };
+
+                // Flatten for easier use
+                const travelers = (data || []).map(e => ({
+                    engagement_id: e.id,
+                    candidate_id: e.prospects?.candidate_id,
+                    candidate_name: e.prospects?.name,
+                    email: e.prospects?.email,
+                    phone: e.prospects?.phone,
+                    nova_url: e.prospects?.nova_url,
+                    home_state: e.prospects?.home_state,
+                    specialty: e.specialty,
+                    facility_name: e.facility_name,
+                    start_date: e.start_date,
+                    end_date: e.end_date,
+                    extension_stage: e.extension_stage,
+                    bill_rate: e.bill_rate,
+                    status: e.status
+                }));
+
+                return error ? { error: error.message } : { travelers, count: travelers.length };
             },
         }),
 
