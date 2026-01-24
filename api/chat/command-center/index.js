@@ -1,15 +1,13 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { streamText, convertToModelMessages, UIMessage, stepCountIs } from 'ai';
+import { streamText } from 'ai';
 import { createClient } from '@supabase/supabase-js';
-import { createCommandCenterTools } from './tools';
+import { createCommandCenterTools } from './tools.js';
 
 export const config = {
     runtime: 'edge',
 };
 
-// Model configuration with fallback
-const MODEL_PRIMARY = 'gemini-3-pro-preview';
-const MODEL_FALLBACK = 'gemini-3-flash-preview';
+const MODEL_PRIMARY = 'gemini-2.0-flash';
 
 const systemPrompt = `You are the 'Pipeline Command Center' AI (Kofi Farkye, Senior Recruiter, Fulfillment Specialist, P: 858-529-7267 Ext: 17017, Aya Healthcare). 
 
@@ -40,8 +38,7 @@ Best,
 Kofi Farkye
 Senior Recruiter, Fulfillment Specialist`;
 
-export default async function handler(req: Request) {
-    // Only allow POST
+export default async function handler(req) {
     if (req.method !== 'POST') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
             status: 405,
@@ -51,20 +48,19 @@ export default async function handler(req: Request) {
 
     const startTime = Date.now();
 
-    // Initialize Supabase client
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
     const googleApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.VITE_GEMINI_API_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
-        return new Response(JSON.stringify({ error: 'Missing Supabase configuration. Ensure SUPABASE_URL and SUPABASE_ANON_KEY are set.' }), {
+        return new Response(JSON.stringify({ error: 'Missing Supabase configuration' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
         });
     }
 
     if (!googleApiKey) {
-        return new Response(JSON.stringify({ error: 'Missing Google API Key. Ensure GOOGLE_GENERATIVE_AI_API_KEY or VITE_GEMINI_API_KEY is set.' }), {
+        return new Response(JSON.stringify({ error: 'Missing Google API Key' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
         });
@@ -73,47 +69,47 @@ export default async function handler(req: Request) {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const google = createGoogleGenerativeAI({ apiKey: googleApiKey });
 
-    // Parse request
-    const { messages, context, metadata }: {
-        messages: UIMessage[];
-        context?: Record<string, any>;
-        metadata?: Record<string, any>;
-    } = await req.json();
+    let body;
+    try {
+        body = await req.json();
+    } catch (e) {
+        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+        });
+    }
 
-    // Get user from auth header if present
+    const { messages = [], context, metadata } = body;
+
     const authHeader = req.headers.get('Authorization');
     const token = authHeader?.replace('Bearer ', '');
-    let userId: string | null = null;
+    let userId = null;
 
     if (token) {
         const { data: userData } = await supabase.auth.getUser(token);
         userId = userData?.user?.id || null;
     }
 
-    // Create tools with Supabase client
     const tools = createCommandCenterTools(supabase);
 
-    // Build context-aware system prompt
     let contextualizedPrompt = systemPrompt;
     if (context) {
         contextualizedPrompt += `\n\nCURRENT CONTEXT:\n${JSON.stringify(context, null, 2)}`;
     }
 
     try {
-        // Primary model attempt
         const result = await streamText({
             model: google(MODEL_PRIMARY),
             system: contextualizedPrompt,
-            messages: await convertToModelMessages(messages),
+            messages: messages,
             tools,
-            stopWhen: stepCountIs(10), // Allow up to 10 tool call iterations
+            maxSteps: 10,
             onFinish: async ({ text, finishReason, usage }) => {
-                // Audit logging
                 try {
                     await supabase.from('ai_audit_logs').insert({
                         user_id: userId,
                         function_name: 'command-center-vercel',
-                        input_message: (messages[messages.length - 1] as any)?.content || '',
+                        input_message: messages[messages.length - 1]?.content || '',
                         input_metadata: { context_keys: context ? Object.keys(context) : [], ...metadata },
                         output_text: text,
                         finish_reason: finishReason,
@@ -126,31 +122,13 @@ export default async function handler(req: Request) {
             },
         });
 
-        return result.toUIMessageStreamResponse();
+        return result.toDataStreamResponse();
 
-    } catch (error: any) {
-        console.error('[Command Center] Primary model failed:', error.message);
-
-        // Fallback to Flash model
-        if (error.message?.includes('overloaded') || error.message?.includes('rate limit')) {
-            console.log('[Command Center] Falling back to Flash model');
-
-            const fallbackResult = await streamText({
-                model: google(MODEL_FALLBACK),
-                system: contextualizedPrompt,
-                messages: await convertToModelMessages(messages),
-                tools,
-                stopWhen: stepCountIs(10),
-            });
-
-            return fallbackResult.toUIMessageStreamResponse();
-        }
-
-        // Return error response
+    } catch (error) {
+        console.error('[Command Center] Error:', error.message);
         return new Response(JSON.stringify({ error: error.message || 'AI request failed' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
         });
     }
 }
-

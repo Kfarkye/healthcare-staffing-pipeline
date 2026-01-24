@@ -1,11 +1,10 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { SupabaseClient } from '@supabase/supabase-js';
 
 /**
  * Creates all Command Center tools with Supabase client injected
  */
-export function createCommandCenterTools(supabase: SupabaseClient) {
+export function createCommandCenterTools(supabase) {
     return {
         // ============================================================================
         // PROSPECT TOOLS
@@ -65,7 +64,7 @@ export function createCommandCenterTools(supabase: SupabaseClient) {
 
                 const results = {
                     prospects: prospects || [],
-                    active_travelers: (engagements || []).map((e: any) => ({
+                    active_travelers: (engagements || []).map((e) => ({
                         engagement_id: e.id,
                         candidate_id: e.prospects?.candidate_id,
                         name: e.prospects?.name,
@@ -255,10 +254,10 @@ export function createCommandCenterTools(supabase: SupabaseClient) {
             parameters: z.object({}),
             execute: async () => {
                 const { data: prospects } = await supabase.from('prospects').select('status, specialty');
-                const byStatus: Record<string, number> = {};
-                const bySpecialty: Record<string, number> = {};
+                const byStatus = {};
+                const bySpecialty = {};
 
-                prospects?.forEach((p: { status: string; specialty: string }) => {
+                prospects?.forEach((p) => {
                     byStatus[p.status] = (byStatus[p.status] || 0) + 1;
                     if (p.specialty) bySpecialty[p.specialty] = (bySpecialty[p.specialty] || 0) + 1;
                 });
@@ -316,7 +315,7 @@ export function createCommandCenterTools(supabase: SupabaseClient) {
             }),
             execute: async (args) => {
                 const { candidate_id, target_gross, take_home, notes } = args;
-                const updates: Record<string, number | string> = {};
+                const updates = {};
                 if (target_gross) updates.target_gross = target_gross;
                 if (take_home) updates.take_home = take_home;
                 if (notes) updates.negotiation_notes = notes;
@@ -401,7 +400,7 @@ export function createCommandCenterTools(supabase: SupabaseClient) {
                 const { candidate_id, name, certifications, profession } = args;
 
                 // Fetch candidate data if ID or name provided
-                let candidateData: any = null;
+                let candidateData = null;
                 if (candidate_id || name) {
                     let query = supabase.from('prospects').select('*');
                     if (candidate_id) query = query.eq('candidate_id', candidate_id);
@@ -411,7 +410,7 @@ export function createCommandCenterTools(supabase: SupabaseClient) {
                 }
 
                 // Fetch work history if we have a candidate
-                let workHistory: any[] = [];
+                let workHistory = [];
                 if (candidateData?.candidate_id) {
                     const { data: historyData } = await supabase
                         .from('work_history')
@@ -424,9 +423,9 @@ export function createCommandCenterTools(supabase: SupabaseClient) {
                 // Build profile for highlights generation
                 const profile = {
                     name: candidateData?.name || name || 'Unknown',
-                    certifications: certifications || (candidateData?.certifications as string[]) || [],
+                    certifications: certifications || (candidateData?.certifications) || [],
                     profession: profession || candidateData?.specialty || 'Healthcare Professional',
-                    workHistory: workHistory.map((w: any) => ({
+                    workHistory: workHistory.map((w) => ({
                         startMonth: new Date(w.start_date).getMonth() + 1 + '',
                         startYear: new Date(w.start_date).getFullYear() + '',
                         endMonth: w.end_date ? new Date(w.end_date).getMonth() + 1 + '' : '',
@@ -453,23 +452,23 @@ export function createCommandCenterTools(supabase: SupabaseClient) {
                     skills: candidateData?.skills || [],
                 };
 
-                // Generate highlights using inline logic (since we can't import the lib directly in Edge)
+                // Generate highlights using inline logic
                 const certs = profile.certifications;
                 const history = profile.workHistory;
 
                 const titleLine = certs.length > 0 ? certs.join(' | ') : (history[0]?.positionHeld || profile.profession);
 
-                const specialties = [...new Set(history.map((h: any) => h.unitSpecialty).filter(Boolean))];
+                const specialties = [...new Set(history.map((h) => h.unitSpecialty).filter(Boolean))];
                 const experienceLine = specialties.length > 0
                     ? `Experience in ${specialties.slice(0, 2).join(', ')}`
                     : 'Healthcare experience';
 
-                const ratios = history.map((h: any) => h.nursePatientRatio).filter(Boolean);
+                const ratios = history.map((h) => h.nursePatientRatio).filter(Boolean);
                 const ratioLine = ratios.length > 0 ? `Comfortable with ${ratios[0]} Patient Ratios` : null;
 
                 const proficiencies = ['Patient Intake', 'Vitals Monitoring', 'Acute Care Settings'];
 
-                const chartingSystems = [...new Set(history.map((h: any) => h.chartingSystem).filter(Boolean))];
+                const chartingSystems = [...new Set(history.map((h) => h.chartingSystem).filter(Boolean))];
                 const chartingLine = chartingSystems.length > 0 ? `Proficient in: ${chartingSystems.join(', ')}` : null;
 
                 const tenureLine = history[0]?.currentlyWorking
@@ -552,7 +551,7 @@ export function createCommandCenterTools(supabase: SupabaseClient) {
                 return {
                     action: 'CANDIDATE_DNA_UPDATED',
                     candidate_id,
-                    updated_fields: Object.keys(updateData).filter(k => updateData[k as keyof typeof updateData] !== undefined),
+                    updated_fields: Object.keys(updateData).filter(k => updateData[k] !== undefined),
                     message: `Successfully updated DNA for candidate ${candidate_id}`
                 };
             },

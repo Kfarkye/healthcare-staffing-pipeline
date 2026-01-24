@@ -56,7 +56,7 @@ class AIServiceClass {
         const messages = [
             ...safeHistory.map(msg => ({
                 role: msg.role === 'model' ? 'assistant' : msg.role,
-                content: msg.parts?.[0]?.text || msg.parts?.[0]?.content || '',
+                content: msg.parts?.[0]?.text || '',
             })),
             { role: 'user', content: message }
         ];
@@ -93,8 +93,7 @@ class AIServiceClass {
             }
         }
 
-        // Parse the streamed response - AI SDK streams data prefixed with "0:", "8:", etc.
-        // Extract the text content from the stream
+        // Parse the streamed response - AI SDK streams data prefixed with "0:", "2:", etc.
         const textContent = fullText
             .split('\n')
             .filter(line => line.startsWith('0:'))
@@ -109,13 +108,15 @@ class AIServiceClass {
 
         // Build updated history
         const newHistory: ChatMessage[] = [
-            ...history,
+            ...safeHistory,
             { role: 'user', parts: [{ text: message }], metadata },
             { role: 'model', parts: [{ text: textContent }] }
         ];
 
         return { text: textContent, history: newHistory };
     }
+
+
     async sendResearchQuery(message: string, history: ChatMessage[] = []): Promise<any> {
         const { data, error } = await supabase.functions.invoke('research-chat', {
             body: {

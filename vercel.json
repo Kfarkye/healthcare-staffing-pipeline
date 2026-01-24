@@ -1,8 +1,7 @@
 {
-  "rewrites": [
-    {
-      "source": "/api/chat/command-center",
-      "destination": "/api/chat/command-center/index"
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "@vercel/node@3"
     }
-  ]
+  }
 }
