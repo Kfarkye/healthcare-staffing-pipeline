@@ -12,6 +12,7 @@ export function createCommandCenterTools(supabase) {
         search_prospects: tool({
             description: 'Search for NEW candidates (prospects) who are not yet on assignment. For active travelers or anyone currently working, use search_all_candidates instead.',
             parameters: z.object({
+                query: z.string().describe('Search query - can be specialty, home state, status, or name'),
                 specialty: z.string().optional().describe('Filter by specialty (e.g., RN, LPN)'),
                 home_state: z.string().optional().describe('Filter by home state'),
                 status: z.enum(['New', 'Contacted', 'Interested', 'Passive', 'Rotation']).optional(),
@@ -135,7 +136,9 @@ export function createCommandCenterTools(supabase) {
         // ============================================================================
         list_email_templates: tool({
             description: 'List available communication templates.',
-            parameters: z.object({}),
+            parameters: z.object({
+                category: z.string().optional().describe('Optional category filter: active, prospect, or retention'),
+            }),
             execute: async () => {
                 const { data, error } = await supabase
                     .from('communication_templates')
@@ -251,7 +254,9 @@ export function createCommandCenterTools(supabase) {
         // ============================================================================
         get_pipeline_brief: tool({
             description: 'Get an executive summary of the entire candidate pipeline (counts by status/specialty).',
-            parameters: z.object({}),
+            parameters: z.object({
+                include_details: z.boolean().optional().describe('Include detailed breakdown'),
+            }),
             execute: async () => {
                 const { data: prospects } = await supabase.from('prospects').select('status, specialty');
                 const byStatus = {};
