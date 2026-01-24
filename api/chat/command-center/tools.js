@@ -2,194 +2,325 @@ import { tool } from 'ai';
 import { z } from 'zod';
 
 /**
- * Creates all Command Center tools with Supabase client injected
+ * Command Center Tools
+ * 
+ * Architecture Notes:
+ * - All tools use `inputSchema` (Zod) per Vercel AI SDK docs
+ * - `strict: true` enforces schema validation at provider level
+ * - Descriptions follow Google best practices: action verb + context + examples
+ * 
+ * @see https://sdk.vercel.ai/docs/ai-sdk-core/tools-and-tool-calling
+ * @see https://ai.google.dev/gemini-api/docs/function-calling#best-practices
  */
 export function createCommandCenterTools(supabase) {
     return {
         // ============================================================================
-        // DEBUG TOOLS
+        // DIAGNOSTIC TOOLS
         // ============================================================================
+
+        /**
+         * System diagnostic tool for debugging data visibility issues.
+         * Should be called when searches return unexpected empty results.
+         */
         debug_system: tool({
-            description: 'Debug tool to check database connection, auth status, and table counts. Use this if searches return unexpected empty results.',
-            parameters: z.object({}),
+            description: 'Run a system diagnostic to check database connectivity and table row counts. Use this tool when searches return no results unexpectedly, to determine if the issue is data availability or query logic.',
+            inputSchema: z.object({}),
+            strict: true,
             execute: async () => {
-                // Check connectivity and row counts
-                const { count: pCount, error: pErr } = await supabase.from('prospects').select('*', { count: 'exact', head: true });
-                const { count: cCount, error: cErr } = await supabase.from('travel_candidates').select('*', { count: 'exact', head: true });
-                const { count: tCount, error: tErr } = await supabase.from('communication_templates').select('*', { count: 'exact', head: true });
+                const [prospects, travelers, templates] = await Promise.all([
+                    supabase.from('prospects').select('*', { count: 'exact', head: true }),
+                    supabase.from('travel_candidates').select('*', { count: 'exact', head: true }),
+                    supabase.from('communication_templates').select('*', { count: 'exact', head: true }),
+                ]);
 
                 return {
-                    status: 'debug_complete',
+                    status: 'diagnostic_complete',
                     counts: {
-                        prospects: pCount,
-                        travel_candidates: cCount,
-                        templates: tCount
+                        prospects: prospects.count ?? 0,
+                        travel_candidates: travelers.count ?? 0,
+                        communication_templates: templates.count ?? 0,
                     },
                     errors: {
-                        prospects: pErr?.message,
-                        travel_candidates: cErr?.message,
-                        templates: tErr?.message
+                        prospects: prospects.error?.message ?? null,
+                        travel_candidates: travelers.error?.message ?? null,
+                        communication_templates: templates.error?.message ?? null,
                     },
-                    service_role_check: 'Service Role Key Used'
                 };
-            }
+            },
         }),
 
         // ============================================================================
-        // PROSPECT TOOLS
+        // CANDIDATE SEARCH TOOLS
         // ============================================================================
-        search_prospects: tool({
-            description: 'Search for NEW candidates (prospects) who are not yet on assignment. For active travelers or anyone currently working, use search_all_candidates instead.',
-            parameters: z.object({
-                query: z.string().describe('Search query - can be specialty, home state, status, or name'),
-                specialty: z.string().optional().describe('Filter by specialty (e.g., RN, LPN)'),
-                home_state: z.string().optional().describe('Filter by home state'),
-                status: z.enum(['New', 'Contacted', 'Interested', 'Passive', 'Rotation']).optional(),
-                name_contains: z.string().optional().describe('Search by name'),
+
+        /**
+         * Unified search across all candidate sources.
+         * This is the PRIMARY search tool - use it first for any name lookup.
+         */
+        search_all_candidates: tool({
+            description: 'Search for a candidate by name across ALL sources (prospects AND active travelers). This is the DEFAULT tool for finding any person. Returns matches from both the prospect pipeline and currently working travelers.',
+            inputSchema: z.object({
+                name: z.string().min(1).describe('The candidate name to search for (partial match supported, e.g., "John" or "Smith")'),
             }),
-            execute: async (args) => {
-                const { specialty, home_state, status, name_contains } = args;
-                let query = supabase.from('prospects').select('id, candidate_id, name, specialty, home_state, status, email, phone, nova_url').limit(20);
+            strict: true,
+            execute: async ({ name }) => {
+                // Parallel queries for performance
+                const [prospectsResult, travelersResult] = await Promise.all([
+                    supabase
+                        .from('prospects')
+                        .select('id, candidate_id, name, specialty, home_state, status, email, phone, nova_url')
+                        .ilike('name', `%${name}%`)
+                        .limit(10),
+                    supabase
+                        .from('travel_candidates')
+                        .select('id, candidate_id, candidate_name, email, cell_phone, facility, start_date, end_date, contract_status')
+                        .ilike('candidate_name', `%${name}%`)
+                        .limit(10),
+                ]);
+
+                const prospects = (prospectsResult.data ?? []).map(p => ({
+                    ...p,
+                    source: 'prospect',
+                }));
+
+                const activeTravelers = (travelersResult.data ?? []).map(t => ({
+                    candidate_id: t.candidate_id,
+                    name: t.candidate_name,
+                    email: t.email,
+                    phone: t.cell_phone,
+                    facility_name: t.facility,
+                    start_date: t.start_date,
+                    end_date: t.end_date,
+                    status: t.contract_status,
+                    source: 'active_traveler',
+                }));
+
+                const totalFound = prospects.length + activeTravelers.length;
+
+                if (prospectsResult.error || travelersResult.error) {
+                    return {
+                        error: prospectsResult.error?.message || travelersResult.error?.message,
+                        partial_results: { prospects, active_travelers: activeTravelers, total_found: totalFound },
+                    };
+                }
+
+                return {
+                    prospects,
+                    active_travelers: activeTravelers,
+                    total_found: totalFound,
+                    message: totalFound === 0
+                        ? `No candidates found matching "${name}". Try a different spelling or use debug_system to verify data availability.`
+                        : `Found ${totalFound} candidate(s) matching "${name}".`,
+                };
+            },
+        }),
+
+        /**
+         * Search specifically within the prospect pipeline (new/unconverted leads).
+         */
+        search_prospects: tool({
+            description: 'Search the prospect pipeline for NEW candidates who are NOT yet on assignment. Use this for filtering by specialty, status, or home state. For general name lookups, use search_all_candidates instead.',
+            inputSchema: z.object({
+                name: z.string().optional().describe('Filter by name (partial match)'),
+                specialty: z.string().optional().describe('Filter by clinical specialty (e.g., "ICU", "Med Surg", "ER")'),
+                home_state: z.string().optional().describe('Filter by home state (e.g., "CA", "TX")'),
+                status: z.enum(['New', 'Contacted', 'Interested', 'Passive', 'Rotation']).optional().describe('Filter by pipeline status'),
+            }),
+            strict: true,
+            execute: async ({ name, specialty, home_state, status }) => {
+                let query = supabase
+                    .from('prospects')
+                    .select('id, candidate_id, name, specialty, home_state, status, email, phone, nova_url');
+
+                if (name) query = query.ilike('name', `%${name}%`);
                 if (specialty) query = query.ilike('specialty', `%${specialty}%`);
                 if (home_state) query = query.ilike('home_state', `%${home_state}%`);
                 if (status) query = query.eq('status', status);
-                if (name_contains) query = query.ilike('name', `%${name_contains}%`);
-                const { data, error } = await query;
-                return error ? { error: error.message } : { prospects: data, count: data?.length || 0 };
-            },
-        }),
 
-        // Unified search across prospects AND active travelers
-        search_all_candidates: tool({
-            description: 'Search for ANY candidate by name - searches both prospects (new candidates) AND active travelers. Use this as the DEFAULT search when looking up a person by name.',
-            parameters: z.object({
-                name: z.string().describe('Name to search for'),
-            }),
-            execute: async (args) => {
-                const { name } = args;
+                const { data, error } = await query.limit(20);
 
-                // Search prospects
-                const { data: prospects, error: pErr } = await supabase
-                    .from('prospects')
-                    .select('id, candidate_id, name, specialty, home_state, status, email, phone, nova_url')
-                    .ilike('name', `%${name}%`)
-                    .limit(10);
+                if (error) return { error: error.message };
 
-                // Search active travelers via travel_candidates table
-                const { data: travelers, error: tErr } = await supabase
-                    .from('travel_candidates')
-                    .select('id, candidate_id, candidate_name, email, cell_phone, facility, specialty, start_date, end_date, contract_status, bill_rate')
-                    .ilike('candidate_name', `%${name}%`)
-                    .limit(10);
-
-                const results = {
-                    prospects: prospects || [],
-                    active_travelers: (travelers || []).map((t) => ({
-                        candidate_id: t.candidate_id,
-                        name: t.candidate_name,
-                        email: t.email,
-                        phone: t.cell_phone,
-                        specialty: t.specialty,
-                        facility_name: t.facility,
-                        start_date: t.start_date,
-                        end_date: t.end_date,
-                        status: t.contract_status,
-                        bill_rate: t.bill_rate,
-                        source: 'active_traveler'
-                    })),
-                    total_found: (prospects?.length || 0) + (travelers?.length || 0)
+                return {
+                    prospects: data ?? [],
+                    count: data?.length ?? 0,
+                    message: data?.length === 0
+                        ? 'No prospects found matching the specified criteria.'
+                        : `Found ${data.length} prospect(s).`,
                 };
-
-                if (pErr || tErr) {
-                    return { error: pErr?.message || tErr?.message, partial_results: results };
-                }
-
-                return results;
             },
         }),
 
+        /**
+         * Search the active traveler list (currently on assignment).
+         */
+        search_travel_list: tool({
+            description: 'Search the working traveler list for candidates currently on assignment. Use this to find extension candidates, check contract end dates, or filter by facility. Returns active travelers only.',
+            inputSchema: z.object({
+                name: z.string().optional().describe('Filter by candidate name'),
+                facility: z.string().optional().describe('Filter by facility name'),
+                ending_soon: z.boolean().optional().describe('Set to true to filter to contracts ending within 30 days'),
+            }),
+            strict: true,
+            execute: async ({ name, facility, ending_soon }) => {
+                let query = supabase.from('travel_candidates').select('*');
 
+                if (name) query = query.ilike('candidate_name', `%${name}%`);
+                if (facility) query = query.ilike('facility', `%${facility}%`);
+                if (ending_soon) {
+                    const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                    query = query.lte('end_date', thirtyDaysOut);
+                }
+
+                const { data, error } = await query.limit(20);
+
+                if (error) return { error: error.message };
+
+                return {
+                    travelers: data ?? [],
+                    count: data?.length ?? 0,
+                    message: data?.length === 0
+                        ? 'No active travelers found matching the criteria.'
+                        : `Found ${data.length} active traveler(s).`,
+                };
+            },
+        }),
+
+        /**
+         * Get detailed profile for a specific candidate.
+         */
         get_prospect_details: tool({
-            description: 'Get full profile for a specific candidate.',
-            parameters: z.object({
-                candidate_id: z.number().optional(),
-                name: z.string().optional(),
+            description: 'Retrieve the full profile for a specific candidate by their candidate_id or name. Searches both prospects and active travelers. Use this after search_all_candidates to get complete details.',
+            inputSchema: z.object({
+                candidate_id: z.number().optional().describe('The numeric candidate ID (Nova ID)'),
+                name: z.string().optional().describe('The candidate name to search for'),
             }),
-            execute: async (args) => {
-                const { candidate_id, name } = args;
-
-                // Try finding in prospects first
-                let query = supabase.from('prospects').select('*');
-                if (candidate_id) query = query.eq('candidate_id', candidate_id);
-                else if (name) query = query.ilike('name', `%${name}%`);
-
-                const { data: prospect, error: pError } = await query.maybeSingle();
-
-                if (prospect) return prospect;
-
-                // Fallback: Try travel_candidates if not in prospects
-                if (candidate_id || name) {
-                    let tcQuery = supabase.from('travel_candidates').select('*');
-                    if (candidate_id) tcQuery = tcQuery.eq('candidate_id', candidate_id);
-                    else if (name) tcQuery = tcQuery.ilike('candidate_name', `%${name}%`);
-
-                    const { data: traveler, error: tError } = await tcQuery.maybeSingle();
-                    if (traveler) return { ...traveler, name: traveler.candidate_name, status: 'Active (Traveler)', specialty: traveler.cs || traveler.specialty || traveler.primary_specialty };
+            strict: true,
+            execute: async ({ candidate_id, name }) => {
+                if (!candidate_id && !name) {
+                    return { error: 'Either candidate_id or name must be provided.' };
                 }
 
-                return { message: 'Not found in prospects or active travelers.' };
+                // Try prospects first
+                let prospectQuery = supabase.from('prospects').select('*');
+                if (candidate_id) prospectQuery = prospectQuery.eq('candidate_id', candidate_id);
+                else if (name) prospectQuery = prospectQuery.ilike('name', `%${name}%`);
+
+                const { data: prospect } = await prospectQuery.maybeSingle();
+                if (prospect) {
+                    return { ...prospect, source: 'prospect' };
+                }
+
+                // Fallback to travel_candidates
+                let travelerQuery = supabase.from('travel_candidates').select('*');
+                if (candidate_id) travelerQuery = travelerQuery.eq('candidate_id', candidate_id);
+                else if (name) travelerQuery = travelerQuery.ilike('candidate_name', `%${name}%`);
+
+                const { data: traveler } = await travelerQuery.maybeSingle();
+                if (traveler) {
+                    return {
+                        ...traveler,
+                        name: traveler.candidate_name,
+                        source: 'active_traveler',
+                    };
+                }
+
+                return { message: 'Candidate not found in prospects or active travelers.' };
             },
         }),
 
+        // ============================================================================
+        // PROSPECT MANAGEMENT TOOLS
+        // ============================================================================
+
+        /**
+         * Add a new prospect to the pipeline.
+         */
         add_prospect: tool({
-            description: "Add a new candidate/prospect to the database. Use this when the user explicitly asks to 'add' or 'create' a new person.",
-            parameters: z.object({
-                name: z.string().describe('Full name of the candidate'),
-                specialty: z.string().optional().describe('e.g., RN, LPN, CNA'),
-                home_state: z.string().optional(),
-                email: z.string().optional(),
-                phone: z.string().optional(),
-                notes: z.string().optional().describe('Initial notes or context'),
-                candidate_id: z.number().optional().describe('External Candidate ID from Nova'),
-                nova_url: z.string().optional().describe('Full Nova profile URL'),
+            description: 'Create a new prospect record in the pipeline. Use this when the user explicitly asks to add or create a new candidate. Requires at minimum a name.',
+            inputSchema: z.object({
+                name: z.string().min(1).describe('Full name of the candidate (required)'),
+                specialty: z.string().optional().describe('Clinical specialty (e.g., "RN", "LPN", "CNA")'),
+                home_state: z.string().optional().describe('Home state abbreviation (e.g., "CA")'),
+                email: z.string().email().optional().describe('Email address'),
+                phone: z.string().optional().describe('Phone number'),
+                notes: z.string().optional().describe('Initial notes or context about this candidate'),
+                candidate_id: z.number().optional().describe('External Nova candidate ID if known'),
+                nova_url: z.string().url().optional().describe('Full Nova profile URL'),
             }),
-            execute: async (args) => {
-                const { name, specialty, home_state, email, phone, notes, candidate_id, nova_url } = args;
-                const { data, error } = await supabase.from('prospects').insert({
-                    name, specialty, home_state, email, phone, notes, status: 'New',
-                    candidate_id: candidate_id || Math.floor(Date.now() / 1000),
-                    nova_url: nova_url
-                }).select().single();
-                return error ? { error: error.message } : { action: 'PROSPECT_ADDED', prospect: data };
+            strict: true,
+            execute: async ({ name, specialty, home_state, email, phone, notes, candidate_id, nova_url }) => {
+                const { data, error } = await supabase
+                    .from('prospects')
+                    .insert({
+                        name,
+                        specialty,
+                        home_state,
+                        email,
+                        phone,
+                        notes,
+                        status: 'New',
+                        candidate_id: candidate_id ?? Math.floor(Date.now() / 1000),
+                        nova_url,
+                    })
+                    .select()
+                    .single();
+
+                if (error) return { error: error.message };
+
+                return {
+                    action: 'PROSPECT_ADDED',
+                    prospect: data,
+                    message: `Successfully added ${name} to the prospect pipeline.`,
+                };
             },
         }),
 
         // ============================================================================
-        // TEMPLATE TOOLS
+        // COMMUNICATION TEMPLATE TOOLS
         // ============================================================================
+
+        /**
+         * List available email/SMS templates.
+         */
         list_email_templates: tool({
-            description: 'List available communication templates.',
-            parameters: z.object({
-                category: z.string().optional().describe('Optional category filter: active, prospect, or retention'),
+            description: 'Retrieve a list of all available communication templates (email, SMS). Use this to show the user what templates are available before drafting a message.',
+            inputSchema: z.object({
+                category: z.enum(['active', 'prospect', 'retention']).optional().describe('Filter by template category'),
             }),
-            execute: async () => {
-                const { data, error } = await supabase
+            strict: true,
+            execute: async ({ category }) => {
+                let query = supabase
                     .from('communication_templates')
                     .select('name, category, description')
                     .eq('is_active', true)
                     .order('category');
-                return error ? { error: error.message } : (data?.length ? { templates: data } : { message: 'No templates found.' });
+
+                if (category) query = query.eq('category', category);
+
+                const { data, error } = await query;
+
+                if (error) return { error: error.message };
+                if (!data?.length) return { message: 'No templates found.' };
+
+                return {
+                    templates: data,
+                    count: data.length,
+                };
             },
         }),
 
+        /**
+         * Retrieve a specific template with its content.
+         */
         get_template: tool({
-            description: 'Retrieve a specific communication template by category and name.',
-            parameters: z.object({
-                category: z.enum(['active', 'prospect', 'retention']).describe('Template category'),
-                template_name: z.string().describe('Template name (e.g., extension_request, cold_outreach)'),
+            description: 'Retrieve the full content of a specific communication template by category and name. Use this to get the subject line and body text for drafting messages.',
+            inputSchema: z.object({
+                category: z.enum(['active', 'prospect', 'retention']).describe('The template category'),
+                template_name: z.string().describe('The template name (e.g., "extension_request", "cold_outreach")'),
             }),
-            execute: async (args) => {
-                const { category, template_name } = args;
+            strict: true,
+            execute: async ({ category, template_name }) => {
                 const { data, error } = await supabase
                     .from('communication_templates')
                     .select('subject_template, body_template, required_variables, description')
@@ -197,8 +328,10 @@ export function createCommandCenterTools(supabase) {
                     .eq('name', template_name)
                     .eq('is_active', true)
                     .maybeSingle();
+
                 if (error) return { error: error.message };
-                if (!data) return { error: `Template '${template_name}' not found in category '${category}'.` };
+                if (!data) return { error: `Template "${template_name}" not found in category "${category}".` };
+
                 return {
                     action: 'TEMPLATE_RETRIEVED',
                     template: {
@@ -207,24 +340,47 @@ export function createCommandCenterTools(supabase) {
                         required_variables: data.required_variables,
                         description: data.description,
                     },
-                    instructions: 'Populate the {{placeholders}} using data from search_travel_list or get_prospect_details tools. Do NOT ask the user for data you can look up.',
+                    instructions: 'Replace {{placeholders}} with actual candidate data. Use get_prospect_details to look up any missing information.',
                 };
             },
         }),
 
-        draft_email: tool({
-            description: 'Draft an email using a template.',
-            parameters: z.object({
-                template_id: z.string(),
-                candidate_data: z.record(z.string(), z.any()).describe('Key-value pairs for template placeholders'),
-            }),
-            execute: async (args) => {
-                const { template_id, candidate_data } = args;
+        // ============================================================================
+        // PIPELINE ANALYTICS TOOLS
+        // ============================================================================
+
+        /**
+         * Get executive pipeline summary.
+         */
+        get_pipeline_brief: tool({
+            description: 'Generate an executive summary of the current candidate pipeline. Returns counts by status and specialty. Use this for "give me a pipeline brief" or "how many candidates do we have" requests.',
+            inputSchema: z.object({}),
+            strict: true,
+            execute: async () => {
+                const { data: prospects, error } = await supabase
+                    .from('prospects')
+                    .select('status, specialty');
+
+                if (error) return { error: error.message };
+                if (!prospects?.length) {
+                    return { message: 'No prospects in the pipeline.', total: 0, by_status: {}, by_specialty: {} };
+                }
+
+                const byStatus = {};
+                const bySpecialty = {};
+
+                prospects.forEach(p => {
+                    byStatus[p.status] = (byStatus[p.status] || 0) + 1;
+                    if (p.specialty) {
+                        bySpecialty[p.specialty] = (bySpecialty[p.specialty] || 0) + 1;
+                    }
+                });
+
                 return {
-                    action: 'EMAIL_DRAFTED',
-                    template_id,
-                    data: candidate_data,
-                    instructions: 'Use get_template to fetch the template, then replace placeholders with the provided data.',
+                    action: 'PIPELINE_BRIEF',
+                    total: prospects.length,
+                    by_status: byStatus,
+                    by_specialty: bySpecialty,
                 };
             },
         }),
@@ -232,369 +388,137 @@ export function createCommandCenterTools(supabase) {
         // ============================================================================
         // PAY CALCULATION TOOLS
         // ============================================================================
-        calculate_pay: tool({
-            description: 'Calculate weekly gross pay breakdown.',
-            parameters: z.object({
-                target_gross: z.number().describe('Target weekly gross pay'),
-                state: z.string().describe('Work state'),
-                city: z.string().describe('Work city'),
-                specialty: z.string().optional(),
-                hours: z.number().optional().default(36),
-            }),
-            execute: async (args) => {
-                const { target_gross, state, city, specialty, hours } = args;
-                const { data, error } = await supabase.rpc('calculate_pay_package', {
-                    p_target_gross: target_gross,
-                    p_hours_per_week: hours || 36,
-                    p_state: state.toUpperCase(),
-                    p_city: city,
-                    p_profession: 'RN',
-                    p_specialty: specialty || 'General',
-                    p_job_id: 'generated',
-                });
-                if (error) return { error: error.message };
-                return { action: 'PAY_BREAKDOWN', data: { ...data, hours: hours || 36, specialty } };
-            },
-        }),
 
+        /**
+         * Calculate GSA-compliant pay package.
+         */
         calculate_pay_package: tool({
-            description: 'Calculate official GSA-compliant pay package from Target Gross.',
-            parameters: z.object({
-                target_gross: z.number(),
-                state: z.string(),
-                city: z.string(),
-                specialty: z.string().optional(),
-                hours: z.number().optional().default(36),
+            description: 'Calculate a GSA-compliant pay package breakdown from a target weekly gross. Returns hourly rate, stipends, and take-home estimates.',
+            inputSchema: z.object({
+                target_gross: z.number().positive().describe('Target weekly gross pay in dollars'),
+                state: z.string().length(2).describe('Work state abbreviation (e.g., "CA", "TX")'),
+                city: z.string().describe('City name for GSA rate lookup'),
+                hours: z.number().positive().optional().default(36).describe('Hours per week (default: 36)'),
+                specialty: z.string().optional().describe('Clinical specialty for rate adjustments'),
             }),
-            execute: async (args) => {
-                const { target_gross, state, city, specialty, hours } = args;
+            strict: true,
+            execute: async ({ target_gross, state, city, hours, specialty }) => {
                 const { data, error } = await supabase.rpc('calculate_pay_package', {
                     p_target_gross: target_gross,
-                    p_hours_per_week: hours || 36,
+                    p_hours_per_week: hours ?? 36,
                     p_state: state.toUpperCase(),
                     p_city: city,
                     p_profession: 'RN',
-                    p_specialty: specialty || 'General',
+                    p_specialty: specialty ?? 'General',
                     p_job_id: 'generated',
                 });
+
                 if (error) return { error: error.message };
-                return { action: 'PAY_PACKAGE', breakdown: data };
+
+                return {
+                    action: 'PAY_PACKAGE_CALCULATED',
+                    breakdown: data,
+                    parameters: { target_gross, state, city, hours: hours ?? 36, specialty },
+                };
             },
         }),
 
         // ============================================================================
-        // PIPELINE & UI TOOLS
+        // FOLLOW-UP & SCHEDULING TOOLS
         // ============================================================================
-        get_pipeline_brief: tool({
-            description: 'Get an executive summary of the entire candidate pipeline (counts by status/specialty).',
-            parameters: z.object({
-                include_details: z.boolean().optional().describe('Include detailed breakdown'),
-            }),
-            execute: async () => {
-                const { data: prospects } = await supabase.from('prospects').select('status, specialty');
-                const byStatus = {};
-                const bySpecialty = {};
 
-                prospects?.forEach((p) => {
-                    byStatus[p.status] = (byStatus[p.status] || 0) + 1;
-                    if (p.specialty) bySpecialty[p.specialty] = (bySpecialty[p.specialty] || 0) + 1;
-                });
-
-                return { action: 'PIPELINE_BRIEF', total: prospects?.length || 0, by_status: byStatus, by_specialty: bySpecialty };
-            },
-        }),
-
-        set_ui_state: tool({
-            description: 'Update the dashboard UI state (filter by specialty, status, or search).',
-            parameters: z.object({
-                filter_specialty: z.string().optional(),
-                filter_status: z.string().optional(),
-                search_query: z.string().optional(),
-                sort_by: z.string().optional(),
-                view_mode: z.enum(['grid', 'list', 'kanban']).optional(),
-                cleared_status: z.string().optional().describe('Filter by compliance status'),
-            }),
-            execute: async (args) => {
-                return { action: 'SET_UI_STATE', state: args };
-            },
-        }),
-
-        // ============================================================================
-        // FOLLOW-UP & NEGOTIATION TOOLS
-        // ============================================================================
+        /**
+         * Schedule a follow-up for a candidate.
+         */
         create_follow_up: tool({
-            description: 'Schedule a follow-up for a candidate.',
-            parameters: z.object({
-                candidate_id: z.number(),
-                scheduled_date: z.string().describe('ISO date string'),
-                follow_up_type: z.enum(['active', 'rotation']),
-                notes: z.string().optional(),
+            description: 'Schedule a follow-up task for a specific candidate. Creates a reminder in the system for the specified date.',
+            inputSchema: z.object({
+                candidate_id: z.number().describe('The prospect/candidate ID to follow up with'),
+                scheduled_date: z.string().describe('The follow-up date in ISO format (e.g., "2026-01-30")'),
+                follow_up_type: z.enum(['active', 'rotation']).describe('Type of follow-up'),
+                notes: z.string().optional().describe('Notes or context for the follow-up'),
             }),
-            execute: async (args) => {
-                const { candidate_id, scheduled_date, follow_up_type, notes } = args;
-                const { data, error } = await supabase.from('follow_ups').insert({
-                    prospect_id: candidate_id,
-                    scheduled_date,
-                    follow_up_type,
-                    notes,
-                    status: 'pending',
-                }).select().single();
-                return error ? { error: error.message } : { action: 'FOLLOW_UP_CREATED', follow_up: data };
-            },
-        }),
+            strict: true,
+            execute: async ({ candidate_id, scheduled_date, follow_up_type, notes }) => {
+                const { data, error } = await supabase
+                    .from('follow_ups')
+                    .insert({
+                        prospect_id: candidate_id,
+                        scheduled_date,
+                        follow_up_type,
+                        notes,
+                        status: 'pending',
+                    })
+                    .select()
+                    .single();
 
-        update_negotiation: tool({
-            description: 'Update candidate negotiation details (target gross, take home, etc.).',
-            parameters: z.object({
-                candidate_id: z.number(),
-                target_gross: z.number().optional(),
-                take_home: z.number().optional(),
-                notes: z.string().optional(),
-            }),
-            execute: async (args) => {
-                const { candidate_id, target_gross, take_home, notes } = args;
-                const updates = {};
-                if (target_gross) updates.target_gross = target_gross;
-                if (take_home) updates.take_home = take_home;
-                if (notes) updates.negotiation_notes = notes;
-                const { data, error } = await supabase.from('prospects').update(updates).eq('id', candidate_id).select().single();
-                return error ? { error: error.message } : { action: 'NEGOTIATION_UPDATED', prospect: data };
-            },
-        }),
+                if (error) return { error: error.message };
 
-        save_certification: tool({
-            description: 'Save a certification for a candidate.',
-            parameters: z.object({
-                candidate_id: z.number(),
-                cert_name: z.string(),
-                expiration_date: z.string().optional(),
-                is_verified: z.boolean().optional(),
-            }),
-            execute: async (args) => {
-                const { candidate_id, cert_name, expiration_date, is_verified } = args;
-                const { data, error } = await supabase.from('certifications').insert({
-                    prospect_id: candidate_id,
-                    name: cert_name,
-                    expiration_date,
-                    is_verified: is_verified || false,
-                }).select().single();
-                return error ? { error: error.message } : { action: 'CERTIFICATION_SAVED', certification: data };
+                return {
+                    action: 'FOLLOW_UP_CREATED',
+                    follow_up: data,
+                    message: `Follow-up scheduled for ${scheduled_date}.`,
+                };
             },
         }),
 
         // ============================================================================
-        // KNOWLEDGE & SEARCH TOOLS
+        // KNOWLEDGE BASE TOOLS
         // ============================================================================
+
+        /**
+         * Search the internal knowledge base.
+         */
         search_knowledge: tool({
-            description: 'Search the internal knowledge base for policies, FAQs, benefits info.',
-            parameters: z.object({
-                query: z.string(),
-                category: z.enum(['benefits', 'faq', 'policies']).optional(),
+            description: 'Search the internal knowledge base for policies, FAQs, benefits information, and company guidelines. Use this when the user asks about Aya policies or benefits.',
+            inputSchema: z.object({
+                query: z.string().min(1).describe('The search query (e.g., "health insurance", "PTO policy")'),
+                category: z.enum(['benefits', 'faq', 'policies']).optional().describe('Filter by knowledge category'),
             }),
-            execute: async (args) => {
-                const { query, category } = args;
-                let q = supabase.from('knowledge_base').select('*').or(`title.ilike.%${query}%,content.ilike.%${query}%`).limit(5);
-                if (category) q = q.eq('category', category);
-                const { data, error } = await q;
-                return error ? { error: error.message } : (data?.length ? { results: data } : { message: 'No relevant knowledge found.' });
-            },
-        }),
+            strict: true,
+            execute: async ({ query, category }) => {
+                let dbQuery = supabase
+                    .from('knowledge_base')
+                    .select('*')
+                    .or(`title.ilike.%${query}%,content.ilike.%${query}%`)
+                    .limit(5);
 
-        search_travel_list: tool({
-            description: 'Search the working traveler list (active assignments) for extension candidates.',
-            parameters: z.object({
-                name: z.string().optional(),
-                facility: z.string().optional(),
-                specialty: z.string().optional(),
-                ending_soon: z.boolean().optional().describe('Filter to contracts ending within 30 days'),
-            }),
-            execute: async (args) => {
-                const { name, facility, specialty, ending_soon } = args;
-                let query = supabase.from('travel_candidates').select('*');
+                if (category) dbQuery = dbQuery.eq('category', category);
 
-                if (name) query = query.ilike('candidate_name', `%${name}%`);
-                if (facility) query = query.ilike('facility', `%${facility}%`);
-                if (specialty) query = query.ilike('cs', `%${specialty}%`); // Trying 'cs' based on schema, or we can use specialty column if exists in view
+                const { data, error } = await dbQuery;
 
-                if (ending_soon) {
-                    const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                    query = query.lte('end_date', thirtyDaysOut);
-                }
-
-                const { data, error } = await query.limit(20);
-
-                return error ? { error: error.message } : { travelers: data, count: data?.length || 0 };
-            },
-        }),
-
-        // ============================================================================
-        // SUBMITTAL HIGHLIGHTS TOOL
-        // ============================================================================
-        generate_submittal_highlights: tool({
-            description: 'Generate a formatted "Submittal Highlights" summary for a candidate. Use this when the user asks to create or draft submittal highlights, a candidate brief, or a profile summary.',
-            parameters: z.object({
-                candidate_id: z.number().optional().describe('Candidate ID to look up'),
-                name: z.string().optional().describe('Candidate name to search for'),
-                certifications: z.array(z.string()).optional().describe('Override certifications list'),
-                profession: z.string().optional().describe('Profession type (e.g., RN, CMA, SPT)'),
-            }),
-            execute: async (args) => {
-                const { candidate_id, name, certifications, profession } = args;
-
-                // Fetch candidate data if ID or name provided
-                let candidateData = null;
-                if (candidate_id || name) {
-                    let query = supabase.from('prospects').select('*');
-                    if (candidate_id) query = query.eq('candidate_id', candidate_id);
-                    else if (name) query = query.ilike('name', `%${name}%`);
-                    const { data } = await query.maybeSingle();
-                    candidateData = data;
-                }
-
-                // Fetch work history if we have a candidate
-                let workHistory = [];
-                if (candidateData?.candidate_id) {
-                    const { data: historyData } = await supabase
-                        .from('work_history')
-                        .select('*')
-                        .eq('candidate_id', candidateData.candidate_id)
-                        .order('start_date', { ascending: false });
-                    workHistory = historyData || [];
-                }
-
-                // Build profile for highlights generation
-                const profile = {
-                    name: candidateData?.name || name || 'Unknown',
-                    certifications: certifications || (candidateData?.certifications) || [],
-                    profession: profession || candidateData?.specialty || 'Healthcare Professional',
-                    workHistory: workHistory.map((w) => ({
-                        startMonth: new Date(w.start_date).getMonth() + 1 + '',
-                        startYear: new Date(w.start_date).getFullYear() + '',
-                        endMonth: w.end_date ? new Date(w.end_date).getMonth() + 1 + '' : '',
-                        endYear: w.end_date ? new Date(w.end_date).getFullYear() + '' : '',
-                        currentlyWorking: !w.end_date,
-                        facility: w.facility || '',
-                        city: w.city || '',
-                        state: w.state || '',
-                        positionHeld: w.role || w.position || '',
-                        unitSpecialty: w.unit_specialty || w.specialty || '',
-                        employmentType: w.employment_type || 'Permanent',
-                        nursePatientRatio: w.nurse_patient_ratio || '',
-                        chargeExperience: w.charge_experience || false,
-                        shift: w.shift || '',
-                        chartingSystem: w.charting_system || '',
-                        teachingFacility: w.teaching_facility || false,
-                        traumaFacility: w.trauma_facility || false,
-                        traumaLevel: w.trauma_level || '',
-                        magnetFacility: w.magnet_facility || false,
-                        facilityBeds: w.facility_beds || '',
-                        unitBeds: w.unit_beds || '',
-                        responsibilities: w.responsibilities || '',
-                    })),
-                    skills: candidateData?.skills || [],
-                };
-
-                // Generate highlights using inline logic
-                const certs = profile.certifications;
-                const history = profile.workHistory;
-
-                const titleLine = certs.length > 0 ? certs.join(' | ') : (history[0]?.positionHeld || profile.profession);
-
-                const specialties = [...new Set(history.map((h) => h.unitSpecialty).filter(Boolean))];
-                const experienceLine = specialties.length > 0
-                    ? `Experience in ${specialties.slice(0, 2).join(', ')}`
-                    : 'Healthcare experience';
-
-                const ratios = history.map((h) => h.nursePatientRatio).filter(Boolean);
-                const ratioLine = ratios.length > 0 ? `Comfortable with ${ratios[0]} Patient Ratios` : null;
-
-                const proficiencies = ['Patient Intake', 'Vitals Monitoring', 'Acute Care Settings'];
-
-                const chartingSystems = [...new Set(history.map((h) => h.chartingSystem).filter(Boolean))];
-                const chartingLine = chartingSystems.length > 0 ? `Proficient in: ${chartingSystems.join(', ')}` : null;
-
-                const tenureLine = history[0]?.currentlyWorking
-                    ? 'Currently active at facility'
-                    : 'Tenure information available on request';
-
-                // Build markdown
-                const lines = [
-                    `• **${titleLine}**`,
-                    `• ${experienceLine}`,
-                ];
-                if (ratioLine) lines.push(`• ${ratioLine}`);
-                lines.push(`• **Highly Proficient In:**`);
-                proficiencies.forEach(p => lines.push(`  - ${p}`));
-                if (chartingLine) lines.push(`• ${chartingLine}`);
-                lines.push(`• ${tenureLine}`);
-
-                const markdown = lines.join('\n');
+                if (error) return { error: error.message };
+                if (!data?.length) return { message: 'No relevant knowledge base articles found.' };
 
                 return {
-                    action: 'SUBMITTAL_HIGHLIGHTS_GENERATED',
-                    candidate_name: profile.name,
-                    highlights: markdown,
-                    raw: {
-                        titleLine,
-                        experienceLine,
-                        ratioLine,
-                        proficiencies,
-                        chartingLine,
-                        tenureLine,
-                    }
+                    results: data,
+                    count: data.length,
                 };
             },
         }),
 
         // ============================================================================
-        // CANDIDATE DNA TOOL
+        // UI STATE TOOLS
         // ============================================================================
-        update_candidate_dna: tool({
-            description: 'Update candidate DNA (Fact Sheet) from notes, text, or parsed data. Use when the user provides information about a candidate\'s skills, charting systems, patient ratios, certifications, or floating preferences.',
-            parameters: z.object({
-                candidate_id: z.number().describe('Candidate ID to update'),
-                title: z.string().optional().describe('Professional title (e.g., Certified Medical Assistant)'),
-                years_of_experience: z.number().optional().describe('Total years of experience'),
-                primary_specialty: z.string().optional().describe('Primary specialty area'),
-                secondary_specialties: z.array(z.string()).optional().describe('Secondary specialty areas'),
-                charting_systems: z.array(z.string()).optional().describe('Charting systems (e.g., Epic, Cerner)'),
-                max_patient_ratio: z.string().optional().describe('Max patient ratio (e.g., 1:4)'),
-                facility_types: z.array(z.string()).optional().describe('Facility types (e.g., Level I Trauma, Magnet)'),
-                skills_keywords: z.array(z.string()).optional().describe('Clinical skills keywords'),
-                willing_to_float: z.boolean().optional().describe('Willing to float between units'),
-                eligible_units: z.array(z.string()).optional().describe('Units eligible to float to'),
-                rto_history: z.string().optional().describe('RTO history/notes'),
-                update_source: z.string().optional().describe('Source of update (e.g., recruiter_note, resume)'),
+
+        /**
+         * Update dashboard UI state (filters, view mode).
+         */
+        set_ui_state: tool({
+            description: 'Update the dashboard UI state including filters, search query, and view mode. Use this when the user wants to change what they see in the dashboard.',
+            inputSchema: z.object({
+                filter_specialty: z.string().optional().describe('Filter the view by specialty'),
+                filter_status: z.string().optional().describe('Filter the view by status'),
+                search_query: z.string().optional().describe('Set the search query'),
+                view_mode: z.enum(['grid', 'list', 'kanban']).optional().describe('Change the view mode'),
             }),
+            strict: true,
             execute: async (args) => {
-                const { candidate_id, ...updateData } = args;
-
-                // Call the upsert RPC
-                const { data, error } = await supabase.rpc('upsert_candidate_dna', {
-                    p_candidate_id: candidate_id,
-                    p_title: updateData.title || null,
-                    p_years_of_experience: updateData.years_of_experience || null,
-                    p_primary_specialty: updateData.primary_specialty || null,
-                    p_secondary_specialties: updateData.secondary_specialties || null,
-                    p_charting_systems: updateData.charting_systems || null,
-                    p_max_patient_ratio: updateData.max_patient_ratio || null,
-                    p_facility_types: updateData.facility_types || null,
-                    p_skills_keywords: updateData.skills_keywords || null,
-                    p_willing_to_float: updateData.willing_to_float ?? null,
-                    p_eligible_units: updateData.eligible_units || null,
-                    p_rto_history: updateData.rto_history || null,
-                    p_update_source: updateData.update_source || 'ai_tool',
-                });
-
-                if (error) {
-                    return { error: error.message };
-                }
-
+                // This is a client-side action marker - the frontend interprets this
                 return {
-                    action: 'CANDIDATE_DNA_UPDATED',
-                    candidate_id,
-                    updated_fields: Object.keys(updateData).filter(k => updateData[k] !== undefined),
-                    message: `Successfully updated DNA for candidate ${candidate_id}`
+                    action: 'SET_UI_STATE',
+                    state: args,
+                    message: 'UI state update requested.',
                 };
             },
         }),

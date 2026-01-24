@@ -1,22 +1,26 @@
 /**
  * Command Center Chat - Vercel Edge Function
  * 
- * Elite Production Implementation:
- * - WaitUntil Pattern for guaranteed audit logs
- * - Abort Signal Propagation (stops AI on disconnect)
- * - Context Truncation (prevents overflow crashes)
- * - Retry with Exponential Backoff + Model Failover
+ * Architecture Notes (per official docs):
+ * - Uses providerOptions.google.thinkingConfig for Gemini 3 thinking mode
+ * - Uses stopWhen: stepCountIs(N) for multi-step tool execution
+ * - Safety settings configured for healthcare context
+ * - No temperature override for Gemini 3 (docs recommend default 1.0)
  * 
- * @version 3.0.0
+ * @see https://sdk.vercel.ai/providers/ai-sdk-providers/google-generative-ai
+ * @see https://sdk.vercel.ai/docs/ai-sdk-core/tools-and-tool-calling
+ * @see https://ai.google.dev/gemini-api/docs/function-calling#best-practices
+ * 
+ * @version 4.0.0 - Full rewrite with documented patterns
  */
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { streamText, generateText } from 'ai';
+import { streamText, generateText, stepCountIs } from 'ai';
 import { createClient } from '@supabase/supabase-js';
 import { createCommandCenterTools } from './tools.js';
 
 // ============================================================================
-// CONFIG
+// CONFIGURATION
 // ============================================================================
 
 export const config = {
@@ -24,7 +28,10 @@ export const config = {
     maxDuration: 60,
 };
 
-/** Model hierarchy: Flash for stability, Pro for fallback */
+/** 
+ * Model hierarchy
+ * @see https://ai.google.dev/gemini-api/docs/models/
+ */
 const MODELS = {
     PRIMARY: 'gemini-3-flash-preview',
     FALLBACK: 'gemini-3-pro-preview',
@@ -38,6 +45,30 @@ const RETRY_CONFIG = {
 
 /** Maximum messages to keep in history (prevents context overflow) */
 const MAX_HISTORY_LENGTH = 12;
+
+/** Maximum tool execution steps */
+const MAX_TOOL_STEPS = 5;
+
+/**
+ * Safety Settings for Healthcare Context
+ * Set to BLOCK_ONLY_HIGH to prevent false positives on medical terminology
+ * @see https://sdk.vercel.ai/providers/ai-sdk-providers/google-generative-ai#safety-settings
+ */
+const SAFETY_SETTINGS = [
+    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+];
+
+/**
+ * Thinking Configuration for Gemini 3 Models
+ * @see https://sdk.vercel.ai/providers/ai-sdk-providers/google-generative-ai#thinking
+ */
+const THINKING_CONFIG = {
+    thinkingLevel: 'high',
+    includeThoughts: false, // Don't expose internal reasoning to user
+};
 
 /** System prompt */
 const SYSTEM_PROMPT = `You are the 'Pipeline Command Center' AI, an elite recruiter assistant for Aya Healthcare.
@@ -57,6 +88,7 @@ CAPABILITIES:
    - Finally: Populate placeholders with real data from search tools
 5. **Pay Calculation**: Use 'calculate_pay_package' for GSA-compliant breakdowns
 6. **UI Navigation**: Use 'set_ui_state' to update dashboard filters
+7. **Diagnostics**: Use 'debug_system' if searches return unexpected empty results
 
 AMBIENT AWARENESS:
 - Context object contains current dashboard state (active candidate, filters)
@@ -136,6 +168,29 @@ function scheduleAuditLog(ctx, supabase, data) {
     }
 }
 
+/**
+ * Serialize tool results for synthesis prompt
+ * Handles errors and undefined results gracefully
+ */
+function serializeToolResults(toolResults) {
+    if (!toolResults?.length) return '';
+
+    return toolResults.map(tr => {
+        // Handle explicit error from tool
+        if (tr.result?.error) {
+            return `Tool: ${tr.toolName}\nStatus: Failed\nError: ${tr.result.error}`;
+        }
+
+        // Handle undefined/null (tool returned void)
+        if (tr.result === undefined || tr.result === null) {
+            return `Tool: ${tr.toolName}\nStatus: Complete\nResult: No data returned`;
+        }
+
+        // Normal result
+        return `Tool: ${tr.toolName}\nResult: ${JSON.stringify(tr.result, null, 2)}`;
+    }).join('\n\n');
+}
+
 // ============================================================================
 // HANDLER
 // ============================================================================
@@ -156,17 +211,16 @@ export default async function handler(req, ctx) {
     }
 
     // ========================================================================
-    // 2. ENVIRONMENT VALIDATION (with sanitization)
+    // 2. ENVIRONMENT VALIDATION
     // ========================================================================
 
     // Strip quotes and whitespace from env vars
-    let supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim().replace(/^["']|["']$/g, '');
-    // CRITICAL: Service role key is required for audit logging - no fallback to anon
-    let supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim().replace(/^["']|["']$/g, '');
+    const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim().replace(/^["']|["']$/g, '');
+    const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim().replace(/^["']|["']$/g, '');
     const googleApiKey = (process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
 
     console.log('[Config] SUPABASE_URL:', supabaseUrl ? `${supabaseUrl.substring(0, 30)}...` : 'MISSING');
-    console.log('[Config] SUPABASE_SERVICE_ROLE_KEY:', supabaseKey ? 'set' : 'MISSING (audit logs will fail)');
+    console.log('[Config] SUPABASE_SERVICE_ROLE_KEY:', supabaseKey ? 'set' : 'MISSING');
     console.log('[Config] GOOGLE_API_KEY:', googleApiKey ? 'set' : 'MISSING');
 
     if (!supabaseUrl || !googleApiKey) {
@@ -186,7 +240,7 @@ export default async function handler(req, ctx) {
         return errorResponse('Invalid JSON body', 400);
     }
 
-    const { messages = [], context, metadata } = body;
+    const { messages = [], context } = body;
 
     if (!messages.length) {
         return errorResponse('Messages array is required', 400);
@@ -196,7 +250,6 @@ export default async function handler(req, ctx) {
     // 4. NORMALIZE & TRUNCATE MESSAGES
     // ========================================================================
 
-    // Ensure all messages have content string format
     const normalizedMessages = messages.map(msg => {
         if (typeof msg.content === 'string') {
             return { role: msg.role, content: msg.content };
@@ -211,9 +264,8 @@ export default async function handler(req, ctx) {
         return { role: msg.role, content: '' };
     });
 
-    // Truncate to prevent context overflow
     const safeMessages = truncateHistory(normalizedMessages);
-    console.log(`[AI] Message count: ${safeMessages.length} (truncated from ${normalizedMessages.length})`);
+    console.log(`[AI] Message count: ${safeMessages.length} (from ${normalizedMessages.length})`);
 
     // ========================================================================
     // 5. PREPARE AI REQUEST
@@ -228,6 +280,17 @@ export default async function handler(req, ctx) {
         systemPrompt += `\n\nCURRENT CONTEXT:\n${JSON.stringify(context, null, 2)}`;
     }
 
+    /**
+     * Provider Options for Gemini 3
+     * @see https://sdk.vercel.ai/providers/ai-sdk-providers/google-generative-ai#provider-options
+     */
+    const providerOptions = {
+        google: {
+            thinkingConfig: THINKING_CONFIG,
+            safetySettings: SAFETY_SETTINGS,
+        },
+    };
+
     // ========================================================================
     // 6. EXECUTE WITH RETRY & FAILOVER
     // ========================================================================
@@ -237,7 +300,7 @@ export default async function handler(req, ctx) {
 
     for (let attempt = 0; attempt < RETRY_CONFIG.maxAttempts; attempt++) {
         try {
-            // Failover to Flash on retry
+            // Failover to Pro on retry
             if (attempt > 0) {
                 currentModel = MODELS.FALLBACK;
                 console.log(`[AI] Failing over to ${currentModel}`);
@@ -245,69 +308,83 @@ export default async function handler(req, ctx) {
 
             console.log(`[AI] Attempt ${attempt + 1}/${RETRY_CONFIG.maxAttempts} with ${currentModel}`);
 
-            // Phase 1: Execute with tools using generateText (not streaming)
-            // This allows tools to run and return results
-            let toolPhaseText, finishReason, toolCalls, toolResults;
+            // ================================================================
+            // PHASE 1: Tool Execution with generateText
+            // Uses stopWhen per AI SDK docs for multi-step execution
+            // ================================================================
+
+            let phase1Result;
 
             try {
-                const result = await generateText({
+                phase1Result = await generateText({
                     model: google(currentModel),
                     system: systemPrompt,
                     messages: safeMessages,
                     tools,
-                    maxSteps: 3,
-                    maxTokens: 2048,
+                    stopWhen: stepCountIs(MAX_TOOL_STEPS),
+                    maxTokens: 4096,
+                    providerOptions,
                     abortSignal: req.signal,
                 });
-                toolPhaseText = result.text;
-                finishReason = result.finishReason;
-                toolCalls = result.toolCalls;
-                toolResults = result.toolResults;
 
-                console.log(`[AI] Phase 1 complete: ${finishReason}, text length: ${toolPhaseText?.length || 0}, toolCalls: ${toolCalls?.length || 0}, toolResults: ${toolResults?.length || 0}`);
+                const { text, finishReason, toolCalls, toolResults, steps } = phase1Result;
 
-                // Log tool details
+                console.log(`[AI] Phase 1 complete: reason=${finishReason}, text=${text?.length || 0} chars, tools=${toolCalls?.length || 0}, steps=${steps?.length || 0}`);
+
+                // Log tool execution details
                 if (toolCalls?.length > 0) {
-                    console.log('[AI] Tool calls:', toolCalls.map(tc => tc.toolName).join(', '));
+                    console.log('[AI] Tools called:', toolCalls.map(tc => tc.toolName).join(', '));
                 }
                 if (toolResults?.length > 0) {
-                    console.log('[AI] Tool results:', toolResults.map(tr => `${tr.toolName}: ${tr.result?.error ? 'ERROR' : 'OK'}`).join(', '));
+                    const resultStatus = toolResults.map(tr =>
+                        `${tr.toolName}: ${tr.result?.error ? 'ERROR' : 'OK'}`
+                    );
+                    console.log('[AI] Tool results:', resultStatus.join(', '));
                 }
-            } catch (toolError) {
-                console.error('[AI] Phase 1 (tool execution) failed:', toolError.message);
-                console.error('[AI] Tool error details:', JSON.stringify(toolError, null, 2));
 
-                // If tools fail, fall back to no-tool response
+            } catch (toolError) {
+                console.error('[AI] Phase 1 failed:', toolError.message);
+
+                // Fallback: respond without tools
                 console.log('[AI] Falling back to no-tool response...');
+
                 const fallbackResult = await streamText({
                     model: google(currentModel),
                     system: systemPrompt + '\n\nNOTE: Tools are temporarily unavailable. Respond as best you can without them.',
                     messages: safeMessages,
-                    maxTokens: 2048,
+                    maxTokens: 4096,
+                    providerOptions,
                     abortSignal: req.signal,
                 });
+
                 return fallbackResult.toTextStreamResponse({ headers: CORS_HEADERS });
             }
 
-            // If we got text directly, stream it
-            if (toolPhaseText && toolPhaseText.length > 0) {
-                console.log('[AI] Direct text response, streaming...');
+            // ================================================================
+            // SUCCESS PATH: Return response based on Phase 1 result
+            // ================================================================
+
+            const { text, finishReason, toolResults } = phase1Result;
+
+            // CASE A: Model generated text directly (with or without tools)
+            if (text && text.length > 0) {
+                console.log('[AI] Returning direct text response');
 
                 // Log to audit
                 scheduleAuditLog(ctx, supabase, {
                     function_name: 'command-center',
                     input_message: messages[messages.length - 1]?.content || '',
-                    input_metadata: { model_used: currentModel, phase: 'direct' },
-                    output_text: toolPhaseText,
+                    input_metadata: { model: currentModel, phase: 'direct' },
+                    output_text: text,
                     finish_reason: finishReason,
                     latency_ms: Date.now() - startTime,
                 });
 
-                // Return as streaming response (simulates streaming for consistency)
+                // Stream-like response for client consistency
                 const encoder = new TextEncoder();
                 const stream = new ReadableStream({
                     start(controller) {
-                        controller.enqueue(encoder.encode(toolPhaseText));
+                        controller.enqueue(encoder.encode(text));
                         controller.close();
                     }
                 });
@@ -317,53 +394,40 @@ export default async function handler(req, ctx) {
                 });
             }
 
-            // Phase 2: If tool-only run, synthesize a final response
+            // CASE B: Tools executed but no final text - run synthesis
             if (toolResults && toolResults.length > 0) {
-                console.log('[AI] Tool-only run detected, synthesizing final response...');
+                console.log('[AI] Running Phase 2 synthesis...');
 
-                // Build synthesis prompt with tool results (Robust Serialization)
-                const toolResultsSummary = toolResults.map(tr => {
-                    // 1. Check for explicit error schema from tool
-                    if (tr.result && tr.result.error) {
-                        return `Tool: ${tr.toolName}\nStatus: Failed\nError: ${tr.result.error}`;
-                    }
-
-                    // 2. Handle undefined/null results safely
-                    // Tools should return { ... } or null, never undefined. 
-                    // If undefined, it means tool execution logic returned void.
-                    const resultStr = tr.result !== undefined ? JSON.stringify(tr.result, null, 2) : "No data returned (undefined)";
-
-                    return `Tool: ${tr.toolName}\nResult: ${resultStr}`;
-                }).join('\n\n');
+                const toolSummary = serializeToolResults(toolResults);
 
                 const synthesisMessages = [
                     ...safeMessages,
                     {
                         role: 'assistant',
-                        content: `I called the following tools:\n${toolResultsSummary}`
+                        content: `I executed the following tools:\n\n${toolSummary}`
                     },
                     {
                         role: 'user',
-                        content: 'Now please provide a clear, user-friendly summary of these results.'
+                        content: 'Please provide a clear, user-friendly summary of these results.'
                     }
                 ];
 
-                // Stream the synthesis (NO tools to force text output)
                 const synthesisResult = await streamText({
                     model: google(currentModel),
                     system: systemPrompt,
                     messages: synthesisMessages,
                     // NO tools - forces text response
-                    maxTokens: 1024,
+                    maxTokens: 2048,
+                    providerOptions,
                     abortSignal: req.signal,
-                    onFinish: ({ text, finishReason: synthFinish }) => {
-                        console.log(`[AI] Synthesis complete: ${synthFinish}, text length: ${text?.length || 0}`);
+                    onFinish: ({ text: synthText, finishReason: synthReason }) => {
+                        console.log(`[AI] Synthesis complete: ${synthReason}, ${synthText?.length || 0} chars`);
                         scheduleAuditLog(ctx, supabase, {
                             function_name: 'command-center',
                             input_message: messages[messages.length - 1]?.content || '',
-                            input_metadata: { model_used: currentModel, phase: 'synthesis', tool_count: toolResults.length },
-                            output_text: text,
-                            finish_reason: synthFinish,
+                            input_metadata: { model: currentModel, phase: 'synthesis', tools: toolResults.length },
+                            output_text: synthText,
+                            finish_reason: synthReason,
                             latency_ms: Date.now() - startTime,
                         });
                     },
@@ -372,14 +436,14 @@ export default async function handler(req, ctx) {
                 return synthesisResult.toTextStreamResponse({ headers: CORS_HEADERS });
             }
 
-            // Fallback: no text, no tools - shouldn't happen but handle gracefully
-            console.warn('[AI] No text and no tool results - returning empty response');
+            // CASE C: No text and no tools - shouldn't happen
+            console.warn('[AI] Empty response - no text, no tools');
             return new Response('I apologize, but I was unable to process your request. Please try again.', {
                 headers: { ...CORS_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' },
             });
 
         } catch (error) {
-            console.warn(`[AI] Attempt ${attempt + 1} failed (${currentModel}):`, error.message);
+            console.warn(`[AI] Attempt ${attempt + 1} failed:`, error.message);
             finalError = error;
 
             // If user disconnected, stop immediately
@@ -403,11 +467,10 @@ export default async function handler(req, ctx) {
 
     console.error('[AI] All attempts failed:', finalError?.message);
 
-    // Log failure using waitUntil
     scheduleAuditLog(ctx, supabase, {
         function_name: 'command-center',
         input_message: messages[messages.length - 1]?.content || '',
-        input_metadata: { model_used: currentModel },
+        input_metadata: { model: currentModel },
         error_message: finalError?.message,
         latency_ms: Date.now() - startTime,
     });
