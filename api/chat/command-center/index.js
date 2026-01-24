@@ -24,10 +24,10 @@ export const config = {
     maxDuration: 60,
 };
 
-/** Model hierarchy: Pro for quality, Flash for failover */
+/** Model hierarchy: Flash for stability, Pro for fallback */
 const MODELS = {
-    PRIMARY: 'gemini-3-pro-preview',
-    FALLBACK: 'gemini-3-flash-preview',
+    PRIMARY: 'gemini-3-flash-preview',
+    FALLBACK: 'gemini-3-pro-preview',
 };
 
 /** Retry configuration */
