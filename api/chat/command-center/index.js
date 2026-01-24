@@ -122,7 +122,7 @@ export default async function handler(req) {
             },
         });
 
-        return result.toDataStreamResponse();
+        return result.toTextStreamResponse();
 
     } catch (error) {
         console.error('[Command Center] Error:', error.message);
@@ -132,3 +132,4 @@ export default async function handler(req) {
         });
     }
 }
+
