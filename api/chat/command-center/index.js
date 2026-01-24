@@ -28,8 +28,8 @@ export const config = {
 
 /** Model hierarchy: Pro for quality, Flash for fallback */
 const MODELS = {
-    PRIMARY: 'gemini-3-pro-preview',
-    FALLBACK: 'gemini-3-flash-preview',
+    PRIMARY: 'gemini-3-flash-preview',
+    FALLBACK: 'gemini-3-pro-preview',
 };
 
 /** Retry configuration */
