@@ -490,6 +490,139 @@ const SmartChips: FC<{ onSelect: (query: string) => void }> = memo(({ onSelect }
 SmartChips.displayName = 'SmartChips';
 
 // ============================================================================
+// 8.5. EMAIL CARD (Elite Email Draft Renderer)
+// ============================================================================
+
+interface EmailCardProps {
+    subject: string;
+    body: string;
+}
+
+const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
+    const [copiedField, setCopiedField] = useState<'subject' | 'body' | 'all' | null>(null);
+
+    const copyToClipboard = useCallback(async (text: string, field: 'subject' | 'body' | 'all') => {
+        await navigator.clipboard.writeText(text);
+        setCopiedField(field);
+        triggerHaptic();
+        setTimeout(() => setCopiedField(null), 2000);
+    }, []);
+
+    const openInMail = useCallback(() => {
+        const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        window.open(mailtoUrl, '_blank');
+        triggerHaptic();
+    }, [subject, body]);
+
+    // Parse body for proper line breaks
+    const formattedBody = body
+        .replace(/  \n/g, '\n') // Convert markdown line breaks
+        .trim();
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={SYSTEM.anim.fluid}
+            className={cn(
+                'rounded-[20px] overflow-hidden',
+                'bg-white/[0.02] backdrop-blur-md',
+                'border border-white/[0.08]',
+                'shadow-[0_4px_24px_-4px_rgba(0,0,0,0.3)]'
+            )}
+        >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] bg-white/[0.02]">
+                <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center">
+                        <FileText size={14} className="text-indigo-400" />
+                    </div>
+                    <span className={cn(SYSTEM.type.mono, 'text-indigo-400')}>Email Draft</span>
+                </div>
+                <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => copyToClipboard(`Subject: ${subject}\n\n${formattedBody}`, 'all')}
+                    className={cn(
+                        'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg',
+                        'bg-white/[0.05] hover:bg-white/[0.08] transition-colors',
+                        'text-[11px] font-medium',
+                        copiedField === 'all' ? 'text-emerald-400' : 'text-zinc-400'
+                    )}
+                >
+                    {copiedField === 'all' ? <Check size={12} /> : <Copy size={12} />}
+                    {copiedField === 'all' ? 'Copied!' : 'Copy All'}
+                </motion.button>
+            </div>
+
+            {/* Subject Line */}
+            <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01]">
+                <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                        <span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>Subject</span>
+                        <p className="text-[14px] font-medium text-white mt-0.5 truncate">{subject}</p>
+                    </div>
+                    <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => copyToClipboard(subject, 'subject')}
+                        className={cn(
+                            'ml-3 p-2 rounded-lg transition-colors',
+                            'hover:bg-white/[0.05]',
+                            copiedField === 'subject' ? 'text-emerald-400' : 'text-zinc-500'
+                        )}
+                    >
+                        {copiedField === 'subject' ? <Check size={14} /> : <Copy size={14} />}
+                    </motion.button>
+                </div>
+            </div>
+
+            {/* Body Content */}
+            <div className="px-5 py-4">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                        <p className={cn(SYSTEM.type.body, 'text-[#C4C4C4] whitespace-pre-wrap leading-relaxed')}>
+                            {formattedBody}
+                        </p>
+                    </div>
+                    <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => copyToClipboard(formattedBody, 'body')}
+                        className={cn(
+                            'shrink-0 p-2 rounded-lg transition-colors',
+                            'hover:bg-white/[0.05]',
+                            copiedField === 'body' ? 'text-emerald-400' : 'text-zinc-500'
+                        )}
+                    >
+                        {copiedField === 'body' ? <Check size={14} /> : <Copy size={14} />}
+                    </motion.button>
+                </div>
+            </div>
+
+            {/* Action Bar */}
+            <div className="flex items-center gap-2 px-5 py-3 border-t border-white/[0.06] bg-white/[0.02]">
+                <motion.button
+                    whileHover={{ scale: 1.02, backgroundColor: 'rgba(99, 102, 241, 0.15)' }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={openInMail}
+                    className={cn(
+                        'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl',
+                        'bg-indigo-500/10 border border-indigo-500/20',
+                        'text-indigo-400 text-[12px] font-medium',
+                        'transition-all duration-200'
+                    )}
+                >
+                    <ArrowUp size={14} className="rotate-45" />
+                    Open in Mail
+                </motion.button>
+            </div>
+        </motion.div>
+    );
+});
+EmailCard.displayName = 'EmailCard';
+
+// ============================================================================
 // 9. MESSAGE BUBBLE
 // ============================================================================
 
@@ -507,6 +640,22 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
     // Parse special content patterns
     const renderContent = useMemo(() => {
         if (!content) return null;
+
+        // Check for EMAIL DRAFT pattern (new structured format)
+        const emailDraftMatch = content.match(/^#\s*EMAIL\s*DRAFT\s*\n+\*\*Subject:\*\*\s*(.+?)\n+---\n+([\s\S]+?)(?:\n+---\s*$|\n+IMPORTANT\s|$)/i);
+        if (emailDraftMatch) {
+            const subject = emailDraftMatch[1].trim();
+            const body = emailDraftMatch[2].trim();
+            return <EmailCard subject={subject} body={body} />;
+        }
+
+        // Check for legacy [SUBJECT][BODY] format (backwards compatibility)
+        const legacyEmailMatch = content.match(/\[SUBJECT\]([\s\S]*?)\[\/SUBJECT\]\s*\[BODY\]([\s\S]*?)\[\/BODY\]/i);
+        if (legacyEmailMatch) {
+            const subject = legacyEmailMatch[1].trim();
+            const body = legacyEmailMatch[2].trim();
+            return <EmailCard subject={subject} body={body} />;
+        }
 
         // Check for verdict pattern: "VERDICT: STRONG MATCH"
         const verdictMatch = content.match(/VERDICT:\s*(STRONG MATCH|REVIEW NEEDED|NOT A FIT)/i);
@@ -564,6 +713,12 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                             </code>
                         );
                     },
+                    // Handle horizontal rules (---) for better email section separation
+                    hr: () => <div className="my-4 border-t border-white/[0.06]" />,
+                    // Handle h1 headers
+                    h1: ({ children }) => (
+                        <h1 className="text-[16px] font-bold text-white mb-3">{children}</h1>
+                    ),
                 }}
             >
                 {content}
