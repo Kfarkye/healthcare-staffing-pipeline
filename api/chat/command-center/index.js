@@ -11,7 +11,7 @@
  */
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { streamText } from 'ai';
+import { streamText, generateText } from 'ai';
 import { createClient } from '@supabase/supabase-js';
 import { createCommandCenterTools } from './tools.js';
 
@@ -245,53 +245,97 @@ export default async function handler(req, ctx) {
 
             console.log(`[AI] Attempt ${attempt + 1}/${RETRY_CONFIG.maxAttempts} with ${currentModel}`);
 
-            const result = await streamText({
+            // Phase 1: Execute with tools using generateText (not streaming)
+            // This allows tools to run and return results
+            const { text: toolPhaseText, finishReason, toolCalls, toolResults } = await generateText({
                 model: google(currentModel),
                 system: systemPrompt,
                 messages: safeMessages,
                 tools,
-                maxSteps: 2, // Reduced: 1 for tool calls, 1 for final response
+                maxSteps: 3,
                 maxTokens: 2048,
-                // CRITICAL: Stop generating if client disconnects (saves costs)
                 abortSignal: req.signal,
-                onFinish: ({ text, finishReason, usage, warnings, error: finishError }) => {
-                    console.log(`[AI] onFinish: ${finishReason}, text length: ${text?.length || 0}`);
-
-                    // Capture any error details
-                    if (finishError) {
-                        console.error('[AI] onFinish error:', finishError.message || JSON.stringify(finishError));
-                    }
-                    if (finishReason === 'error' && text?.length === 0) {
-                        console.error('[AI] Model returned error with no text - possible safety/filter issue');
-                    }
-                    if (warnings?.length > 0) {
-                        console.warn('[AI] Warnings:', JSON.stringify(warnings));
-                    }
-
-                    // Schedule audit log using waitUntil (guaranteed to complete)
-                    scheduleAuditLog(ctx, supabase, {
-                        function_name: 'command-center',
-                        input_message: messages[messages.length - 1]?.content || '',
-                        input_metadata: {
-                            model_used: currentModel,
-                            context_keys: context ? Object.keys(context) : [],
-                            message_count: safeMessages.length,
-                            ...metadata
-                        },
-                        output_text: text,
-                        finish_reason: finishReason,
-                        latency_ms: Date.now() - startTime,
-                        output_metadata: { usage },
-                    });
-                },
-                onStepFinish: ({ text, finishReason }) => {
-                    console.log(`[AI] onStepFinish: ${finishReason}, text length: ${text?.length || 0}`);
-                },
             });
 
-            // Success - return text stream response (simpler, works with native fetch)
-            return result.toTextStreamResponse({
-                headers: CORS_HEADERS,
+            console.log(`[AI] Phase 1 complete: ${finishReason}, text length: ${toolPhaseText?.length || 0}, toolCalls: ${toolCalls?.length || 0}`);
+
+            // If we got text directly, stream it
+            if (toolPhaseText && toolPhaseText.length > 0) {
+                console.log('[AI] Direct text response, streaming...');
+
+                // Log to audit
+                scheduleAuditLog(ctx, supabase, {
+                    function_name: 'command-center',
+                    input_message: messages[messages.length - 1]?.content || '',
+                    input_metadata: { model_used: currentModel, phase: 'direct' },
+                    output_text: toolPhaseText,
+                    finish_reason: finishReason,
+                    latency_ms: Date.now() - startTime,
+                });
+
+                // Return as streaming response (simulates streaming for consistency)
+                const encoder = new TextEncoder();
+                const stream = new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(encoder.encode(toolPhaseText));
+                        controller.close();
+                    }
+                });
+
+                return new Response(stream, {
+                    headers: { ...CORS_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' },
+                });
+            }
+
+            // Phase 2: If tool-only run, synthesize a final response
+            if (toolResults && toolResults.length > 0) {
+                console.log('[AI] Tool-only run detected, synthesizing final response...');
+
+                // Build synthesis prompt with tool results
+                const toolResultsSummary = toolResults.map(tr =>
+                    `Tool: ${tr.toolName}\nResult: ${JSON.stringify(tr.result, null, 2)}`
+                ).join('\n\n');
+
+                const synthesisMessages = [
+                    ...safeMessages,
+                    {
+                        role: 'assistant',
+                        content: `I called the following tools:\n${toolResultsSummary}`
+                    },
+                    {
+                        role: 'user',
+                        content: 'Now please provide a clear, user-friendly summary of these results.'
+                    }
+                ];
+
+                // Stream the synthesis (NO tools to force text output)
+                const synthesisResult = await streamText({
+                    model: google(currentModel),
+                    system: systemPrompt,
+                    messages: synthesisMessages,
+                    // NO tools - forces text response
+                    maxTokens: 1024,
+                    abortSignal: req.signal,
+                    onFinish: ({ text, finishReason: synthFinish }) => {
+                        console.log(`[AI] Synthesis complete: ${synthFinish}, text length: ${text?.length || 0}`);
+                        scheduleAuditLog(ctx, supabase, {
+                            function_name: 'command-center',
+                            input_message: messages[messages.length - 1]?.content || '',
+                            input_metadata: { model_used: currentModel, phase: 'synthesis', tool_count: toolResults.length },
+                            output_text: text,
+                            finish_reason: synthFinish,
+                            latency_ms: Date.now() - startTime,
+                        });
+                    },
+                });
+
+                return synthesisResult.toTextStreamResponse({ headers: CORS_HEADERS });
+            }
+
+            // Fallback: no text, no tools - shouldn't happen but handle gracefully
+            console.warn('[AI] No text and no tool results - returning empty response');
+            return new Response('I apologize, but I was unable to process your request. Please try again.', {
+                headers: { ...CORS_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' },
             });
 
         } catch (error) {
