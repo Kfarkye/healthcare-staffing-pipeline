@@ -326,7 +326,7 @@ export default async function handler(req) {
         }
 
         // Success - return streaming response
-        return result.toDataStreamResponse();
+        return result.toTextStreamResponse();
 
     } catch (error) {
         console.error('[AI] All attempts failed:', error.message);
