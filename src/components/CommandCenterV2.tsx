@@ -48,9 +48,14 @@ import {
     Calendar,
     ChevronRight,
     Zap,
+    File,
+    Loader2,
+    Image as ImageIcon,
+    AlertCircle,
 } from 'lucide-react';
 
 import { useCommandCenterChat } from '../features/command-center-chat/hooks/useCommandCenterChat';
+import { useFileUpload, type Attachment } from '../features/command-center-chat/hooks/useFileUpload';
 import { useLayout } from '../context/LayoutContext';
 
 // ============================================================================
@@ -703,7 +708,114 @@ const ToolResultCard: FC<ToolResultCardProps> = memo(({ toolName, result, state 
 ToolResultCard.displayName = 'ToolResultCard';
 
 // ============================================================================
-// 11. INPUT DECK
+// 11. ATTACHMENT PREVIEW
+// ============================================================================
+
+interface AttachmentPreviewProps {
+    attachments: Attachment[];
+    onRemove: (id: string) => void;
+}
+
+const AttachmentPreview: FC<AttachmentPreviewProps> = memo(({ attachments, onRemove }) => {
+    if (attachments.length === 0) return null;
+
+    const getFileIcon = (mimeType: string) => {
+        if (mimeType === 'application/pdf') return <FileText size={20} className="text-rose-400" />;
+        if (mimeType.includes('word') || mimeType.includes('document')) return <FileText size={20} className="text-blue-400" />;
+        if (mimeType.startsWith('image/')) return <ImageIcon size={20} className="text-emerald-400" />;
+        return <File size={20} className="text-zinc-400" />;
+    };
+
+    const formatSize = (bytes: number) => {
+        if (bytes < 1024) return `${bytes}B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+    };
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide"
+        >
+            {attachments.map((att) => (
+                <motion.div
+                    key={att.id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className={cn(
+                        'relative flex-shrink-0 group',
+                        'rounded-xl overflow-hidden',
+                        'bg-white/[0.03] border border-white/[0.08]',
+                        att.uploadError && 'border-rose-500/50'
+                    )}
+                >
+                    {/* Preview content */}
+                    <div className="flex items-center gap-2 p-2 pr-8">
+                        {att.previewUrl ? (
+                            <img
+                                src={att.previewUrl}
+                                alt={att.fileName}
+                                className="w-10 h-10 rounded-lg object-cover"
+                            />
+                        ) : (
+                            <div className="w-10 h-10 rounded-lg bg-white/[0.05] flex items-center justify-center">
+                                {getFileIcon(att.mimeType)}
+                            </div>
+                        )}
+                        <div className="flex flex-col min-w-0">
+                            <span className="text-[11px] text-zinc-300 truncate max-w-[100px]">
+                                {att.fileName}
+                            </span>
+                            <span className={cn(
+                                SYSTEM.type.mono,
+                                'text-[9px]',
+                                att.uploadError ? 'text-rose-400' : att.isUploading ? 'text-amber-400' : 'text-zinc-500'
+                            )}>
+                                {att.uploadError ? 'Failed' : att.isUploading ? 'Uploading...' : formatSize(att.fileSize)}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Upload indicator */}
+                    {att.isUploading && (
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                            <Loader2 size={16} className="text-indigo-400 animate-spin" />
+                        </div>
+                    )}
+
+                    {/* Error indicator */}
+                    {att.uploadError && (
+                        <div className="absolute top-1 left-1">
+                            <AlertCircle size={12} className="text-rose-400" />
+                        </div>
+                    )}
+
+                    {/* Remove button */}
+                    <button
+                        onClick={() => onRemove(att.id)}
+                        className={cn(
+                            'absolute top-1 right-1',
+                            'w-5 h-5 rounded-full',
+                            'bg-black/60 hover:bg-rose-500/80',
+                            'flex items-center justify-center',
+                            'opacity-0 group-hover:opacity-100 transition-opacity'
+                        )}
+                    >
+                        <X size={10} className="text-white" />
+                    </button>
+                </motion.div>
+            ))}
+        </motion.div>
+    );
+});
+AttachmentPreview.displayName = 'AttachmentPreview';
+
+// ============================================================================
+// 12. INPUT DECK (with File Upload)
 // ============================================================================
 
 interface InputDeckProps {
@@ -713,20 +825,53 @@ interface InputDeckProps {
     onStop: () => void;
     isProcessing: boolean;
     inputRef: React.RefObject<HTMLTextAreaElement>;
+    // File upload props
+    attachments: Attachment[];
+    onRemoveAttachment: (id: string) => void;
+    isDragActive: boolean;
+    isUploading: boolean;
+    dragHandlers: {
+        onDragEnter: (e: React.DragEvent) => void;
+        onDragOver: (e: React.DragEvent) => void;
+        onDragLeave: (e: React.DragEvent) => void;
+        onDrop: (e: React.DragEvent) => void;
+    };
+    handlePaste: (e: React.ClipboardEvent) => void;
+    triggerFileSelect: () => void;
+    fileInputRef: React.RefObject<HTMLInputElement>;
+    onFilesSelected: (files: FileList | null) => void;
 }
 
 const InputDeck: FC<InputDeckProps> = memo(
-    ({ value, onChange, onSend, onStop, isProcessing, inputRef }) => {
+    ({
+        value,
+        onChange,
+        onSend,
+        onStop,
+        isProcessing,
+        inputRef,
+        attachments,
+        onRemoveAttachment,
+        isDragActive,
+        isUploading,
+        dragHandlers,
+        handlePaste,
+        triggerFileSelect,
+        fileInputRef,
+        onFilesSelected,
+    }) => {
         const handleKeyDown = (e: ReactKeyboardEvent) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (value.trim()) onSend();
+                if ((value.trim() || attachments.length > 0) && !isUploading) onSend();
             }
             if (e.key === 'Escape' && isProcessing) {
                 e.preventDefault();
                 onStop();
             }
         };
+
+        const canSend = (value.trim() || attachments.length > 0) && !isUploading;
 
         return (
             <motion.div
@@ -737,15 +882,50 @@ const InputDeck: FC<InputDeckProps> = memo(
                     SYSTEM.geo.input,
                     'bg-[#0A0A0B] shadow-2xl',
                     SYSTEM.surface.milled,
-                    // Focus-within glow effect for elite interaction feedback
+                    // Focus-within glow
                     'focus-within:border-indigo-500/30',
-                    'focus-within:shadow-[0_0_20px_-5px_rgba(99,102,241,0.15)]'
+                    'focus-within:shadow-[0_0_20px_-5px_rgba(99,102,241,0.15)]',
+                    // Drag active state
+                    isDragActive && 'border-indigo-500/50 shadow-[0_0_30px_-5px_rgba(99,102,241,0.3)] scale-[1.01]'
                 )}
                 transition={SYSTEM.anim.fluid}
+                {...dragHandlers}
             >
+                {/* Hidden file input */}
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*,application/pdf,.doc,.docx"
+                    className="hidden"
+                    onChange={(e) => onFilesSelected(e.target.files)}
+                />
+
+                {/* Attachment previews */}
+                <AnimatePresence>
+                    {attachments.length > 0 && (
+                        <div className="px-2 pt-2">
+                            <AttachmentPreview
+                                attachments={attachments}
+                                onRemove={onRemoveAttachment}
+                            />
+                        </div>
+                    )}
+                </AnimatePresence>
+
+                {/* Main input row */}
                 <div className="flex items-end gap-2">
                     {/* Attach button */}
-                    <button className="p-3.5 rounded-[18px] text-zinc-500 hover:text-white hover:bg-white/5 transition-colors">
+                    <button
+                        onClick={triggerFileSelect}
+                        disabled={isProcessing}
+                        className={cn(
+                            'p-3.5 rounded-[18px] transition-colors',
+                            'text-zinc-500 hover:text-white hover:bg-white/5',
+                            'disabled:opacity-50 disabled:cursor-not-allowed'
+                        )}
+                        aria-label="Attach file"
+                    >
                         <Paperclip size={18} strokeWidth={1.5} />
                     </button>
 
@@ -755,16 +935,17 @@ const InputDeck: FC<InputDeckProps> = memo(
                         value={value}
                         onChange={(e) => onChange(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Ask about candidates, jobs, or pay packages..."
+                        onPaste={handlePaste}
+                        placeholder={isDragActive ? 'Drop files here...' : 'Ask about candidates, jobs, or pay packages...'}
                         rows={1}
                         disabled={isProcessing}
                         className={cn(
                             'flex-1 bg-transparent border-none outline-none resize-none py-4',
                             'min-h-[52px] max-h-[120px]',
                             SYSTEM.type.body,
-                            // Improved placeholder contrast for better legibility
                             'text-white placeholder:text-zinc-500',
-                            'disabled:opacity-50'
+                            'disabled:opacity-50',
+                            isDragActive && 'placeholder:text-indigo-400'
                         )}
                     />
 
@@ -774,21 +955,40 @@ const InputDeck: FC<InputDeckProps> = memo(
                         animate={{ scale: 1 }}
                         whileTap={{ scale: 0.92 }}
                         onClick={() => (isProcessing ? onStop() : onSend())}
-                        disabled={!isProcessing && !value.trim()}
+                        disabled={!isProcessing && !canSend}
                         className={cn(
                             'p-3 rounded-[18px] transition-all duration-300',
-                            value.trim() || isProcessing
+                            canSend || isProcessing
                                 ? 'bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.2)]'
                                 : 'bg-white/5 text-zinc-600 cursor-not-allowed'
                         )}
                     >
                         {isProcessing ? (
                             <Square size={18} className="animate-pulse" />
+                        ) : isUploading ? (
+                            <Loader2 size={18} className="animate-spin" />
                         ) : (
                             <ArrowUp size={18} strokeWidth={2.5} />
                         )}
                     </motion.button>
                 </div>
+
+                {/* Drag overlay */}
+                <AnimatePresence>
+                    {isDragActive && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-0 bg-indigo-500/5 border-2 border-dashed border-indigo-500/30 rounded-[24px] pointer-events-none flex items-center justify-center"
+                        >
+                            <div className="flex items-center gap-2 text-indigo-400">
+                                <Paperclip size={20} />
+                                <span className="text-[13px] font-medium">Drop to attach</span>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </motion.div>
         );
     }
@@ -830,6 +1030,24 @@ export const CommandCenterV2: FC = () => {
         },
     });
 
+    // File Upload Hook
+    const {
+        attachments,
+        isDragActive,
+        isUploading,
+        addFiles,
+        removeFile,
+        clearAll: clearAttachments,
+        dragHandlers,
+        handlePaste,
+        fileInputRef,
+        triggerFileSelect,
+    } = useFileUpload({
+        onUploadError: (error, file) => {
+            console.error(`[CommandCenterV2] Upload failed for ${file.name}:`, error);
+        },
+    });
+
     // Convert messages to display format
     const history = useMemo(
         () =>
@@ -862,14 +1080,33 @@ export const CommandCenterV2: FC = () => {
     const handleSend = useCallback(
         async (query?: string) => {
             const text = query ?? inputValue.trim();
-            if (!text || isLoading) return;
+
+            // Allow sending if there's text OR attachments
+            if (!text && attachments.length === 0) return;
+            if (isLoading || isUploading) return;
+
+            // Build message with attachment URLs if present
+            let finalMessage = text;
+            if (attachments.length > 0) {
+                const attachmentUrls = attachments
+                    .filter(a => a.publicUrl)
+                    .map(a => `[Attached: ${a.fileName}](${a.publicUrl})`)
+                    .join('\n');
+
+                if (attachmentUrls) {
+                    finalMessage = text
+                        ? `${text}\n\n${attachmentUrls}`
+                        : `Please analyze these files:\n\n${attachmentUrls}`;
+                }
+            }
 
             setInputValue('');
+            clearAttachments();
             setShouldAutoScroll(true);
             triggerHaptic();
-            await sendMessage(text);
+            await sendMessage(finalMessage);
         },
-        [inputValue, isLoading, sendMessage]
+        [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments]
     );
 
     // Container sizing
@@ -1064,6 +1301,16 @@ export const CommandCenterV2: FC = () => {
                                 onStop={stop}
                                 isProcessing={isLoading}
                                 inputRef={inputRef}
+                                // File upload props
+                                attachments={attachments}
+                                onRemoveAttachment={removeFile}
+                                isDragActive={isDragActive}
+                                isUploading={isUploading}
+                                dragHandlers={dragHandlers}
+                                handlePaste={handlePaste}
+                                triggerFileSelect={triggerFileSelect}
+                                fileInputRef={fileInputRef}
+                                onFilesSelected={(files) => files && addFiles(files)}
                             />
 
                             {/* Error display */}
