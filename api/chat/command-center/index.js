@@ -240,6 +240,24 @@ export default async function handler(req) {
 
     const tools = createCommandCenterTools(supabase);
 
+    // Transform messages from parts-based format to AI SDK content format
+    const normalizedMessages = messages.map(msg => {
+        // If already has content string, use it
+        if (typeof msg.content === 'string') {
+            return { role: msg.role, content: msg.content };
+        }
+        // If has parts array (UI Message format), extract text
+        if (Array.isArray(msg.parts)) {
+            const textContent = msg.parts
+                .filter(p => p.type === 'text' || p.text)
+                .map(p => p.text || '')
+                .join('');
+            return { role: msg.role, content: textContent };
+        }
+        // Fallback
+        return { role: msg.role, content: '' };
+    });
+
     // Inject context into system prompt if present
     let systemPrompt = SYSTEM_PROMPT;
     if (context && Object.keys(context).length > 0) {
@@ -266,7 +284,7 @@ export default async function handler(req) {
                 const result = await streamText({
                     model: google(model),
                     system: systemPrompt,
-                    messages,
+                    messages: normalizedMessages,
                     tools,
                     maxSteps: 10,
                     onFinish: async ({ text, finishReason, usage }) => {
