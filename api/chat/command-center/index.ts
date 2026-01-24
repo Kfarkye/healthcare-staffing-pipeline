@@ -1,4 +1,4 @@
-import { google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { streamText, convertToModelMessages, UIMessage, stepCountIs } from 'ai';
 import { createClient } from '@supabase/supabase-js';
 import { createCommandCenterTools } from './tools';
@@ -53,16 +53,25 @@ export default async function handler(req: Request) {
 
     // Initialize Supabase client
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    const googleApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.VITE_GEMINI_API_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
-        return new Response(JSON.stringify({ error: 'Missing Supabase configuration' }), {
+        return new Response(JSON.stringify({ error: 'Missing Supabase configuration. Ensure SUPABASE_URL and SUPABASE_ANON_KEY are set.' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+        });
+    }
+
+    if (!googleApiKey) {
+        return new Response(JSON.stringify({ error: 'Missing Google API Key. Ensure GOOGLE_GENERATIVE_AI_API_KEY or VITE_GEMINI_API_KEY is set.' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
         });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+    const google = createGoogleGenerativeAI({ apiKey: googleApiKey });
 
     // Parse request
     const { messages, context, metadata }: {
@@ -104,7 +113,7 @@ export default async function handler(req: Request) {
                     await supabase.from('ai_audit_logs').insert({
                         user_id: userId,
                         function_name: 'command-center-vercel',
-                        input_message: messages[messages.length - 1]?.content || '',
+                        input_message: (messages[messages.length - 1] as any)?.content || '',
                         input_metadata: { context_keys: context ? Object.keys(context) : [], ...metadata },
                         output_text: text,
                         finish_reason: finishReason,
