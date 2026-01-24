@@ -283,18 +283,36 @@ export default async function handler(req) {
                 console.log(`[AI] Message count: ${normalizedMessages.length}`);
                 console.log(`[AI] Messages:`, JSON.stringify(normalizedMessages.map(m => ({ role: m.role, contentLen: m.content?.length || 0 }))));
 
+                // Track if we got an error finish reason
+                let streamFinishReason = null;
+                let streamTextLength = 0;
+
                 const result = await streamText({
                     model: google(model),
                     system: systemPrompt,
                     messages: normalizedMessages,
-                    // TEMPORARILY DISABLED FOR DEBUGGING
-                    // tools,
-                    // maxSteps: 10,
-                    onFinish: async ({ text, finishReason, usage, error: finishError }) => {
-                        console.log(`[AI] onFinish called: ${finishReason}, text length: ${text?.length || 0}`);
+                    tools,
+                    maxSteps: 10,
+                    maxTokens: 2048,
+                    onFinish: async ({ text, finishReason, usage, error: finishError, warnings }) => {
+                        streamFinishReason = finishReason;
+                        streamTextLength = text?.length || 0;
+
+                        console.log(`[AI] onFinish called: ${finishReason}, text length: ${streamTextLength}`);
+                        console.log(`[AI] Usage:`, JSON.stringify(usage));
+
+                        if (warnings && warnings.length > 0) {
+                            console.warn(`[AI] Warnings:`, JSON.stringify(warnings));
+                        }
                         if (finishError) {
                             console.error(`[AI] onFinish error:`, finishError.message || finishError);
                         }
+
+                        // Detect empty error response - this is retriable
+                        if (finishReason === 'error' && streamTextLength === 0) {
+                            console.error(`[AI] Empty error response detected - model returned no text`);
+                        }
+
                         // Async audit log - non-blocking
                         writeAuditLog(supabase, {
                             user_id: userId,
@@ -309,14 +327,17 @@ export default async function handler(req) {
                             output_text: text,
                             finish_reason: finishReason,
                             latency_ms: Date.now() - startTime,
-                            output_metadata: { usage, error: finishError?.message },
+                            output_metadata: { usage, error: finishError?.message, warnings },
                         });
                     },
                     onError: (error) => {
                         console.error(`[AI] onError callback:`, error.message || error);
                     },
-                    onStepFinish: ({ text, finishReason }) => {
+                    onStepFinish: ({ text, finishReason, warnings }) => {
                         console.log(`[AI] onStepFinish: ${finishReason}, text length: ${text?.length || 0}`);
+                        if (warnings && warnings.length > 0) {
+                            console.warn(`[AI] Step warnings:`, JSON.stringify(warnings));
+                        }
                     },
                 });
 
