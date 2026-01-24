@@ -281,6 +281,7 @@ export default async function handler(req) {
             try {
                 console.log(`[AI] Attempt ${attempt + 1}/${RETRY_CONFIG.maxAttempts} with ${model}`);
                 console.log(`[AI] Message count: ${normalizedMessages.length}`);
+                console.log(`[AI] Messages:`, JSON.stringify(normalizedMessages.map(m => ({ role: m.role, contentLen: m.content?.length || 0 }))));
 
                 const result = await streamText({
                     model: google(model),
@@ -288,8 +289,11 @@ export default async function handler(req) {
                     messages: normalizedMessages,
                     tools,
                     maxSteps: 10,
-                    onFinish: async ({ text, finishReason, usage }) => {
+                    onFinish: async ({ text, finishReason, usage, error: finishError }) => {
                         console.log(`[AI] onFinish called: ${finishReason}, text length: ${text?.length || 0}`);
+                        if (finishError) {
+                            console.error(`[AI] onFinish error:`, finishError.message || finishError);
+                        }
                         // Async audit log - non-blocking
                         writeAuditLog(supabase, {
                             user_id: userId,
@@ -304,7 +308,7 @@ export default async function handler(req) {
                             output_text: text,
                             finish_reason: finishReason,
                             latency_ms: Date.now() - startTime,
-                            output_metadata: { usage },
+                            output_metadata: { usage, error: finishError?.message },
                         });
                     },
                 });
