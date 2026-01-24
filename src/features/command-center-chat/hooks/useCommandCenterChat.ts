@@ -107,11 +107,10 @@ export function useCommandCenterChat(
         setError(null);
 
         try {
-            // Build request body with parts format for backend compatibility
+            // Build request body with content format for AI SDK backend
             const requestMessages = [...messages, userMessage].map(m => ({
                 role: m.role,
-                parts: [{ type: 'text', text: m.content }],
-                id: m.id,
+                content: m.content,
             }));
 
             const response = await fetch('/api/chat/command-center', {
