@@ -247,17 +247,47 @@ export default async function handler(req, ctx) {
 
             // Phase 1: Execute with tools using generateText (not streaming)
             // This allows tools to run and return results
-            const { text: toolPhaseText, finishReason, toolCalls, toolResults } = await generateText({
-                model: google(currentModel),
-                system: systemPrompt,
-                messages: safeMessages,
-                tools,
-                maxSteps: 3,
-                maxTokens: 2048,
-                abortSignal: req.signal,
-            });
+            let toolPhaseText, finishReason, toolCalls, toolResults;
 
-            console.log(`[AI] Phase 1 complete: ${finishReason}, text length: ${toolPhaseText?.length || 0}, toolCalls: ${toolCalls?.length || 0}`);
+            try {
+                const result = await generateText({
+                    model: google(currentModel),
+                    system: systemPrompt,
+                    messages: safeMessages,
+                    tools,
+                    maxSteps: 3,
+                    maxTokens: 2048,
+                    abortSignal: req.signal,
+                });
+                toolPhaseText = result.text;
+                finishReason = result.finishReason;
+                toolCalls = result.toolCalls;
+                toolResults = result.toolResults;
+
+                console.log(`[AI] Phase 1 complete: ${finishReason}, text length: ${toolPhaseText?.length || 0}, toolCalls: ${toolCalls?.length || 0}, toolResults: ${toolResults?.length || 0}`);
+
+                // Log tool details
+                if (toolCalls?.length > 0) {
+                    console.log('[AI] Tool calls:', toolCalls.map(tc => tc.toolName).join(', '));
+                }
+                if (toolResults?.length > 0) {
+                    console.log('[AI] Tool results:', toolResults.map(tr => `${tr.toolName}: ${tr.result?.error ? 'ERROR' : 'OK'}`).join(', '));
+                }
+            } catch (toolError) {
+                console.error('[AI] Phase 1 (tool execution) failed:', toolError.message);
+                console.error('[AI] Tool error details:', JSON.stringify(toolError, null, 2));
+
+                // If tools fail, fall back to no-tool response
+                console.log('[AI] Falling back to no-tool response...');
+                const fallbackResult = await streamText({
+                    model: google(currentModel),
+                    system: systemPrompt + '\n\nNOTE: Tools are temporarily unavailable. Respond as best you can without them.',
+                    messages: safeMessages,
+                    maxTokens: 2048,
+                    abortSignal: req.signal,
+                });
+                return fallbackResult.toTextStreamResponse({ headers: CORS_HEADERS });
+            }
 
             // If we got text directly, stream it
             if (toolPhaseText && toolPhaseText.length > 0) {
