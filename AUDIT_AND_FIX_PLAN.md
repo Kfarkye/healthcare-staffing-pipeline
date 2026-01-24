@@ -1,72 +1,62 @@
 # Audit & Restoration Plan: Command Center AI
 
 **Date:** 2026-01-24
-**Status:** Audit Complete -> Fixes Identified
-**Objective:** Restore full functionality to Command Center Chat (Streaming + Tool Execution + Data Integrity)
+**Status:** Phase 1 (Schema) Deployed -> Phase 2 (Serialization) Ready for Review
 
 ---
 
-## 1. Executive Summary
+## Phase 1: Schema Fixes (COMPLETED)
 
-The "Black Blob" (streaming failure) has been resolved by implementing a **Two-Phase Execution Strategy**. However, the AI is now accurately reporting that tool calls are returning `undefined` or "No results". This is caused by:
-
-1. **Schema Mismatches**: Tools were querying non-existent tables (`travel_candidates`) or using wrong columns (`id` vs `candidate_id`).
-2. **Date Formatting**: Date queries were using raw ISO strings instead of Postgres-compatible formats.
-3. **Result Propagation**: The AI SDK's tool result handling in the "Phase 2" synthesis step needs robust null-checking.
+- [x] Corrected `search_travel_list` to query `engagements` joined with `prospects`.
+- [x] Corrected `get_prospect_details` to use `candidate_id` (Nova ID).
+- [x] Ensured date queries use `YYYY-MM-DD` format.
 
 ---
 
-## 2. Audit Findings
+## Phase 2: Robust Result Serialization & Tool Hardening (PENDING APPROVAL)
 
-### ✅ What is Working
+### Objective
 
-* **Streaming Pipeline**: "Phase 1" (Direct) and "Phase 2" (Synthesis) are correctly streaming text to the frontend.
-* **Basic Chat**: Conversational inputs ("Hello") work perfectly.
-* **Audit Logging**: RLS policies for audit logs have been patched.
+Prevent the AI from saying "Result: undefined" when a tool runs successfully but returns empty data, or fails silently.
 
-### 🔴 Critical Failures (Root Causes)
+### Proposed Code Change (`api/chat/command-center/index.js`)
 
-| Component | Issue | Technical Detail | Status |
-| :--- | :--- | :--- | :--- |
-| **Tool: search_travel_list** | **Table Mismatch** | Querying `travel_candidates` (does not exist). Schema requires `engagements` joined with `prospects`. | **Fixed in Pending Commit** |
-| **Tool: get_prospect_details** | **Column Mismatch** | Querying `id` instead of `candidate_id` (Nova ID). | **Fixed in Pending Commit** |
-| **Tool: Date Queries** | **Format Error** | Using `toISOString()` (e.g., `2026-01-24T...`). Postgres `date` columns often require `YYYY-MM-DD`. | **Requires Fix** |
-| **Synthesis Logic** | **"Undefined" Results** | `JSON.stringify(tr.result)` returns `undefined` if the tool execution failed silently or returned void. | **Requires Fix** |
-| **Data Integrity** | **Empty Tables?** | Even with corrected queries, if `communication_templates` or `engagements` are empty, the AI will say "No results". | **Verifying...** |
+**Current Logic:**
 
----
+```javascript
+const toolResultsSummary = toolResults.map(tr => 
+    `Tool: ${tr.toolName}\nResult: ${JSON.stringify(tr.result, null, 2)}`
+).join('\n\n');
+```
 
-## 3. Restoration Plan (Code Changes)
+**New Logic:**
 
-### Step 1: Apply Schema Fixes (Backend)
+```javascript
+const toolResultsSummary = toolResults.map(tr => {
+    // 1. Check for explicit error schema from tool
+    if (tr.result && tr.result.error) {
+        return `Tool: ${tr.toolName}\nStatus: Failed\nError: ${tr.result.error}`;
+    }
+    
+    // 2. Handle undefined/null results safely
+    const resultStr = tr.result ? JSON.stringify(tr.result, null, 2) : "No data returned (undefined)";
+    
+    return `Tool: ${tr.toolName}\nResult: ${resultStr}`;
+}).join('\n\n');
+```
 
-- [x] **Correct Table Names**: Update `search_travel_list` to query `engagements` + `prospects`.
-* [x] **Correct Column IDs**: Update `get_prospect_details` to use `candidate_id`.
-* [ ] **Fix Date Formats**: ensure `.split('T')[0]` is used for all date comparisons.
+### Why this fixes it
 
-### Step 2: Harden Tool Execution (Backend)
-
-- [ ] **Robust Result Serialization**: Update `index.js` to handle `undefined` tool results safely:
-
-    ```javascript
-    const resultStr = tr.result ? JSON.stringify(tr.result, null, 2) : "NO DATA / ERROR";
-    ```
-
-- [ ] **Explicit Null Returns**: Ensure all `tools.js` functions return a specific error object `{ error: "No data found" }` rather than `null/undefined`.
-
-### Step 3: Verify Data (Database)
-
-- [ ] **Manual Data Check**: Run a quick verification query to confirm `engagements` and `communication_templates` have rows.
-  * *If empty, I will generate a SQL seed script to populate mock data for testing.*
+If the database returns `null` or `[]`, the tool function *should* return an object like `{ travelers: [], count: 0 }`. If it returns `undefined`, the new logic catches it and provides a clear text signal to the AI ("No data returned"), so the AI can say "I searched but found no records" instead of "I tried but got undefined".
 
 ---
 
-## 4. Approval Request
+## Phase 3: Data Verification (Optional)
 
-**Do you approve proceeding with:**
+If Phase 2 doesn't resolve the issue, it means the database is truly empty.
+- Action: Run a SQL seed script to ensure testable data exists.
 
-1. Deploying the pending Schema Fixes (Step 1).
-2. Implementing the Result Serialization fixes (Step 2).
-3. Running a SQL Validation check to confirm data exists?
+---
 
-**Type "Approved" to execute.**
+**Approval Request**
+Type "Approved" to implement Phase 2 changes.

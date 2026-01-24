@@ -321,10 +321,20 @@ export default async function handler(req, ctx) {
             if (toolResults && toolResults.length > 0) {
                 console.log('[AI] Tool-only run detected, synthesizing final response...');
 
-                // Build synthesis prompt with tool results
-                const toolResultsSummary = toolResults.map(tr =>
-                    `Tool: ${tr.toolName}\nResult: ${JSON.stringify(tr.result, null, 2)}`
-                ).join('\n\n');
+                // Build synthesis prompt with tool results (Robust Serialization)
+                const toolResultsSummary = toolResults.map(tr => {
+                    // 1. Check for explicit error schema from tool
+                    if (tr.result && tr.result.error) {
+                        return `Tool: ${tr.toolName}\nStatus: Failed\nError: ${tr.result.error}`;
+                    }
+
+                    // 2. Handle undefined/null results safely
+                    // Tools should return { ... } or null, never undefined. 
+                    // If undefined, it means tool execution logic returned void.
+                    const resultStr = tr.result !== undefined ? JSON.stringify(tr.result, null, 2) : "No data returned (undefined)";
+
+                    return `Tool: ${tr.toolName}\nResult: ${resultStr}`;
+                }).join('\n\n');
 
                 const synthesisMessages = [
                     ...safeMessages,
