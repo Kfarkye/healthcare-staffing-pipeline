@@ -49,11 +49,14 @@ class AIServiceClass {
         const { data: sessionRes } = await supabase.auth.getSession();
         const accessToken = sessionRes?.session?.access_token ?? '';
 
+        // Ensure history is an array
+        const safeHistory = Array.isArray(history) ? history : [];
+
         // Convert history to AI SDK message format
         const messages = [
-            ...history.map(msg => ({
+            ...safeHistory.map(msg => ({
                 role: msg.role === 'model' ? 'assistant' : msg.role,
-                content: msg.parts[0]?.text || '',
+                content: msg.parts?.[0]?.text || msg.parts?.[0]?.content || '',
             })),
             { role: 'user', content: message }
         ];

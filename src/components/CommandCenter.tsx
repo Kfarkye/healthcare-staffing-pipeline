@@ -795,17 +795,51 @@ export const CommandCenter: React.FC = () => {
                                     onDrop={(e) => {
                                         e.preventDefault();
                                         setIsDraggingOver(false);
-                                        const json = e.dataTransfer.getData('application/json');
-                                        if (json) {
+
+                                        // Try various data types
+                                        const jsonData = e.dataTransfer.getData('application/json');
+                                        const plainData = e.dataTransfer.getData('text/plain');
+
+                                        let candidateId: string | null = null;
+                                        let candidateName: string | null = null;
+
+                                        if (jsonData) {
                                             try {
-                                                const data = JSON.parse(json);
-                                                if (data.contextType === 'candidate') {
-                                                    const contextString = `Context: ${data.name} (${data.specialty}) - ID: ${data.id}\n`;
-                                                    setInputValue(prev => contextString + prev);
-                                                    // Optional: Flash success or something
-                                                }
-                                            } catch (err) { console.error('Drop parse error', err); }
+                                                const data = JSON.parse(jsonData);
+                                                // Handle various formats from different dashboards
+                                                candidateId = data.id || data.prospectId || data.candidateId;
+                                                candidateName = data.name || data.candidateName;
+                                            } catch (e) { /* ignore */ }
                                         }
+
+                                        if (!candidateId && plainData) {
+                                            // Check if it's a number (ID only) or JSON
+                                            if (/^\d+$/.test(plainData.trim())) {
+                                                candidateId = plainData.trim();
+                                            } else {
+                                                try {
+                                                    const data = JSON.parse(plainData);
+                                                    candidateId = data.id || data.prospectId;
+                                                    candidateName = data.name || data.candidateName;
+                                                } catch (e) {
+                                                    // Might be a name?
+                                                    candidateName = plainData.trim();
+                                                }
+                                            }
+                                        }
+
+                                        if (candidateId || candidateName) {
+                                            const contextMsg = candidateId
+                                                ? `Help me with candidate ID ${candidateId}${candidateName ? ` (${candidateName})` : ''}`
+                                                : `Help me with candidate ${candidateName}`;
+
+                                            setInputValue(contextMsg);
+                                            // Auto-trigger if we have an ID
+                                            if (candidateId) {
+                                                setTimeout(() => handleSend(), 100);
+                                            }
+                                        }
+
                                     }}
                                 >
                                     <textarea

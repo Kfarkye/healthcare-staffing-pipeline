@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/chat/command-center",
-      "destination": "/api/chat/command-center/route"
+      "destination": "/api/chat/command-center/index"
     }
   ]
 }
