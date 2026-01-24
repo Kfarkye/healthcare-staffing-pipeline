@@ -377,7 +377,7 @@ export function createCommandCenterTools(supabase) {
             }),
             execute: async (args) => {
                 const { name, facility, specialty, ending_soon } = args;
-                let query = supabase.from('travel_list').select('*');
+                let query = supabase.from('travel_candidates').select('*');
                 if (name) query = query.ilike('candidate_name', `%${name}%`);
                 if (facility) query = query.ilike('facility_name', `%${facility}%`);
                 if (specialty) query = query.ilike('specialty', `%${specialty}%`);

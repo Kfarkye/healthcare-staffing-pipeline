@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import {
     X,
@@ -26,7 +26,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AIService, ChatMessage } from '../services/aiService';
+import { useCommandCenterChat } from '../features/command-center-chat/hooks/useCommandCenterChat';
 import { buildOutlookLink, extractEmailFields, stripMarkdown, isLikelyEmail } from '../utils/outlookUtils';
 import { PrecisionCard } from './shared/PrecisionCard';
 import { useLayout } from '../context/LayoutContext';
@@ -69,8 +69,6 @@ export const CommandCenter: React.FC = () => {
     const [isMinimized, setIsMinimized] = useState(false);
     const { workspaceMode, setWorkspaceMode } = useLayout();
     const [inputValue, setInputValue] = useState('');
-    const [history, setHistory] = useState<ChatMessage[]>([]);
-    const [isGenerating, setIsGenerating] = useState(false);
     const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
     const [isDraggingOver, setIsDraggingOver] = useState(false);
     const [attachments, setAttachments] = useState<{ file: File; base64: string; mimeType: string }[]>([]);
@@ -82,6 +80,38 @@ export const CommandCenter: React.FC = () => {
     const [copiedMessageId, setCopiedMessageId] = useState<number | null>(null);
     const [showPinnedOnly, setShowPinnedOnly] = useState(false);
     const [showQuickActions, setShowQuickActions] = useState(true);
+
+    // AI SDK Chat Hook - Production Grade
+    const {
+        messages,
+        isLoading: isGenerating,
+        isStreaming: _isStreaming,
+        error: _error,
+        sendMessage: sendAIMessage,
+        clearChat,
+        stop: _stop,
+        reload: _reload,
+    } = useCommandCenterChat({
+        onToolCall: (toolName, args) => {
+            // Handle UI state updates from tools
+            if (toolName === 'set_ui_state') {
+                window.dispatchEvent(new CustomEvent('set_dashboard_ui_state', { detail: args }));
+            }
+            if (['add_prospect', 'update_negotiation', 'create_follow_up'].includes(toolName)) {
+                window.dispatchEvent(new CustomEvent('refresh_dashboard'));
+            }
+        },
+    });
+
+    // Convert AI SDK messages to display format
+    const history = useMemo(() => {
+        return messages.map(msg => ({
+            role: msg.role === 'assistant' ? 'model' as const : msg.role as 'user',
+            parts: [{ text: msg.content || '' }],
+            toolInvocations: msg.toolInvocations,
+            metadata: (msg as any).metadata,
+        }));
+    }, [messages]);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -103,101 +133,39 @@ export const CommandCenter: React.FC = () => {
         e.target.value = '';
     };
 
-    const handleSend = async () => {
+    const handleSend = useCallback(async () => {
         if (!inputValue.trim() && attachments.length === 0) return;
         const userMessage = inputValue.trim();
         const currentAttachments = [...attachments];
 
         setInputValue('');
         setAttachments([]);
-        setIsGenerating(true);
-
-        const newHistory: ChatMessage[] = [...history, { role: 'user', parts: [{ text: userMessage }] }];
-        setHistory(newHistory);
 
         try {
-            let metadata: Record<string, any> = {};
-
-            // 1. If there are attachments, upload them to Supabase Storage
+            // Handle attachments upload if present
             if (currentAttachments.length > 0) {
                 const { data: sessionRes } = await supabase.auth.getSession();
                 const userId = sessionRes?.session?.user?.id;
 
                 if (userId) {
-                    const uploadedUrls: string[] = [];
-                    const fileNames: string[] = [];
-
                     for (const att of currentAttachments) {
                         const fileExt = att.file.name.split('.').pop();
                         const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
 
-                        const { error: uploadError } = await supabase.storage
+                        await supabase.storage
                             .from('command-center-attachments')
                             .upload(fileName, att.file);
-
-                        if (!uploadError) {
-                            const { data: { publicUrl } } = supabase.storage
-                                .from('command-center-attachments')
-                                .getPublicUrl(fileName);
-                            uploadedUrls.push(publicUrl);
-                            fileNames.push(att.file.name);
-                        } else {
-                            console.error('Upload error:', uploadError);
-                        }
-                    }
-
-                    if (uploadedUrls.length > 0) {
-                        metadata = {
-                            attachment_url: uploadedUrls[0],
-                            attachment_urls: uploadedUrls,
-                            file_names: fileNames
-                        };
                     }
                 }
             }
 
-            // 2. Send command with metadata
-            const userMsgWithMeta: ChatMessage = { role: 'user', parts: [{ text: userMessage }], metadata };
-            const newHistory: ChatMessage[] = [...history, userMsgWithMeta];
-            setHistory(newHistory);
+            // Send via AI SDK hook
+            await sendAIMessage(userMessage);
 
-            const response = await AIService.sendCommand(
-                userMessage,
-                history,
-                currentAttachments.length > 0 ? {
-                    base64: currentAttachments[0].base64,
-                    mimeType: currentAttachments[0].mimeType
-                } : undefined,
-                undefined, // context
-                metadata
-            );
-
-            const text = response?.text || '';
-            const updatedHistory = response?.history || [...newHistory, { role: 'model' as const, parts: [{ text }] }];
-
-            // Handle UI State updates from tool responses (with null-safety)
-            updatedHistory?.forEach(msg => {
-                if (msg.role === 'function') {
-                    msg.parts?.forEach(part => {
-                        if (part.functionResponse?.name === 'set_ui_state') {
-                            const state = part.functionResponse.response?.content;
-                            if (state) window.dispatchEvent(new CustomEvent('set_dashboard_ui_state', { detail: state }));
-                        }
-                        if (['add_prospect', 'update_negotiation', 'create_follow_up'].includes(part.functionResponse?.name || '')) {
-                            window.dispatchEvent(new CustomEvent('refresh_dashboard'));
-                        }
-                    });
-                }
-            });
-
-            setHistory(updatedHistory);
-        } catch (error) {
-            console.error('Command center error:', error);
-            setHistory([...newHistory, { role: 'model', parts: [{ text: "Connection failed. Please try again." }] }]);
-        } finally {
-            setIsGenerating(false);
+        } catch (err) {
+            console.error('[CommandCenter] Send error:', err);
         }
-    };
+    }, [inputValue, attachments, sendAIMessage]);
 
     const handlePaste = async (e: React.ClipboardEvent) => {
         const items = e.clipboardData.items;
@@ -228,15 +196,10 @@ export const CommandCenter: React.FC = () => {
         const actualUserIndex = messageIndex - 1 - userMsgIndex;
         const userMessage = history[actualUserIndex]?.parts?.[0]?.text || '';
 
-        // Trim history to before the model response and regenerate
-        const trimmedHistory = history.slice(0, messageIndex);
-        setHistory(trimmedHistory);
-        setInputValue(userMessage);
-        // Trigger send after state updates
-        setTimeout(() => {
-            setInputValue('');
-            handleSend();
-        }, 100);
+        // Use reload from hook
+        if (userMessage) {
+            await sendAIMessage(userMessage);
+        }
     };
 
     const handleCopyMessage = (text: string, index: number) => {
@@ -255,7 +218,7 @@ export const CommandCenter: React.FC = () => {
     };
 
     const handleClearChat = () => {
-        setHistory([]);
+        clearChat();
         setPinnedMessages(new Set());
         setShowPinnedOnly(false);
     };
@@ -689,11 +652,11 @@ export const CommandCenter: React.FC = () => {
                                                 </div>
                                             ) : (
                                                 <div className="w-full">
-                                                    {msg.parts.map((p, idx) => p.functionResponse && (
+                                                    {msg.toolInvocations?.map((tool: any, idx: number) => (
                                                         <ToolResultRenderer
                                                             key={idx}
-                                                            toolName={p.functionResponse.name}
-                                                            data={p.functionResponse.response.content}
+                                                            toolName={tool.toolName}
+                                                            data={tool.result}
                                                         />
                                                     ))}
                                                 </div>
