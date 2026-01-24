@@ -28,8 +28,8 @@ export const config = {
 
 /** Model hierarchy: Pro for quality, Flash for fallback */
 const MODELS = {
-    PRIMARY: 'gemini-3-flash-preview',
-    FALLBACK: 'gemini-3-pro-preview',
+    PRIMARY: 'gemini-3-pro-preview',
+    FALLBACK: 'gemini-3-flash-preview',
 };
 
 /** Retry configuration */
@@ -287,8 +287,9 @@ export default async function handler(req) {
                     model: google(model),
                     system: systemPrompt,
                     messages: normalizedMessages,
-                    tools,
-                    maxSteps: 10,
+                    // TEMPORARILY DISABLED FOR DEBUGGING
+                    // tools,
+                    // maxSteps: 10,
                     onFinish: async ({ text, finishReason, usage, error: finishError }) => {
                         console.log(`[AI] onFinish called: ${finishReason}, text length: ${text?.length || 0}`);
                         if (finishError) {
