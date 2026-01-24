@@ -3,7 +3,9 @@ import { streamText, convertToModelMessages, UIMessage, stepCountIs } from 'ai';
 import { createClient } from '@supabase/supabase-js';
 import { createCommandCenterTools } from './tools';
 
-export const runtime = 'edge';
+export const config = {
+    runtime: 'edge',
+};
 
 // Model configuration with fallback
 const MODEL_PRIMARY = 'gemini-3-pro-preview';
@@ -38,7 +40,15 @@ Best,
 Kofi Farkye
 Senior Recruiter, Fulfillment Specialist`;
 
-export async function POST(req: Request) {
+export default async function handler(req: Request) {
+    // Only allow POST
+    if (req.method !== 'POST') {
+        return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+            status: 405,
+            headers: { 'Content-Type': 'application/json' },
+        });
+    }
+
     const startTime = Date.now();
 
     // Initialize Supabase client
@@ -134,3 +144,4 @@ export async function POST(req: Request) {
         });
     }
 }
+
