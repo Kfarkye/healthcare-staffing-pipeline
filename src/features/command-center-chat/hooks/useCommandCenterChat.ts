@@ -1,15 +1,12 @@
 /**
  * Command Center Chat Hook
  * 
- * Production-grade React hook for Vercel AI SDK v6 chat integration.
- * Uses ChatInit and sendMessage pattern from AI SDK v6.
+ * Production-grade React hook using native fetch with text streaming.
  * 
- * @version 2.0.0
+ * @version 2.1.0
  */
 
-import { useChat, UIMessage } from '@ai-sdk/react';
-import { useCallback, useMemo, useRef } from 'react';
-import { DefaultChatTransport } from 'ai';
+import { useState, useCallback, useRef } from 'react';
 
 // ============================================================================
 // TYPES
@@ -17,7 +14,7 @@ import { DefaultChatTransport } from 'ai';
 
 export interface CommandCenterMessage {
     id: string;
-    role: 'user' | 'assistant' | 'system';
+    role: 'user' | 'assistant';
     content: string;
     createdAt?: Date;
     toolInvocations?: any[];
@@ -55,28 +52,11 @@ export interface UseCommandCenterChatReturn {
 }
 
 // ============================================================================
-// MESSAGE CONTENT EXTRACTION
+// UTILITIES
 // ============================================================================
 
-/**
- * Extract displayable content from a UIMessage
- * AI SDK v6 uses `parts` array, not a `content` string
- */
-function extractMessageContent(msg: UIMessage): string {
-    // Handle parts-based messages (v6 format)
-    if ('parts' in msg && Array.isArray(msg.parts)) {
-        return msg.parts
-            .filter(part => part.type === 'text')
-            .map(part => (part as any).text || '')
-            .join('');
-    }
-
-    // Fallback for legacy content property
-    if ('content' in msg && typeof (msg as any).content === 'string') {
-        return (msg as any).content;
-    }
-
-    return '';
+function generateId(): string {
+    return Math.random().toString(36).substring(2, 15);
 }
 
 // ============================================================================
@@ -86,104 +66,162 @@ function extractMessageContent(msg: UIMessage): string {
 export function useCommandCenterChat(
     options: UseCommandCenterChatOptions = {}
 ): UseCommandCenterChatReturn {
-    const { context, onError, onToolCall } = options;
+    const { context, onError } = options;
+
+    const [messages, setMessages] = useState<CommandCenterMessage[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isStreaming, setIsStreaming] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
     const abortControllerRef = useRef<AbortController | null>(null);
 
-    const {
-        messages,
-        error,
-        status: chatStatus,
-        sendMessage: sdkSendMessage,
-        setMessages,
-        stop: stopGeneration,
-        regenerate,
-    } = useChat({
-        transport: new DefaultChatTransport({
-            api: '/api/chat/command-center',
-            body: { context },
-        }),
-        onError: (err) => {
-            console.error('[CommandCenterChat] Error:', err);
-            onError?.(err);
-        },
-        onToolCall: ({ toolCall }) => {
-            onToolCall?.(toolCall.toolName, (toolCall as any).args);
-        },
-    });
-
     // ========================================================================
-    // DERIVED STATE
-    // ========================================================================
-
-    const isLoading = chatStatus === 'submitted' || chatStatus === 'streaming';
-    const isStreaming = chatStatus === 'streaming';
-
-    const status = useMemo((): 'idle' | 'loading' | 'streaming' | 'error' => {
-        if (error) return 'error';
-        if (chatStatus === 'streaming') return 'streaming';
-        if (chatStatus === 'submitted') return 'loading';
-        return 'idle';
-    }, [error, chatStatus]);
-
-    // ========================================================================
-    // ACTIONS
+    // SEND MESSAGE
     // ========================================================================
 
     const sendMessage = useCallback(async (content: string) => {
         if (!content.trim()) return;
 
-        // Cancel any pending request
+        // Cancel any in-progress request
         abortControllerRef.current?.abort();
         abortControllerRef.current = new AbortController();
 
+        const userMessage: CommandCenterMessage = {
+            id: generateId(),
+            role: 'user',
+            content,
+            createdAt: new Date(),
+        };
+
+        const assistantMessage: CommandCenterMessage = {
+            id: generateId(),
+            role: 'assistant',
+            content: '',
+            createdAt: new Date(),
+        };
+
+        // Add user message and placeholder for assistant
+        setMessages(prev => [...prev, userMessage, assistantMessage]);
+        setIsLoading(true);
+        setIsStreaming(false);
+        setError(null);
+
         try {
-            // AI SDK v6 sendMessage accepts text directly or message object
-            await sdkSendMessage({ text: content });
-        } catch (err: any) {
-            if (err.name !== 'AbortError') {
-                console.error('[CommandCenterChat] Send failed:', err);
-                onError?.(err);
+            // Build request body with parts format for backend compatibility
+            const requestMessages = [...messages, userMessage].map(m => ({
+                role: m.role,
+                parts: [{ type: 'text', text: m.content }],
+                id: m.id,
+            }));
+
+            const response = await fetch('/api/chat/command-center', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messages: requestMessages,
+                    context,
+                }),
+                signal: abortControllerRef.current.signal,
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Request failed: ${response.status}`);
             }
+
+            if (!response.body) {
+                throw new Error('No response body');
+            }
+
+            // Stream the response
+            setIsStreaming(true);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let accumulatedText = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                accumulatedText += chunk;
+
+                // Update the assistant message with accumulated text
+                setMessages(prev => {
+                    const updated = [...prev];
+                    const lastIdx = updated.length - 1;
+                    if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+                        updated[lastIdx] = {
+                            ...updated[lastIdx],
+                            content: accumulatedText,
+                        };
+                    }
+                    return updated;
+                });
+            }
+
+            setIsStreaming(false);
+            setIsLoading(false);
+
+        } catch (err: any) {
+            if (err.name === 'AbortError') {
+                // Request was cancelled, don't treat as error
+                return;
+            }
+
+            console.error('[CommandCenterChat] Error:', err);
+            setError(err.message || 'An error occurred');
+            onError?.(err);
+
+            // Remove the empty assistant message on error
+            setMessages(prev => prev.filter(m => m.content !== '' || m.role !== 'assistant'));
+            setIsLoading(false);
+            setIsStreaming(false);
         }
-    }, [sdkSendMessage, onError]);
+    }, [messages, context, onError]);
+
+    // ========================================================================
+    // ACTIONS
+    // ========================================================================
 
     const clearChat = useCallback(() => {
         abortControllerRef.current?.abort();
         setMessages([]);
-    }, [setMessages]);
+        setError(null);
+    }, []);
 
     const stop = useCallback(() => {
         abortControllerRef.current?.abort();
-        stopGeneration();
-    }, [stopGeneration]);
+        setIsLoading(false);
+        setIsStreaming(false);
+    }, []);
 
     const reload = useCallback(() => {
-        regenerate();
-    }, [regenerate]);
+        // Find last user message and resend
+        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+        if (lastUserMsg) {
+            // Remove last assistant message and resend
+            setMessages(prev => prev.slice(0, -1));
+            sendMessage(lastUserMsg.content);
+        }
+    }, [messages, sendMessage]);
 
     // ========================================================================
-    // MAP MESSAGES
+    // DERIVED STATE
     // ========================================================================
 
-    const mappedMessages: CommandCenterMessage[] = useMemo(() => {
-        return messages.map(msg => ({
-            id: msg.id,
-            role: msg.role as CommandCenterMessage['role'],
-            content: extractMessageContent(msg),
-            createdAt: (msg as any).createdAt,
-            toolInvocations: (msg as any).toolInvocations,
-        }));
-    }, [messages]);
+    const status = error ? 'error' : isStreaming ? 'streaming' : isLoading ? 'loading' : 'idle';
 
     // ========================================================================
     // RETURN
     // ========================================================================
 
     return {
-        messages: mappedMessages,
+        messages,
         isLoading,
         isStreaming,
-        error: error?.message || null,
+        error,
         sendMessage,
         clearChat,
         stop,
