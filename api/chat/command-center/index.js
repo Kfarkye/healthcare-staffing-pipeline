@@ -251,9 +251,16 @@ export default async function handler(req, ctx) {
                 maxTokens: 2048,
                 // CRITICAL: Stop generating if client disconnects (saves costs)
                 abortSignal: req.signal,
-                onFinish: ({ text, finishReason, usage, warnings }) => {
+                onFinish: ({ text, finishReason, usage, warnings, error: finishError }) => {
                     console.log(`[AI] onFinish: ${finishReason}, text length: ${text?.length || 0}`);
 
+                    // Capture any error details
+                    if (finishError) {
+                        console.error('[AI] onFinish error:', finishError.message || JSON.stringify(finishError));
+                    }
+                    if (finishReason === 'error' && text?.length === 0) {
+                        console.error('[AI] Model returned error with no text - possible safety/filter issue');
+                    }
                     if (warnings?.length > 0) {
                         console.warn('[AI] Warnings:', JSON.stringify(warnings));
                     }
