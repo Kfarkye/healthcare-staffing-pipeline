@@ -378,8 +378,16 @@ export default async function handler(req) {
             }
         }
 
-        // Success - return streaming response
-        return result.toTextStreamResponse();
+        // Success - return UI message stream response (includes tool calls + text)
+        const corsHeaders = {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        };
+
+        return result.toUIMessageStreamResponse({
+            headers: corsHeaders,
+        });
 
     } catch (error) {
         console.error('[AI] All attempts failed:', error.message);

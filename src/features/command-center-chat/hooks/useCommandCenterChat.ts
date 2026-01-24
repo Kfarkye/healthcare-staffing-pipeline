@@ -1,12 +1,14 @@
 /**
  * Command Center Chat Hook
  * 
- * Production-grade React hook using native fetch with text streaming.
+ * Production-grade React hook that consumes UI message stream format.
+ * This format includes text deltas AND tool call events.
  * 
- * @version 2.1.0
+ * @version 2.2.0
  */
 
 import { useState, useCallback, useRef } from 'react';
+import { readUIMessageStream } from 'ai';
 
 // ============================================================================
 // TYPES
@@ -66,7 +68,7 @@ function generateId(): string {
 export function useCommandCenterChat(
     options: UseCommandCenterChatOptions = {}
 ): UseCommandCenterChatReturn {
-    const { context, onError } = options;
+    const { context, onError, onToolCall } = options;
 
     const [messages, setMessages] = useState<CommandCenterMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -98,6 +100,7 @@ export function useCommandCenterChat(
             role: 'assistant',
             content: '',
             createdAt: new Date(),
+            toolInvocations: [],
         };
 
         // Add user message and placeholder for assistant
@@ -132,32 +135,57 @@ export function useCommandCenterChat(
                 throw new Error('No response body');
             }
 
-            // Stream the response
+            // Stream the UI message response
             setIsStreaming(true);
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
             let accumulatedText = '';
+            let toolInvocations: any[] = [];
 
-            while (true) {
-                const { done, value } = await reader.read();
+            // Use the AI SDK's readUIMessageStream to parse the response
+            const reader = readUIMessageStream({
+                getReader: () => response.body!.getReader(),
+            });
 
-                if (done) break;
+            for await (const chunk of reader) {
+                // Handle different chunk types from UI message stream
+                if (chunk.type === 'text') {
+                    accumulatedText += chunk.text;
 
-                const chunk = decoder.decode(value, { stream: true });
-                accumulatedText += chunk;
+                    // Update the assistant message with accumulated text
+                    setMessages(prev => {
+                        const updated = [...prev];
+                        const lastIdx = updated.length - 1;
+                        if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+                            updated[lastIdx] = {
+                                ...updated[lastIdx],
+                                content: accumulatedText,
+                            };
+                        }
+                        return updated;
+                    });
+                } else if (chunk.type === 'tool-invocation') {
+                    toolInvocations.push(chunk);
 
-                // Update the assistant message with accumulated text
-                setMessages(prev => {
-                    const updated = [...prev];
-                    const lastIdx = updated.length - 1;
-                    if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
-                        updated[lastIdx] = {
-                            ...updated[lastIdx],
-                            content: accumulatedText,
-                        };
+                    // Notify about tool calls
+                    if (onToolCall && chunk.toolName) {
+                        onToolCall(chunk.toolName, chunk.args);
                     }
-                    return updated;
-                });
+
+                    // Update tool invocations
+                    setMessages(prev => {
+                        const updated = [...prev];
+                        const lastIdx = updated.length - 1;
+                        if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+                            updated[lastIdx] = {
+                                ...updated[lastIdx],
+                                toolInvocations: [...toolInvocations],
+                            };
+                        }
+                        return updated;
+                    });
+                } else if (chunk.type === 'step-finish' || chunk.type === 'finish') {
+                    // Stream completed
+                    console.log('[Chat] Stream finished:', chunk);
+                }
             }
 
             setIsStreaming(false);
@@ -178,7 +206,7 @@ export function useCommandCenterChat(
             setIsLoading(false);
             setIsStreaming(false);
         }
-    }, [messages, context, onError]);
+    }, [messages, context, onError, onToolCall]);
 
     // ========================================================================
     // ACTIONS
