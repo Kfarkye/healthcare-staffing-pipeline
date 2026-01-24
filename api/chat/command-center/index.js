@@ -174,13 +174,17 @@ export default async function handler(req) {
     // 2. ENVIRONMENT VALIDATION
     // ========================================================================
 
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    let supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+    let supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
     const googleApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
 
+    // Sanitize: remove quotes, whitespace
+    supabaseUrl = supabaseUrl.trim().replace(/^["']|["']$/g, '');
+    supabaseKey = supabaseKey.trim().replace(/^["']|["']$/g, '');
+
     // Debug logging for env var diagnostics
-    console.log('[Config] SUPABASE_URL:', supabaseUrl ? 'set' : 'MISSING');
-    console.log('[Config] SUPABASE_KEY:', supabaseKey ? 'set' : 'MISSING');
+    console.log('[Config] SUPABASE_URL:', supabaseUrl ? `"${supabaseUrl.substring(0, 30)}..."` : 'MISSING');
+    console.log('[Config] SUPABASE_KEY:', supabaseKey ? 'set (hidden)' : 'MISSING');
     console.log('[Config] GOOGLE_API_KEY:', googleApiKey ? 'set' : 'MISSING');
 
     if (!supabaseUrl || !supabaseKey) {
