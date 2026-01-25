@@ -260,20 +260,50 @@ export default async function handler(req, ctx) {
     }
 
     // ========================================================================
-    // 4. NORMALIZE & TRUNCATE MESSAGES
+    // 4. NORMALIZE & TRUNCATE MESSAGES (with Multimodal Support)
     // ========================================================================
 
+    /**
+     * Normalize messages for AI SDK, preserving multimodal content.
+     * 
+     * Supports two formats:
+     * 1. Simple: { role, content: string }
+     * 2. Multimodal: { role, parts: [{ type: 'text', text }, { type: 'image', mimeType, data }] }
+     * 
+     * @see https://sdk.vercel.ai/providers/ai-sdk-providers/google-generative-ai#multi-modal
+     */
     const normalizedMessages = messages.map(msg => {
+        // Case 1: Simple string content
         if (typeof msg.content === 'string') {
             return { role: msg.role, content: msg.content };
         }
-        if (Array.isArray(msg.parts)) {
-            const textContent = msg.parts
-                .filter(p => p.type === 'text' || p.text)
-                .map(p => p.text || '')
-                .join('');
-            return { role: msg.role, content: textContent };
+
+        // Case 2: Multimodal parts array
+        if (Array.isArray(msg.parts) && msg.parts.length > 0) {
+            // Build content array for AI SDK multimodal format
+            const content = msg.parts.map(part => {
+                if (part.type === 'text') {
+                    return { type: 'text', text: part.text || '' };
+                }
+                if (part.type === 'image' && part.data) {
+                    // Gemini expects base64 image data
+                    return {
+                        type: 'image',
+                        image: part.data, // Base64 string (without data: prefix)
+                        mimeType: part.mimeType || 'image/png',
+                    };
+                }
+                return null;
+            }).filter(Boolean);
+
+            // If we have valid multimodal content, return it
+            if (content.length > 0) {
+                console.log(`[AI] Multimodal message: ${content.length} parts (${content.filter(c => c.type === 'image').length} images)`);
+                return { role: msg.role, content };
+            }
         }
+
+        // Fallback: empty content
         return { role: msg.role, content: '' };
     });
 

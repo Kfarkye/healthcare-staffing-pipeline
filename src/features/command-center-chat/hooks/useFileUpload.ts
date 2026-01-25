@@ -33,6 +33,8 @@ export interface Attachment {
     uploadError: string | null;
     storagePath: string | null;
     publicUrl: string | null;
+    /** Base64 encoded file data for vision/multimodal AI (images only) */
+    base64Data: string | null;
 }
 
 export interface UseFileUploadOptions {
@@ -127,6 +129,24 @@ function formatFileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Read a file as base64 string (without data: prefix).
+ * Used for multimodal AI vision input.
+ */
+function readFileAsBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = reader.result as string;
+            // Remove data:image/png;base64, prefix
+            const base64 = result.split(',')[1] || '';
+            resolve(base64);
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(file);
+    });
 }
 
 // ============================================================================
@@ -265,6 +285,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
                 uploadError: null,
                 storagePath: null,
                 publicUrl: null,
+                base64Data: null, // Will be populated async for images
             };
 
             newAttachments.push(attachment);
@@ -275,11 +296,21 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
         // Add to state immediately (optimistic)
         setAttachments((prev) => [...prev, ...newAttachments]);
 
-        // Upload each file
+        // Process each file: upload + read base64 for images
         for (const attachment of newAttachments) {
+            // Read base64 for images (parallel with upload)
+            if (attachment.mimeType.startsWith('image/')) {
+                readFileAsBase64(attachment.file).then((base64) => {
+                    setAttachments((prev) =>
+                        prev.map((att) => (att.id === attachment.id ? { ...att, base64Data: base64 } : att))
+                    );
+                });
+            }
+
+            // Upload to storage
             uploadToStorage(attachment).then((updated) => {
                 setAttachments((prev) =>
-                    prev.map((att) => (att.id === updated.id ? updated : att))
+                    prev.map((att) => (att.id === updated.id ? { ...updated, base64Data: att.base64Data } : att))
                 );
 
                 if (updated.uploadError) {

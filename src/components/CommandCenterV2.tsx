@@ -1337,26 +1337,27 @@ export const CommandCenterV2: FC = () => {
             if (!text && attachments.length === 0) return;
             if (isLoading || isUploading) return;
 
-            // Build message with attachment URLs if present
-            let finalMessage = text;
-            if (attachments.length > 0) {
-                const attachmentUrls = attachments
-                    .filter(a => a.publicUrl)
-                    .map(a => `[Attached: ${a.fileName}](${a.publicUrl})`)
-                    .join('\n');
+            // Build image attachments for multimodal AI (base64)
+            const imageAttachments = attachments
+                .filter(a => a.mimeType.startsWith('image/') && a.base64Data)
+                .map(a => ({
+                    base64: a.base64Data!,
+                    mimeType: a.mimeType,
+                    fileName: a.fileName,
+                }));
 
-                if (attachmentUrls) {
-                    finalMessage = text
-                        ? `${text}\n\n${attachmentUrls}`
-                        : `Please analyze these files:\n\n${attachmentUrls}`;
-                }
-            }
-
+            // Clear input and attachments first
             setInputValue('');
             clearAttachments();
             setShouldAutoScroll(true);
             triggerHaptic();
-            await sendMessage(finalMessage);
+
+            // Send with multimodal attachments if present
+            if (imageAttachments.length > 0) {
+                await sendMessage(text || 'Please analyze this image.', imageAttachments);
+            } else {
+                await sendMessage(text);
+            }
         },
         [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments]
     );

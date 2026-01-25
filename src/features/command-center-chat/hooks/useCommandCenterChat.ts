@@ -6,8 +6,9 @@
  * - Deep Comparison for Context Stability
  * - Ref-based State Management (prevents stale closures)
  * - Native Text Stream Parsing
+ * - Multimodal Vision Support (base64 images)
  * 
- * @version 3.1.0
+ * @version 4.0.0 - Added vision/multimodal support
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -16,10 +17,33 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 // TYPES
 // ============================================================================
 
+/**
+ * Image attachment for multimodal messages
+ * Must include base64 data and MIME type for vision processing
+ */
+export interface ImageAttachment {
+    /** Base64 encoded image data (without data: prefix) */
+    base64: string;
+    /** MIME type (e.g., 'image/png', 'image/jpeg') */
+    mimeType: string;
+    /** Optional filename for display purposes */
+    fileName?: string;
+}
+
+/**
+ * Content part for multimodal messages
+ */
+export type MessagePart =
+    | { type: 'text'; text: string }
+    | { type: 'image'; mimeType: string; data: string };
+
 export interface CommandCenterMessage {
     id: string;
     role: 'user' | 'assistant';
+    /** Text content for display (always string for UI rendering) */
     content: string;
+    /** Multimodal parts sent to API (includes images) */
+    parts?: MessagePart[];
     createdAt?: Date;
     toolInvocations?: any[];
 }
@@ -39,7 +63,8 @@ export interface UseCommandCenterChatReturn {
     isLoading: boolean;
     isStreaming: boolean;
     error: string | null;
-    sendMessage: (content: string) => Promise<void>;
+    /** Send a message with optional image attachments */
+    sendMessage: (content: string, attachments?: ImageAttachment[]) => Promise<void>;
     clearChat: () => void;
     stop: () => void;
     reload: () => void;
@@ -103,18 +128,50 @@ export function useCommandCenterChat(
     // SEND MESSAGE
     // ========================================================================
 
-    const sendMessage = useCallback(async (content: string) => {
-        if (!content.trim()) return;
+    const sendMessage = useCallback(async (content: string, attachments?: ImageAttachment[]) => {
+        // Allow sending if there's text OR attachments
+        if (!content.trim() && (!attachments || attachments.length === 0)) return;
 
         // 1. Cancel active request
         abortControllerRef.current?.abort();
         abortControllerRef.current = new AbortController();
         const signal = abortControllerRef.current.signal;
 
+        // 2. Build multimodal parts for API
+        const parts: MessagePart[] = [];
+
+        // Add text part if present
+        if (content.trim()) {
+            parts.push({ type: 'text', text: content });
+        }
+
+        // Add image parts
+        if (attachments && attachments.length > 0) {
+            for (const att of attachments) {
+                parts.push({
+                    type: 'image',
+                    mimeType: att.mimeType,
+                    data: att.base64,
+                });
+            }
+        }
+
+        // 3. Build display content (text + attachment indicators)
+        let displayContent = content;
+        if (attachments && attachments.length > 0) {
+            const attachmentNames = attachments
+                .map(a => a.fileName || 'Image')
+                .join(', ');
+            displayContent = content
+                ? `${content}\n\n📎 ${attachmentNames}`
+                : `📎 ${attachmentNames}`;
+        }
+
         const userMessage: CommandCenterMessage = {
             id: generateId(),
             role: 'user',
-            content,
+            content: displayContent,
+            parts, // Include multimodal parts
             createdAt: new Date(),
         };
 
@@ -125,7 +182,7 @@ export function useCommandCenterChat(
             createdAt: new Date(),
         };
 
-        // 2. Optimistic Update
+        // 4. Optimistic Update
         const newHistory = [...messagesRef.current, userMessage, assistantMessage];
         setMessages(newHistory);
 
@@ -134,10 +191,21 @@ export function useCommandCenterChat(
         setError(null);
 
         try {
-            const requestMessages = newHistory.slice(0, -1).map(m => ({
-                role: m.role,
-                content: m.content,
-            }));
+            // 5. Build API request with multimodal support
+            const requestMessages = newHistory.slice(0, -1).map(m => {
+                // If message has parts (multimodal), send parts
+                if (m.parts && m.parts.length > 0) {
+                    return {
+                        role: m.role,
+                        parts: m.parts,
+                    };
+                }
+                // Otherwise send simple content
+                return {
+                    role: m.role,
+                    content: m.content,
+                };
+            });
 
             const response = await fetch('/api/chat/command-center', {
                 method: 'POST',
