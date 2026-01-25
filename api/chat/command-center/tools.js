@@ -56,9 +56,14 @@ export function createCommandCenterTools(supabase) {
         /**
          * Unified search across all candidate sources.
          * This is the PRIMARY search tool - use it first for any name lookup.
+         * 
+         * IMPORTANT: Returns nova_id (the Nova system ID) which should be used for:
+         * - Building Nova profile URLs
+         * - Updating candidate status
+         * - All cross-system references
          */
         search_all_candidates: tool({
-            description: 'Search for a candidate by name across ALL sources (prospects AND active travelers). This is the DEFAULT tool for finding any person. Returns matches from both the prospect pipeline and currently working travelers.',
+            description: 'Search for a candidate by name across ALL sources (prospects AND active travelers). This is the DEFAULT tool for finding any person. Returns nova_id (the Nova candidate ID), full_name, and nova_url for each match.',
             inputSchema: z.object({
                 name: z.string().min(1).describe('The candidate name to search for (partial match supported, e.g., "John" or "Smith")'),
             }),
@@ -78,20 +83,33 @@ export function createCommandCenterTools(supabase) {
                         .limit(10),
                 ]);
 
+                // SANITIZED OUTPUT: Explicitly map fields to avoid ID confusion
+                // nova_id = the Nova system candidate ID (use this for URLs and updates)
+                // internal_record_id = Supabase row ID (internal use only)
                 const prospects = (prospectsResult.data ?? []).map(p => ({
-                    ...p,
+                    nova_id: p.candidate_id,
+                    internal_record_id: p.id,
+                    full_name: p.name,
+                    specialty: p.specialty,
+                    home_state: p.home_state,
+                    status: p.status,
+                    email: p.email,
+                    phone: p.phone,
+                    nova_url: p.nova_url || `https://nova.ayahealthcare.com/#/recruiting/candidates/${p.candidate_id}/new-profile/about`,
                     source: 'prospect',
                 }));
 
                 const activeTravelers = (travelersResult.data ?? []).map(t => ({
-                    candidate_id: t.candidate_id,
-                    name: t.candidate_name,
+                    nova_id: t.candidate_id,
+                    internal_record_id: t.id,
+                    full_name: t.candidate_name,
                     email: t.email,
                     phone: t.cell_phone,
                     facility_name: t.facility,
                     start_date: t.start_date,
                     end_date: t.end_date,
                     status: t.contract_status,
+                    nova_url: `https://nova.ayahealthcare.com/#/recruiting/candidates/${t.candidate_id}/new-profile/about`,
                     source: 'active_traveler',
                 }));
 
@@ -111,6 +129,7 @@ export function createCommandCenterTools(supabase) {
                     message: totalFound === 0
                         ? `No candidates found matching "${name}". Try a different spelling or use debug_system to verify data availability.`
                         : `Found ${totalFound} candidate(s) matching "${name}".`,
+                    note: 'Use nova_id for Nova profile links and status updates. The nova_url field contains the direct link to the candidate profile.',
                 };
             },
         }),
@@ -119,7 +138,7 @@ export function createCommandCenterTools(supabase) {
          * Search specifically within the prospect pipeline (new/unconverted leads).
          */
         search_prospects: tool({
-            description: 'Search the prospect pipeline for NEW candidates who are NOT yet on assignment. Use this for filtering by specialty, status, or home state. For general name lookups, use search_all_candidates instead.',
+            description: 'Search the prospect pipeline for NEW candidates who are NOT yet on assignment. Use this for filtering by specialty, status, or home state. For general name lookups, use search_all_candidates instead. Returns nova_id for each prospect.',
             inputSchema: z.object({
                 name: z.string().optional().describe('Filter by name (partial match)'),
                 specialty: z.string().optional().describe('Filter by clinical specialty (e.g., "ICU", "Med Surg", "ER")'),
@@ -141,12 +160,25 @@ export function createCommandCenterTools(supabase) {
 
                 if (error) return { error: error.message };
 
+                // SANITIZED OUTPUT: Map to consistent field names
+                const prospects = (data ?? []).map(p => ({
+                    nova_id: p.candidate_id,
+                    internal_record_id: p.id,
+                    full_name: p.name,
+                    specialty: p.specialty,
+                    home_state: p.home_state,
+                    status: p.status,
+                    email: p.email,
+                    phone: p.phone,
+                    nova_url: p.nova_url || `https://nova.ayahealthcare.com/#/recruiting/candidates/${p.candidate_id}/new-profile/about`,
+                }));
+
                 return {
-                    prospects: data ?? [],
-                    count: data?.length ?? 0,
-                    message: data?.length === 0
+                    prospects,
+                    count: prospects.length,
+                    message: prospects.length === 0
                         ? 'No prospects found matching the specified criteria.'
-                        : `Found ${data.length} prospect(s).`,
+                        : `Found ${prospects.length} prospect(s).`,
                 };
             },
         }),
@@ -190,37 +222,62 @@ export function createCommandCenterTools(supabase) {
          * Get detailed profile for a specific candidate.
          */
         get_prospect_details: tool({
-            description: 'Retrieve the full profile for a specific candidate by their candidate_id or name. Searches both prospects and active travelers. Use this after search_all_candidates to get complete details.',
+            description: 'Retrieve the full profile for a specific candidate by their nova_id (Nova candidate ID) or name. Searches both prospects and active travelers. Use this after search_all_candidates to get complete details.',
             inputSchema: z.object({
-                candidate_id: z.number().optional().describe('The numeric candidate ID (Nova ID)'),
+                nova_id: z.number().optional().describe('The Nova candidate ID (from search results)'),
                 name: z.string().optional().describe('The candidate name to search for'),
             }),
             strict: true,
-            execute: async ({ candidate_id, name }) => {
-                if (!candidate_id && !name) {
-                    return { error: 'Either candidate_id or name must be provided.' };
+            execute: async ({ nova_id, name }) => {
+                if (!nova_id && !name) {
+                    return { error: 'Either nova_id or name must be provided.' };
                 }
 
                 // Try prospects first
                 let prospectQuery = supabase.from('prospects').select('*');
-                if (candidate_id) prospectQuery = prospectQuery.eq('candidate_id', candidate_id);
+                if (nova_id) prospectQuery = prospectQuery.eq('candidate_id', nova_id);
                 else if (name) prospectQuery = prospectQuery.ilike('name', `%${name}%`);
 
                 const { data: prospect } = await prospectQuery.maybeSingle();
                 if (prospect) {
-                    return { ...prospect, source: 'prospect' };
+                    // SANITIZED OUTPUT: Explicit field mapping
+                    return {
+                        nova_id: prospect.candidate_id,
+                        internal_record_id: prospect.id,
+                        full_name: prospect.name,
+                        email: prospect.email,
+                        phone: prospect.phone,
+                        specialty: prospect.specialty,
+                        profession: prospect.profession,
+                        home_state: prospect.home_state,
+                        status: prospect.status,
+                        notes: prospect.notes,
+                        nova_url: prospect.nova_url || `https://nova.ayahealthcare.com/#/recruiting/candidates/${prospect.candidate_id}/new-profile/about`,
+                        recruiter: prospect.recruiter,
+                        created_at: prospect.created_at,
+                        updated_at: prospect.updated_at,
+                        source: 'prospect',
+                    };
                 }
 
                 // Fallback to travel_candidates
                 let travelerQuery = supabase.from('travel_candidates').select('*');
-                if (candidate_id) travelerQuery = travelerQuery.eq('candidate_id', candidate_id);
+                if (nova_id) travelerQuery = travelerQuery.eq('candidate_id', nova_id);
                 else if (name) travelerQuery = travelerQuery.ilike('candidate_name', `%${name}%`);
 
                 const { data: traveler } = await travelerQuery.maybeSingle();
                 if (traveler) {
                     return {
-                        ...traveler,
-                        name: traveler.candidate_name,
+                        nova_id: traveler.candidate_id,
+                        internal_record_id: traveler.id,
+                        full_name: traveler.candidate_name,
+                        email: traveler.email,
+                        phone: traveler.cell_phone,
+                        facility_name: traveler.facility,
+                        start_date: traveler.start_date,
+                        end_date: traveler.end_date,
+                        contract_status: traveler.contract_status,
+                        nova_url: `https://nova.ayahealthcare.com/#/recruiting/candidates/${traveler.candidate_id}/new-profile/about`,
                         source: 'active_traveler',
                     };
                 }
@@ -272,6 +329,80 @@ export function createCommandCenterTools(supabase) {
                     action: 'PROSPECT_ADDED',
                     prospect: data,
                     message: `Successfully added ${name} to the prospect pipeline.`,
+                };
+            },
+        }),
+
+        /**
+         * Update a prospect's pipeline status (move candidate).
+         * This is the PRIMARY tool for moving candidates between stages.
+         */
+        update_prospect_status: tool({
+            description: 'Move a candidate to a different pipeline stage by updating their status. Use this when the user says "move to Interested", "mark as Contacted", or similar status change requests. Requires the nova_id from search results.',
+            inputSchema: z.object({
+                nova_id: z.number().describe('The Nova candidate ID (from search results). This is the nova_id field, NOT internal_record_id.'),
+                new_status: z.enum(['New', 'Contacted', 'Interested', 'Passive', 'Rotation']).describe('The target pipeline status to move the candidate to'),
+                reason: z.string().optional().describe('Optional reason for the status change (will be appended to notes for audit trail)'),
+            }),
+            strict: true,
+            execute: async ({ nova_id, new_status, reason }) => {
+                // First, get current prospect to verify it exists and get current state
+                const { data: current, error: fetchError } = await supabase
+                    .from('prospects')
+                    .select('id, candidate_id, name, status, notes')
+                    .eq('candidate_id', nova_id)
+                    .maybeSingle();
+
+                if (fetchError) return { error: fetchError.message };
+                if (!current) {
+                    return {
+                        error: `No prospect found with nova_id ${nova_id}. Please verify the ID from search results.`,
+                        suggestion: 'Use search_all_candidates to find the correct nova_id for this candidate.',
+                    };
+                }
+
+                const previousStatus = current.status;
+
+                // Build updated notes with audit trail
+                const timestamp = new Date().toISOString().split('T')[0];
+                const auditEntry = reason
+                    ? `[${timestamp}] Status: ${previousStatus} → ${new_status}. Reason: ${reason}`
+                    : `[${timestamp}] Status: ${previousStatus} → ${new_status}`;
+                const updatedNotes = current.notes
+                    ? `${current.notes}\n${auditEntry}`
+                    : auditEntry;
+
+                // Perform the update
+                const { data, error } = await supabase
+                    .from('prospects')
+                    .update({
+                        status: new_status,
+                        notes: updatedNotes,
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('candidate_id', nova_id)
+                    .select('id, candidate_id, name, specialty, status, email, phone, notes, nova_url')
+                    .single();
+
+                if (error) return { error: error.message };
+
+                // Return sanitized output
+                return {
+                    action: 'STATUS_UPDATED',
+                    previous_status: previousStatus,
+                    new_status: new_status,
+                    prospect: {
+                        nova_id: data.candidate_id,
+                        internal_record_id: data.id,
+                        full_name: data.name,
+                        specialty: data.specialty,
+                        status: data.status,
+                        email: data.email,
+                        phone: data.phone,
+                        nova_url: data.nova_url || `https://nova.ayahealthcare.com/#/recruiting/candidates/${data.candidate_id}/new-profile/about`,
+                    },
+                    audit_entry: auditEntry,
+                    message: `Successfully moved ${data.name} from "${previousStatus}" to "${new_status}".`,
                 };
             },
         }),
