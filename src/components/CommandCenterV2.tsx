@@ -494,15 +494,42 @@ SmartChips.displayName = 'SmartChips';
 // ============================================================================
 
 interface EmailCardProps {
+    to?: string;
     subject: string;
     body: string;
 }
 
-const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
-    const [copiedField, setCopiedField] = useState<'subject' | 'body' | 'all' | null>(null);
+/**
+ * Linkify email addresses in text, converting them to clickable mailto links
+ */
+const linkifyEmails = (text: string): React.ReactNode => {
+    const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+    const parts = text.split(emailRegex);
+
+    return parts.map((part, index) => {
+        if (emailRegex.test(part)) {
+            // Reset regex lastIndex since we're testing again
+            emailRegex.lastIndex = 0;
+            return (
+                <a
+                    key={index}
+                    href={`mailto:${part}`}
+                    className="text-indigo-400 hover:text-indigo-300 underline decoration-indigo-500/30 underline-offset-2 transition-colors"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {part}
+                </a>
+            );
+        }
+        return part;
+    });
+};
+
+const EmailCard: FC<EmailCardProps> = memo(({ to, subject, body }) => {
+    const [copiedField, setCopiedField] = useState<'to' | 'subject' | 'body' | 'all' | null>(null);
     const [isExpanded, setIsExpanded] = useState(false);
 
-    const copyToClipboard = useCallback(async (text: string, field: 'subject' | 'body' | 'all') => {
+    const copyToClipboard = useCallback(async (text: string, field: 'to' | 'subject' | 'body' | 'all') => {
         await navigator.clipboard.writeText(text);
         setCopiedField(field);
         triggerHaptic();
@@ -510,10 +537,12 @@ const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
     }, []);
 
     const openInMail = useCallback(() => {
-        const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        // Build mailto URL with recipient if available
+        const recipient = to || '';
+        const mailtoUrl = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
         window.open(mailtoUrl, '_blank');
         triggerHaptic();
-    }, [subject, body]);
+    }, [to, subject, body]);
 
     // Parse body for proper line breaks and clean up
     const formattedBody = body
@@ -547,7 +576,7 @@ const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
                 <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => copyToClipboard(`Subject: ${subject}\n\n${formattedBody}`, 'all')}
+                    onClick={() => copyToClipboard(`${to ? `To: ${to}\n` : ''}Subject: ${subject}\n\n${formattedBody}`, 'all')}
                     className={cn(
                         'flex items-center gap-1.5 px-3 py-2 rounded-lg',
                         'bg-white/[0.06] hover:bg-white/[0.1] transition-all',
@@ -559,6 +588,30 @@ const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
                     {copiedField === 'all' ? 'Copied!' : 'Copy All'}
                 </motion.button>
             </div>
+
+            {/* To Line (conditional) */}
+            {to && (
+                <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01]">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                            <span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>To</span>
+                            <p className="text-[14px] font-medium text-white mt-0.5">{to}</p>
+                        </div>
+                        <motion.button
+                            whileHover={{ scale: 1.05, backgroundColor: 'rgba(255,255,255,0.08)' }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => copyToClipboard(to, 'to')}
+                            className={cn(
+                                'shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all',
+                                'bg-white/[0.04] hover:bg-white/[0.08]',
+                                copiedField === 'to' ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-400'
+                            )}
+                        >
+                            {copiedField === 'to' ? <Check size={14} /> : <Copy size={14} />}
+                        </motion.button>
+                    </div>
+                </div>
+            )}
 
             {/* Subject Line */}
             <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01]">
@@ -589,9 +642,9 @@ const EmailCard: FC<EmailCardProps> = memo(({ subject, body }) => {
                         'flex-1 min-w-0 relative',
                         !isExpanded && isLongBody && 'max-h-[280px] overflow-hidden'
                     )}>
-                        <p className={cn(SYSTEM.type.body, 'text-[#C4C4C4] whitespace-pre-wrap leading-relaxed')}>
-                            {formattedBody}
-                        </p>
+                        <div className={cn(SYSTEM.type.body, 'text-[#C4C4C4] whitespace-pre-wrap leading-relaxed')}>
+                            {linkifyEmails(formattedBody)}
+                        </div>
                         {/* Fade gradient for collapsed state */}
                         {!isExpanded && isLongBody && (
                             <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0A0A0B] to-transparent pointer-events-none" />
@@ -753,43 +806,62 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
         }
 
         // Check for EMAIL DRAFT pattern (new structured format)
-        // Improved regex: explicit newline handling, captures trailing separator
-        const emailDraftMatch = content.match(/^#\s*EMAIL\s*DRAFT[\r\n]+\*\*Subject:\*\*\s*(.+?)[\r\n]+---[\r\n]+([\s\S]+?)(?:[\r\n]+---[\r\n]*(?:$|[\r\n])|$)/i);
-        if (emailDraftMatch) {
-            const subject = emailDraftMatch[1].trim();
-            // Clean body: remove trailing --- and any IMPORTANT rules text
-            let body = emailDraftMatch[2].trim();
-            body = body.replace(/[\r\n]+---\s*$/g, '').replace(/[\r\n]+IMPORTANT[\s\S]*$/i, '').trim();
+        // Flexible parsing: extracts optional To:, required Subject:, and body content
+        const emailDraftHeader = content.match(/^#\s*EMAIL\s*DRAFT[\r\n]+/i);
+        if (emailDraftHeader) {
+            // Extract To: (optional)
+            const toMatch = content.match(/\*\*To:\*\*\s*([^\r\n]+)/i);
+            const to = toMatch ? toMatch[1].trim() : undefined;
 
-            // Check if there's remaining content after the email (AI follow-up)
-            const fullMatch = emailDraftMatch[0];
-            const remainingContent = content.slice(fullMatch.length).replace(/^[\r\n]+---[\r\n]*/g, '').trim();
+            // Extract Subject: (required)
+            const subjectMatch = content.match(/\*\*Subject:\*\*\s*([^\r\n]+)/i);
+            if (subjectMatch) {
+                const subject = subjectMatch[1].trim();
 
-            return (
-                <>
-                    <EmailCard subject={subject} body={body} />
-                    {remainingContent && (
-                        <div className="mt-4">
-                            <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                    p: ({ children }) => (
-                                        <p className={cn(SYSTEM.type.body, 'text-[#A1A1AA]', 'mb-4 last:mb-0')}>
-                                            {children}
-                                        </p>
-                                    ),
-                                    strong: ({ children }) => (
-                                        <strong className="font-semibold text-white">{children}</strong>
-                                    ),
-                                    hr: () => null, // Suppress stray horizontal rules
-                                }}
-                            >
-                                {remainingContent}
-                            </ReactMarkdown>
-                        </div>
-                    )}
-                </>
-            );
+                // Extract body: everything after first --- separator, before trailing ---
+                const bodyMatch = content.match(/---[\r\n]+([\s\S]+?)(?:[\r\n]+---[\r\n]*(?:$|[\r\n])|$)/);
+                let body = bodyMatch ? bodyMatch[1].trim() : '';
+
+                // Clean body: remove IMPORTANT rules text if present
+                body = body.replace(/[\r\n]+IMPORTANT[\s\S]*$/i, '').trim();
+
+                // Check if there's remaining content after the email (AI follow-up)
+                const lastSeparatorIdx = content.lastIndexOf('---');
+                let remainingContent = '';
+                if (lastSeparatorIdx > content.indexOf('---')) {
+                    remainingContent = content.slice(lastSeparatorIdx + 3).replace(/^[\r\n]+/g, '').trim();
+                    // Don't include IMPORTANT rules as remaining content
+                    if (remainingContent.startsWith('IMPORTANT')) {
+                        remainingContent = '';
+                    }
+                }
+
+                return (
+                    <>
+                        <EmailCard to={to} subject={subject} body={body} />
+                        {remainingContent && (
+                            <div className="mt-4">
+                                <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{
+                                        p: ({ children }) => (
+                                            <p className={cn(SYSTEM.type.body, 'text-[#A1A1AA]', 'mb-4 last:mb-0')}>
+                                                {children}
+                                            </p>
+                                        ),
+                                        strong: ({ children }) => (
+                                            <strong className="font-semibold text-white">{children}</strong>
+                                        ),
+                                        hr: () => null, // Suppress stray horizontal rules
+                                    }}
+                                >
+                                    {remainingContent}
+                                </ReactMarkdown>
+                            </div>
+                        )}
+                    </>
+                );
+            }
         }
 
         // Check for legacy [SUBJECT][BODY] format (backwards compatibility)
@@ -1561,7 +1633,8 @@ export const CommandCenterV2: FC = () => {
                     {/* Footer */}
                     <footer
                         className={cn(
-                            'absolute bottom-0 left-0 right-0 z-30 px-5 pb-8 pt-20',
+                            'absolute bottom-0 left-0 right-0 z-30 px-5 pt-20',
+                            'pb-[max(2rem,env(safe-area-inset-bottom,0.5rem))]',
                             'bg-gradient-to-t from-[#030303] via-[#030303]/95 to-transparent',
                             'pointer-events-none'
                         )}

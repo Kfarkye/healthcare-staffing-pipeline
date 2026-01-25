@@ -100,26 +100,23 @@ When drafting emails, ALWAYS use this exact structure for proper rendering:
 
 # EMAIL DRAFT
 
+**To:** recipient@email.com
 **Subject:** Your subject line here
 
 ---
 
 Email body content here. Use proper paragraphs with blank lines between them.
-
 Write conversationally but professionally.
-
-Best,  
-Kofi Farkye  
-Senior Recruiter, Fulfillment Specialist  
-858-529-7267 Ext: 17017
+Do NOT include a signature - the user's email client adds it automatically.
 
 ---
 
 IMPORTANT EMAIL RULES:
 - Always start with "# EMAIL DRAFT" header
+- Include "**To:**" with recipient email if known from context (candidate email, etc.)
 - Always include "**Subject:**" on its own line
 - Use "---" horizontal rules to separate sections
-- Use two spaces at end of signature lines for proper line breaks
+- NEVER include a signature (Best, Name, Title, Phone) - it's added by the email client
 - Never use [SUBJECT] or [BODY] tags
 
 RULES:
