@@ -1,0 +1,218 @@
+/**
+ * Obsidian Weissach Animations
+ * CSS keyframes and animation utilities
+ * 
+ * Import this file in your global CSS to enable animations.
+ */
+
+/* ============================================================================
+   KEYFRAMES
+   ============================================================================ */
+
+/* Shimmer effect for cards */
+@keyframes shimmer {
+    0% {
+        background-position: -1000px 0;
+    }
+
+    100% {
+        background-position: 1000px 0;
+    }
+}
+
+/* Loading dots animation */
+@keyframes loadingDots {
+
+    0%,
+    20% {
+        opacity: 0;
+        transform: translateY(0);
+    }
+
+    50% {
+        opacity: 1;
+        transform: translateY(-3px);
+    }
+
+    80%,
+    100% {
+        opacity: 0;
+        transform: translateY(0);
+    }
+}
+
+/* Fade in up animation */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Scale in animation */
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Slide in from left */
+@keyframes slideInLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Glow pulse */
+@keyframes glowPulse {
+
+    0%,
+    100% {
+        box-shadow: 0 0 5px rgba(99, 102, 241, 0.5);
+    }
+
+    50% {
+        box-shadow: 0 0 20px rgba(99, 102, 241, 0.8);
+    }
+}
+
+/* ============================================================================
+   UTILITY CLASSES
+   ============================================================================ */
+
+.animate-shimmer {
+    animation: shimmer 2s infinite linear;
+}
+
+.animate-fadeInUp {
+    animation: fadeInUp 0.3s ease-out forwards;
+}
+
+.animate-scaleIn {
+    animation: scaleIn 0.2s ease-out forwards;
+}
+
+.animate-slideInLeft {
+    animation: slideInLeft 0.2s ease-out forwards;
+}
+
+.animate-glowPulse {
+    animation: glowPulse 2s infinite;
+}
+
+/* Loading dots component */
+.loading-dots {
+    display: inline-flex;
+    gap: 3px;
+}
+
+.loading-dots span {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background-color: currentColor;
+    animation: loadingDots 1.4s infinite ease-in-out both;
+}
+
+.loading-dots span:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.loading-dots span:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+.loading-dots span:nth-child(3) {
+    animation-delay: 0s;
+}
+
+/* ============================================================================
+   SCROLLBAR STYLING
+   ============================================================================ */
+
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+
+/* Premium thin scrollbar */
+.scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* ============================================================================
+   FOCUS STATES
+   ============================================================================ */
+
+/* Remove default focus outline and add custom */
+.focus-ring:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.5);
+}
+
+.focus-ring:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.5);
+}
+
+/* ============================================================================
+   BACKDROP BLUR FALLBACK
+   ============================================================================ */
+
+@supports not (backdrop-filter: blur(20px)) {
+    .backdrop-blur-fallback {
+        background-color: rgba(5, 5, 5, 0.95);
+    }
+}
+
+/* ============================================================================
+   SAFE AREA SUPPORT (iOS)
+   ============================================================================ */
+
+.pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.pt-safe {
+    padding-top: env(safe-area-inset-top, 0);
+}

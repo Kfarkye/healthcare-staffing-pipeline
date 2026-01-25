@@ -1,5 +1,7 @@
 /* Command Center Chat Design Tokens */
 @import './design-system/tokens/chat-tokens.css';
+/* Obsidian Weissach Animations */
+@import './design-system/obsidian/animations.css';
 
 @tailwind base;
 @tailwind components;

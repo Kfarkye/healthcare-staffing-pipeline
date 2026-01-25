@@ -13,24 +13,20 @@
    No betting logic. Blue/Indigo theme.
 ============================================================================ */
 
-import React, {
+import {
     useState,
     useEffect,
     useRef,
     useCallback,
     useMemo,
     memo,
-    createContext,
-    useContext,
     type FC,
     type ReactNode,
     type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { motion, AnimatePresence, LayoutGroup, type Transition } from 'framer-motion';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
     X,
     Minimize2,
@@ -54,161 +50,47 @@ import {
     AlertCircle,
 } from 'lucide-react';
 
+// Obsidian Weissach Design System
+import {
+    SYSTEM,
+    cn,
+    triggerHaptic,
+    copyToClipboard,
+    FilmGrain,
+    OrbitalRadar,
+    ToastProvider,
+    useToast,
+} from '../design-system/obsidian';
+
 import { useCommandCenterChat } from '../features/command-center-chat/hooks/useCommandCenterChat';
 import { useFileUpload, type Attachment } from '../features/command-center-chat/hooks/useFileUpload';
 import { useLayout } from '../context/LayoutContext';
 
 // ============================================================================
-// 1. WEISSACH DESIGN SYSTEM (Indigo Theme for Healthcare)
+// DESIGN SYSTEM NOTE:
+// SYSTEM tokens, utilities (cn, generateId, triggerHaptic), and shared components
+// (FilmGrain, OrbitalRadar, ToastProvider) are imported from @/design-system/obsidian
 // ============================================================================
 
-const SYSTEM = {
-    anim: {
-        fluid: { type: 'spring', damping: 30, stiffness: 380, mass: 0.8 } as Transition,
-        draw: { duration: 0.6, ease: 'circOut' } as Transition,
-        morph: { type: 'spring', damping: 25, stiffness: 280 } as Transition,
-    },
-    surface: {
-        void: 'bg-[#050505]',
-        panel: 'bg-[#080808] border border-white/[0.06]',
-        glass: 'bg-white/[0.02] backdrop-blur-[20px] border border-white/[0.05]',
-        hud: 'bg-[linear-gradient(180deg,rgba(79,70,229,0.05)_0%,rgba(0,0,0,0)_100%)] border border-indigo-500/20',
-        milled: 'border-t border-white/[0.08] border-b border-black/50 border-x border-white/[0.04]',
-    },
-    type: {
-        mono: 'font-mono text-[10px] tracking-[0.1em] uppercase text-zinc-500 tabular-nums',
-        body: 'text-[15px] leading-[1.65] tracking-[-0.01em] text-[#A1A1AA]',
-        h1: 'text-[13px] font-medium tracking-[-0.02em] text-white',
-    },
-    geo: {
-        pill: 'rounded-full',
-        card: 'rounded-[22px]',
-        input: 'rounded-[24px]',
-    },
-};
-
 // ============================================================================
-// 2. UTILITIES
+// TOAST SYSTEM - Using design system's ToastProvider and useToast hook
 // ============================================================================
 
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
-
-function generateId(): string {
-    return typeof crypto !== 'undefined'
-        ? crypto.randomUUID()
-        : Math.random().toString(36).substring(2, 15);
-}
-
-function triggerHaptic(): void {
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(4);
-    }
-}
-
 // ============================================================================
-// 3. PREMIUM VISUALS
-// ============================================================================
-
-/**
- * FilmGrain - Subtle noise overlay for premium aesthetic
- * Uses inline SVG to avoid network requests
- */
-const FilmGrain = memo(() => (
-    <div
-        className="absolute inset-0 pointer-events-none z-0 opacity-[0.03] mix-blend-overlay"
-        style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
-        }}
-    />
-));
-FilmGrain.displayName = 'FilmGrain';
-
-/**
- * OrbitalRadar - Pulsing indicator for active states
- * Pure CSS animation, no JS overhead
- */
-const OrbitalRadar = memo(() => (
-    <div className="relative w-4 h-4 flex items-center justify-center">
-        <div className="absolute w-1.5 h-1.5 bg-indigo-500 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
-        <motion.div
-            className="absolute inset-0 border border-indigo-500/30 rounded-full"
-            animate={{ scale: [0.8, 1.8], opacity: [1, 0] }}
-            transition={{ duration: 1.2, repeat: Infinity, ease: 'easeOut' }}
-        />
-    </div>
-));
-OrbitalRadar.displayName = 'OrbitalRadar';
-
-// ============================================================================
-// 4. TOAST SYSTEM
-// ============================================================================
-
-interface ToastContextType {
-    showToast: (message: string) => void;
-}
-
-const ToastContext = createContext<ToastContextType>({ showToast: () => { } });
-
-const ToastProvider: FC<{ children: ReactNode }> = ({ children }) => {
-    const [toast, setToast] = useState<{ id: string; message: string } | null>(null);
-    const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
-
-    const showToast = useCallback((message: string) => {
-        const id = generateId();
-        setToast({ id, message });
-        triggerHaptic();
-
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        timeoutRef.current = setTimeout(() => {
-            setToast((current) => (current?.id === id ? null : current));
-        }, 2500);
-    }, []);
-
-    const contextValue = useMemo(() => ({ showToast }), [showToast]);
-
-    return (
-        <ToastContext.Provider value={contextValue}>
-            {children}
-            <AnimatePresence>
-                {toast && (
-                    <motion.div
-                        key={toast.id}
-                        initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                        transition={SYSTEM.anim.fluid}
-                        className={cn(
-                            'absolute bottom-28 left-1/2 -translate-x-1/2 z-[70]',
-                            'flex items-center gap-3 px-4 py-2.5',
-                            'bg-[#0A0A0A] border border-white/10 rounded-full',
-                            'shadow-[0_8px_24px_rgba(0,0,0,0.5)]'
-                        )}
-                    >
-                        <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full shadow-[0_0_8px_rgba(99,102,241,1)]" />
-                        <span className="text-[12px] font-medium text-white tracking-tight">
-                            {toast.message}
-                        </span>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </ToastContext.Provider>
-    );
-};
-
-// ============================================================================
-// 5. COPY BUTTON
+// COPY BUTTON (Icon-based version for inline use)
+// Note: Design system has text-based CopyButton; this is icon-based for compact UI
 // ============================================================================
 
 const CopyButton: FC<{ content: string }> = memo(({ content }) => {
     const [copied, setCopied] = useState(false);
 
-    const handleCopy = useCallback(() => {
-        navigator.clipboard.writeText(content);
-        setCopied(true);
-        triggerHaptic();
-        setTimeout(() => setCopied(false), 1500);
+    const handleCopy = useCallback(async () => {
+        const success = await copyToClipboard(content);
+        if (success) {
+            setCopied(true);
+            triggerHaptic();
+            setTimeout(() => setCopied(false), 1500);
+        }
     }, [content]);
 
     return (
@@ -773,7 +655,7 @@ interface MessageBubbleProps {
 
 const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming, toolInvocations }) => {
     const isUser = role === 'user';
-    const _toast = useContext(ToastContext); // Available for future toast notifications
+    const { showToast } = useToast(); // From design system
 
     // Parse special content patterns
     const renderContent = useMemo(() => {
