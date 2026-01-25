@@ -50,6 +50,8 @@ export interface UseFileUploadReturn {
     attachments: Attachment[];
     isDragActive: boolean;
     isUploading: boolean;
+    /** True if any image is still being processed (base64 not ready) */
+    isProcessing: boolean;
     addFiles: (files: FileList | File[]) => void;
     removeFile: (id: string) => void;
     clearAll: () => void;
@@ -427,6 +429,11 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
 
     const isUploading = attachments.some((att) => att.isUploading);
 
+    // Check if any images are missing base64 (still processing)
+    const isProcessing = attachments.some(
+        (att) => att.mimeType.startsWith('image/') && !att.base64Data
+    );
+
     // ============================================================================
     // RETURN
     // ============================================================================
@@ -435,6 +442,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
         attachments,
         isDragActive,
         isUploading,
+        isProcessing,
         addFiles,
         removeFile,
         clearAll,

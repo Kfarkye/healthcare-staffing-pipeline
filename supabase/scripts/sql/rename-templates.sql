@@ -1,47 +1,42 @@
 -- ============================================================================
--- UPDATE: Rename communication templates for clarity
+-- FINAL UPDATE: Communication Templates
 -- Run in Supabase SQL Editor
 -- ============================================================================
 
--- Rename "Cold Outreach" to "Intro Outreach"
+-- Rename "Cold Outreach" to "Intro Outreach" (if not already done)
 UPDATE communication_templates
 SET 
     name = 'Intro Outreach',
     description = 'Cold introduction email for prospecting new candidates. Use when reaching out to someone for the first time without specific assignment details.'
 WHERE name ILIKE '%cold%outreach%' OR name ILIKE '%cold%introduction%';
 
--- Add or update "Pay Package Interest" template
-INSERT INTO communication_templates (name, category, description, subject_template, body_template, is_active)
-VALUES (
-    'Pay Package Interest',
-    'prospect',
-    'Email for sharing pay package details with a candidate who clicked interest or for confirmed assignment outreach. Use when you have margin calculator data.',
-    'Exciting Opportunity at {{facility}} | {{weekly_gross}}/week, {{candidate_name}}!',
-    'Hi {{candidate_name}},
+-- Update "Pay Package Interest" with optimized copy
+UPDATE communication_templates
+SET 
+    subject_template = '{{specialty}} Opportunity at {{facility}} – {{weekly_gross}}/week',
+    body_template = 'Hi {{candidate_name}},
 
-Great news! I have a fantastic opportunity that matches your profile perfectly.
+I came across your profile and thought you''d be a great fit for this {{specialty}} position at {{facility}}.
 
-**Position Details:**
-- **Facility:** {{facility}} in {{location}}
-- **Specialty:** {{specialty}}
-- **Start Date:** {{start_date}}
-- **Duration:** {{duration}} weeks
-- **Shift:** {{shift_info}}
+**Facility:** {{facility}}
+**Location:** {{location}}
+**Assignment Dates:** {{start_date}} – {{end_date}}
+**Shifts & Hours:** {{shift_info}} ({{weekly_hours}} hours/week)
 
-**Compensation Package:**
-- **Weekly Gross Pay:** {{weekly_gross}}
-- **Taxable Hourly Rate:** {{taxable_rate}}/hr
-- **Weekly Stipends:** {{weekly_stipends}} (Meals + Housing)
+**Pay Package:**
+• Taxable Hourly Rate: {{taxable_rate}}/hr
+• Meals & Housing Stipend: {{weekly_stipends}}/week
+• Total Gross Weekly Pay: {{weekly_gross}}
 
-This is a great facility with excellent reviews from our travelers. Would you like to discuss this opportunity? I can walk you through the details and answer any questions.
+This facility has excellent traveler reviews plus the rate is solid.
 
-Let me know your availability for a quick call!',
-    true
-)
-ON CONFLICT (name) DO UPDATE SET
-    description = EXCLUDED.description,
-    subject_template = EXCLUDED.subject_template,
-    body_template = EXCLUDED.body_template;
+To move forward, just confirm:
+• Are you available to start {{start_date}}?
+• Do you have any time-off requests during the contract?
+• Is your Aya profile up to date?
 
--- Verify the updates
-SELECT name, category, description FROM communication_templates WHERE is_active = true ORDER BY name;
+Let me know and I can get you submitted right away.'
+WHERE name = 'Pay Package Interest';
+
+-- Verify Updates
+SELECT name, subject_template FROM communication_templates WHERE is_active = true ORDER BY name;
