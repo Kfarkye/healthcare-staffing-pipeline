@@ -298,14 +298,30 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
         // Add to state immediately (optimistic)
         setAttachments((prev) => [...prev, ...newAttachments]);
 
-        // Process each file: upload + read base64 for images
+        // Supported mimeTypes for AI document understanding
+        const AI_READABLE_TYPES = [
+            'image/',           // All image types
+            'application/pdf',  // PDFs
+            'text/plain',       // Plain text
+            'text/csv',         // CSV files
+        ];
+
+        const isAIReadable = (mimeType: string): boolean => {
+            return AI_READABLE_TYPES.some(type =>
+                type.endsWith('/') ? mimeType.startsWith(type) : mimeType === type
+            );
+        };
+
+        // Process each file: upload + read base64 for AI-readable files
         for (const attachment of newAttachments) {
-            // Read base64 for images (parallel with upload)
-            if (attachment.mimeType.startsWith('image/')) {
+            // Read base64 for AI-readable files (parallel with upload)
+            if (isAIReadable(attachment.mimeType)) {
                 readFileAsBase64(attachment.file).then((base64) => {
                     setAttachments((prev) =>
                         prev.map((att) => (att.id === attachment.id ? { ...att, base64Data: base64 } : att))
                     );
+                }).catch((err) => {
+                    console.warn('[useFileUpload] Failed to read base64:', err);
                 });
             }
 
@@ -429,9 +445,18 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
 
     const isUploading = attachments.some((att) => att.isUploading);
 
-    // Check if any images are missing base64 (still processing)
+    // AI-readable mimeTypes that require base64 processing
+    const AI_READABLE_PREFIXES = ['image/', 'application/pdf', 'text/plain', 'text/csv'];
+
+    const isAIReadableMime = (mimeType: string): boolean => {
+        return AI_READABLE_PREFIXES.some(prefix =>
+            prefix.endsWith('/') ? mimeType.startsWith(prefix) : mimeType === prefix
+        );
+    };
+
+    // Check if any AI-readable files are missing base64 (still processing)
     const isProcessing = attachments.some(
-        (att) => att.mimeType.startsWith('image/') && !att.base64Data
+        (att) => isAIReadableMime(att.mimeType) && !att.base64Data
     );
 
     // ============================================================================

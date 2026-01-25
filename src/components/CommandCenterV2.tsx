@@ -1409,9 +1409,17 @@ export const CommandCenterV2: FC = () => {
             if (!text && attachments.length === 0) return;
             if (isLoading || isUploading) return;
 
-            // Build image attachments for multimodal AI (base64)
-            const imageAttachments = attachments
-                .filter(a => a.mimeType.startsWith('image/') && a.base64Data)
+            // AI-readable mimeTypes for document understanding
+            const AI_READABLE_PREFIXES = ['image/', 'application/pdf', 'text/plain', 'text/csv'];
+            const isAIReadable = (mimeType: string): boolean => {
+                return AI_READABLE_PREFIXES.some(prefix =>
+                    prefix.endsWith('/') ? mimeType.startsWith(prefix) : mimeType === prefix
+                );
+            };
+
+            // Build file attachments for multimodal AI (base64) - includes images, PDFs, text files
+            const fileAttachments = attachments
+                .filter(a => isAIReadable(a.mimeType) && a.base64Data)
                 .map(a => ({
                     base64: a.base64Data!,
                     mimeType: a.mimeType,
@@ -1440,8 +1448,8 @@ export const CommandCenterV2: FC = () => {
             triggerHaptic();
 
             // Send with multimodal attachments if present (base64 for AI, URLs in text for display)
-            if (imageAttachments.length > 0) {
-                await sendMessage(messageText, imageAttachments);
+            if (fileAttachments.length > 0) {
+                await sendMessage(messageText, fileAttachments);
             } else {
                 await sendMessage(messageText);
             }

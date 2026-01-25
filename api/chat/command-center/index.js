@@ -165,7 +165,14 @@ RULES:
 - Always show Nova URLs and Candidate IDs when available
 - Calculate dates dynamically (don't ask the user)
 - Be concise - recruiters are busy
-- CRITICAL: After any tool calls, you MUST write a final user-facing response summarizing the results. Never end with just tool calls.`;
+- CRITICAL: After any tool calls, you MUST write a final user-facing response summarizing the results. Never end with just tool calls.
+
+ANTI-HALLUCINATION (CRITICAL):
+- NEVER invent, fabricate, or guess candidate names, IDs, or email addresses
+- Only use data explicitly extracted from: attached files, database search results, or direct user input
+- If you cannot read or extract data from a file, clearly state: "I couldn't extract [data type] from the attachment. Please provide it directly."
+- When uncertain, ASK the user rather than guessing
+- If search returns no results, say so honestly - never make up a candidate`;
 
 // ============================================================================
 // UTILITIES
@@ -307,10 +314,11 @@ export default async function handler(req, ctx) {
     /**
      * Normalize messages for AI SDK, preserving multimodal content.
      * 
-     * Supports two formats:
+     * Supports formats:
      * 1. Simple: { role, content: string }
-     * 2. Multimodal: { role, parts: [{ type: 'text', text }, { type: 'image', mimeType, data }] }
+     * 2. Multimodal: { role, parts: [{ type: 'text', text }, { type: 'file', mimeType, data }] }
      * 
+     * Gemini 1.5 supports native document understanding for PDFs, images, text files.
      * @see https://sdk.vercel.ai/providers/ai-sdk-providers/google-generative-ai#multi-modal
      */
     const normalizedMessages = messages.map(msg => {
@@ -326,12 +334,27 @@ export default async function handler(req, ctx) {
                 if (part.type === 'text') {
                     return { type: 'text', text: part.text || '' };
                 }
-                if (part.type === 'image' && part.data) {
-                    // Gemini expects base64 image data
+
+                // Handle file parts (images, PDFs, documents)
+                // Supports both 'file' (new) and 'image' (legacy) type values
+                if ((part.type === 'file' || part.type === 'image') && part.data) {
+                    const mimeType = part.mimeType || 'application/octet-stream';
+
+                    // Images go through image type
+                    if (mimeType.startsWith('image/')) {
+                        return {
+                            type: 'image',
+                            image: part.data, // Base64 string (without data: prefix)
+                            mimeType: mimeType,
+                        };
+                    }
+
+                    // PDFs and other documents use file type with inline_data
+                    // Gemini 1.5 supports: application/pdf, text/plain, text/csv, etc.
                     return {
-                        type: 'image',
-                        image: part.data, // Base64 string (without data: prefix)
-                        mimeType: part.mimeType || 'image/png',
+                        type: 'file',
+                        data: part.data, // Base64 string
+                        mimeType: mimeType,
                     };
                 }
                 return null;
@@ -339,7 +362,9 @@ export default async function handler(req, ctx) {
 
             // If we have valid multimodal content, return it
             if (content.length > 0) {
-                console.log(`[AI] Multimodal message: ${content.length} parts (${content.filter(c => c.type === 'image').length} images)`);
+                const imageCount = content.filter(c => c.type === 'image').length;
+                const docCount = content.filter(c => c.type === 'file').length;
+                console.log(`[AI] Multimodal message: ${content.length} parts (${imageCount} images, ${docCount} documents)`);
                 return { role: msg.role, content };
             }
         }

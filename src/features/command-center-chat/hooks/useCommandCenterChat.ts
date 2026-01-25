@@ -18,24 +18,27 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 // ============================================================================
 
 /**
- * Image attachment for multimodal messages
- * Must include base64 data and MIME type for vision processing
+ * File attachment for multimodal messages (images, PDFs, text files)
+ * Gemini 1.5 supports native document understanding
  */
-export interface ImageAttachment {
-    /** Base64 encoded image data (without data: prefix) */
+export interface FileAttachment {
+    /** Base64 encoded file data (without data: prefix) */
     base64: string;
-    /** MIME type (e.g., 'image/png', 'image/jpeg') */
+    /** MIME type (e.g., 'image/png', 'application/pdf', 'text/plain') */
     mimeType: string;
     /** Optional filename for display purposes */
     fileName?: string;
 }
+
+/** @deprecated Use FileAttachment instead */
+export type ImageAttachment = FileAttachment;
 
 /**
  * Content part for multimodal messages
  */
 export type MessagePart =
     | { type: 'text'; text: string }
-    | { type: 'image'; mimeType: string; data: string };
+    | { type: 'file'; mimeType: string; data: string };
 
 export interface CommandCenterMessage {
     id: string;
@@ -145,11 +148,11 @@ export function useCommandCenterChat(
             parts.push({ type: 'text', text: content });
         }
 
-        // Add image parts
+        // Add file parts (images, PDFs, documents)
         if (attachments && attachments.length > 0) {
             for (const att of attachments) {
                 parts.push({
-                    type: 'image',
+                    type: 'file',
                     mimeType: att.mimeType,
                     data: att.base64,
                 });
@@ -160,7 +163,7 @@ export function useCommandCenterChat(
         let displayContent = content;
         if (attachments && attachments.length > 0) {
             const attachmentNames = attachments
-                .map(a => a.fileName || 'Image')
+                .map(a => a.fileName || 'Attachment')
                 .join(', ');
             displayContent = content
                 ? `${content}\n\n📎 ${attachmentNames}`
