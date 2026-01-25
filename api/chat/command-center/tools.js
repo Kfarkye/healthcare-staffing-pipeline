@@ -292,21 +292,47 @@ export function createCommandCenterTools(supabase) {
 
         /**
          * Add a new prospect to the pipeline.
+         * IMPORTANT: Requires either nova_id or nova_url to ensure valid Nova ID.
          */
         add_prospect: tool({
-            description: 'Create a new prospect record in the pipeline. Use this when the user explicitly asks to add or create a new candidate. Requires at minimum a name.',
+            description: 'Create a new prospect record in the pipeline. REQUIRES either the Nova candidate ID (nova_id) or the Nova profile URL (nova_url). Ask the user for this information if not provided.',
             inputSchema: z.object({
                 name: z.string().min(1).describe('Full name of the candidate (required)'),
+                nova_id: z.number().optional().describe('The Nova candidate ID (required if nova_url not provided)'),
+                nova_url: z.string().optional().describe('Full Nova profile URL (e.g., https://nova.ayahealthcare.com/#/recruiting/candidates/1234567/new-profile/about)'),
                 specialty: z.string().optional().describe('Clinical specialty (e.g., "RN", "LPN", "CNA")'),
                 home_state: z.string().optional().describe('Home state abbreviation (e.g., "CA")'),
                 email: z.string().email().optional().describe('Email address'),
                 phone: z.string().optional().describe('Phone number'),
                 notes: z.string().optional().describe('Initial notes or context about this candidate'),
-                candidate_id: z.number().optional().describe('External Nova candidate ID if known'),
-                nova_url: z.string().url().optional().describe('Full Nova profile URL'),
             }),
             strict: true,
-            execute: async ({ name, specialty, home_state, email, phone, notes, candidate_id, nova_url }) => {
+            execute: async ({ name, nova_id, nova_url, specialty, home_state, email, phone, notes }) => {
+                // Extract nova_id from URL if not provided directly
+                let resolvedNovaId = nova_id;
+                let resolvedNovaUrl = nova_url;
+
+                if (!resolvedNovaId && nova_url) {
+                    // Extract ID from URL pattern: /candidates/{id}/
+                    const match = nova_url.match(/\/candidates\/(\d+)\//);
+                    if (match) {
+                        resolvedNovaId = parseInt(match[1], 10);
+                    }
+                }
+
+                // Require a valid Nova ID
+                if (!resolvedNovaId) {
+                    return {
+                        error: 'Nova ID is required. Please provide either nova_id or a valid nova_url.',
+                        suggestion: 'Ask the user for the Nova profile URL or candidate ID from the Nova system.',
+                    };
+                }
+
+                // Generate nova_url if not provided
+                if (!resolvedNovaUrl) {
+                    resolvedNovaUrl = `https://nova.ayahealthcare.com/#/recruiting/candidates/${resolvedNovaId}/new-profile/about`;
+                }
+
                 const { data, error } = await supabase
                     .from('prospects')
                     .insert({
@@ -317,8 +343,8 @@ export function createCommandCenterTools(supabase) {
                         phone,
                         notes,
                         status: 'New',
-                        candidate_id: candidate_id ?? Math.floor(Date.now() / 1000),
-                        nova_url,
+                        candidate_id: resolvedNovaId,
+                        nova_url: resolvedNovaUrl,
                     })
                     .select()
                     .single();
@@ -327,8 +353,14 @@ export function createCommandCenterTools(supabase) {
 
                 return {
                     action: 'PROSPECT_ADDED',
-                    prospect: data,
-                    message: `Successfully added ${name} to the prospect pipeline.`,
+                    prospect: {
+                        nova_id: data.candidate_id,
+                        internal_record_id: data.id,
+                        full_name: data.name,
+                        status: data.status,
+                        nova_url: data.nova_url,
+                    },
+                    message: `Successfully added ${name} (Nova ID: ${resolvedNovaId}) to the prospect pipeline.`,
                 };
             },
         }),
