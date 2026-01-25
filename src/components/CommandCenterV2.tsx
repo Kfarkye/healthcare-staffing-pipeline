@@ -1346,17 +1346,32 @@ export const CommandCenterV2: FC = () => {
                     fileName: a.fileName,
                 }));
 
+            // Build message text with URLs for persistence/display
+            let messageText = text;
+            if (attachments.length > 0) {
+                const attachmentLinks = attachments
+                    .filter(a => a.publicUrl)
+                    .map(a => `[📎 ${a.fileName}](${a.publicUrl})`)
+                    .join('\n');
+
+                if (attachmentLinks) {
+                    messageText = text
+                        ? `${text}\n\n${attachmentLinks}`
+                        : `Please analyze this:\n\n${attachmentLinks}`;
+                }
+            }
+
             // Clear input and attachments first
             setInputValue('');
             clearAttachments();
             setShouldAutoScroll(true);
             triggerHaptic();
 
-            // Send with multimodal attachments if present
+            // Send with multimodal attachments if present (base64 for AI, URLs in text for display)
             if (imageAttachments.length > 0) {
-                await sendMessage(text || 'Please analyze this image.', imageAttachments);
+                await sendMessage(messageText, imageAttachments);
             } else {
-                await sendMessage(text);
+                await sendMessage(messageText);
             }
         },
         [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments]
