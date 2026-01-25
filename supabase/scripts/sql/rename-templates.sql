@@ -1,5 +1,5 @@
 -- ============================================================================
--- FINAL FINAL UPDATE: Clean Template (No Markdown) & Fixed Subject
+-- FINAL UPDATE: Clean Template + "Thank you!" Sign-off
 -- Run in Supabase SQL Editor
 -- ============================================================================
 
@@ -8,7 +8,7 @@ SET
     -- FIXED SUBJECT LINE: Specialty – Facility | $Pay/week
     subject_template = '{{specialty}} – {{facility}} | {{weekly_gross}}/week',
     
-    -- CLEAN BODY: No markdown asterisks, clean formatting
+    -- CLEAN BODY: No markdown asterisks, clean formatting, "Thank you!" sign-off
     body_template = 'Hi {{candidate_name}},
 
 I came across your profile and thought you''d be a great fit for this {{specialty}} position at {{facility}}.
@@ -30,8 +30,10 @@ To move forward, just confirm:
 • Do you have any time-off requests during the contract?
 • Is your Aya profile up to date?
 
-Let me know and I can get you submitted right away.'
+Let me know and I can get you submitted right away.
+
+Thank you!'
 WHERE name = 'Pay Package Interest';
 
 -- Verify Clean Output
-SELECT subject_template, body_template FROM communication_templates WHERE name = 'Pay Package Interest';
+SELECT name, subject_template, body_template FROM communication_templates WHERE name = 'Pay Package Interest';

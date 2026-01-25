@@ -972,10 +972,10 @@ const AttachmentPreview: FC<AttachmentPreviewProps> = memo(({ attachments, onRem
     if (attachments.length === 0) return null;
 
     const getFileIcon = (mimeType: string) => {
-        if (mimeType === 'application/pdf') return <FileText size={20} className="text-rose-400" />;
-        if (mimeType.includes('word') || mimeType.includes('document')) return <FileText size={20} className="text-blue-400" />;
-        if (mimeType.startsWith('image/')) return <ImageIcon size={20} className="text-emerald-400" />;
-        return <File size={20} className="text-zinc-400" />;
+        if (mimeType === 'application/pdf') return <FileText size={24} className="text-rose-400" />;
+        if (mimeType.includes('word') || mimeType.includes('document')) return <FileText size={24} className="text-blue-400" />;
+        if (mimeType.startsWith('image/')) return <ImageIcon size={24} className="text-emerald-400" />;
+        return <File size={24} className="text-zinc-400" />;
     };
 
     const formatSize = (bytes: number) => {
@@ -986,81 +986,153 @@ const AttachmentPreview: FC<AttachmentPreviewProps> = memo(({ attachments, onRem
 
     return (
         <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="flex gap-3 overflow-x-auto pb-3 scrollbar-hide"
         >
-            {attachments.map((att) => (
-                <motion.div
-                    key={att.id}
-                    layout
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    className={cn(
-                        'relative flex-shrink-0 group',
-                        'rounded-xl overflow-hidden',
-                        'bg-white/[0.03] border border-white/[0.08]',
-                        att.uploadError && 'border-rose-500/50'
-                    )}
-                >
-                    {/* Preview content */}
-                    <div className="flex items-center gap-2 p-2 pr-8">
-                        {att.previewUrl ? (
-                            <img
-                                src={att.previewUrl}
-                                alt={att.fileName}
-                                className="w-10 h-10 rounded-lg object-cover"
-                            />
-                        ) : (
-                            <div className="w-10 h-10 rounded-lg bg-white/[0.05] flex items-center justify-center">
-                                {getFileIcon(att.mimeType)}
-                            </div>
-                        )}
-                        <div className="flex flex-col min-w-0">
-                            <span className="text-[11px] text-zinc-300 truncate max-w-[100px]">
-                                {att.fileName}
-                            </span>
-                            <span className={cn(
-                                SYSTEM.type.mono,
-                                'text-[9px]',
-                                att.uploadError ? 'text-rose-400' : att.isUploading ? 'text-amber-400' : 'text-zinc-500'
-                            )}>
-                                {att.uploadError ? 'Failed' : att.isUploading ? 'Uploading...' : formatSize(att.fileSize)}
-                            </span>
-                        </div>
-                    </div>
+            {attachments.map((att, index) => {
+                // Check if image is still processing (base64 not ready)
+                const isImageProcessing = att.mimeType.startsWith('image/') && !att.base64Data;
 
-                    {/* Upload indicator */}
-                    {att.isUploading && (
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                            <Loader2 size={16} className="text-indigo-400 animate-spin" />
-                        </div>
-                    )}
-
-                    {/* Error indicator */}
-                    {att.uploadError && (
-                        <div className="absolute top-1 left-1">
-                            <AlertCircle size={12} className="text-rose-400" />
-                        </div>
-                    )}
-
-                    {/* Remove button */}
-                    <button
-                        onClick={() => onRemove(att.id)}
+                return (
+                    <motion.div
+                        key={att.id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.85, y: 10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.85, y: 10 }}
+                        transition={{
+                            duration: 0.25,
+                            delay: index * 0.05,
+                            ease: [0.4, 0, 0.2, 1]
+                        }}
                         className={cn(
-                            'absolute top-1 right-1',
-                            'w-5 h-5 rounded-full',
-                            'bg-black/60 hover:bg-rose-500/80',
-                            'flex items-center justify-center',
-                            'opacity-0 group-hover:opacity-100 transition-opacity'
+                            'relative flex-shrink-0 group cursor-default',
+                            'rounded-2xl overflow-hidden',
+                            // Elite glassmorphism
+                            'bg-gradient-to-br from-white/[0.08] to-white/[0.02]',
+                            'backdrop-blur-xl',
+                            'border border-white/[0.12]',
+                            // Premium hover glow
+                            'transition-all duration-300',
+                            'hover:border-indigo-500/40',
+                            'hover:shadow-[0_0_20px_rgba(99,102,241,0.15)]',
+                            // Error state
+                            att.uploadError && 'border-rose-500/60 bg-rose-500/10'
                         )}
                     >
-                        <X size={10} className="text-white" />
-                    </button>
-                </motion.div>
-            ))}
+                        {/* Main Preview Content */}
+                        <div className="flex items-center gap-3 p-3 pr-10">
+                            {/* Image Preview or File Icon */}
+                            <div className="relative">
+                                {att.previewUrl ? (
+                                    <div className="relative w-14 h-14 rounded-xl overflow-hidden ring-1 ring-white/10">
+                                        <img
+                                            src={att.previewUrl}
+                                            alt={att.fileName}
+                                            className="w-full h-full object-cover"
+                                        />
+                                        {/* Subtle gradient overlay for depth */}
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
+                                    </div>
+                                ) : (
+                                    <div className="w-14 h-14 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
+                                        {getFileIcon(att.mimeType)}
+                                    </div>
+                                )}
+
+                                {/* Processing Indicator (base64 loading) */}
+                                {isImageProcessing && !att.isUploading && (
+                                    <div className="absolute inset-0 rounded-xl bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                                        <div className="w-6 h-6 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin" />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* File Info */}
+                            <div className="flex flex-col min-w-0 gap-0.5">
+                                <span className="text-[12px] font-medium text-zinc-200 truncate max-w-[120px]">
+                                    {att.fileName}
+                                </span>
+                                <span className={cn(
+                                    SYSTEM.type.mono,
+                                    'text-[10px] tracking-wide',
+                                    att.uploadError
+                                        ? 'text-rose-400'
+                                        : att.isUploading
+                                            ? 'text-amber-400'
+                                            : isImageProcessing
+                                                ? 'text-indigo-400'
+                                                : 'text-zinc-500'
+                                )}>
+                                    {att.uploadError
+                                        ? 'Upload failed'
+                                        : att.isUploading
+                                            ? 'Uploading...'
+                                            : isImageProcessing
+                                                ? 'Processing...'
+                                                : formatSize(att.fileSize)
+                                    }
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Upload Progress Overlay */}
+                        {att.isUploading && (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center"
+                            >
+                                <Loader2 size={20} className="text-indigo-400 animate-spin" />
+                            </motion.div>
+                        )}
+
+                        {/* Error Badge */}
+                        {att.uploadError && (
+                            <div className="absolute top-2 left-2">
+                                <div className="w-5 h-5 rounded-full bg-rose-500/90 flex items-center justify-center shadow-lg shadow-rose-500/30">
+                                    <AlertCircle size={12} className="text-white" />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Remove Button */}
+                        <button
+                            onClick={() => onRemove(att.id)}
+                            className={cn(
+                                'absolute top-2 right-2',
+                                'w-6 h-6 rounded-full',
+                                'bg-black/70 hover:bg-rose-500',
+                                'border border-white/10 hover:border-rose-400',
+                                'flex items-center justify-center',
+                                'opacity-0 group-hover:opacity-100',
+                                'transition-all duration-200',
+                                'hover:scale-110',
+                                'shadow-lg'
+                            )}
+                        >
+                            <X size={12} className="text-white" />
+                        </button>
+
+                        {/* Ready Checkmark (when fully processed) */}
+                        {!att.isUploading && !att.uploadError && !isImageProcessing && att.publicUrl && (
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                transition={{ delay: 0.2, type: 'spring', stiffness: 500 }}
+                                className="absolute bottom-2 right-2"
+                            >
+                                <div className="w-5 h-5 rounded-full bg-emerald-500/90 flex items-center justify-center shadow-lg shadow-emerald-500/30">
+                                    <Check size={10} className="text-white" strokeWidth={3} />
+                                </div>
+                            </motion.div>
+                        )}
+                    </motion.div>
+                );
+            })}
         </motion.div>
     );
 });
