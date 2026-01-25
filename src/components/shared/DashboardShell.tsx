@@ -1,7 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { cn } from '../../lib/utils';
-import { ChevronRight } from 'lucide-react';
+import { SYSTEM, cn } from '../../design-system/obsidian';
 
 interface DashboardShellProps {
     children: React.ReactNode;
@@ -56,6 +55,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                             <motion.div
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
+                                transition={SYSTEM.anim.fluid}
                                 className="flex items-center gap-6 pt-2"
                             >
                                 {stats}
@@ -70,7 +70,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                 <motion.div
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                    transition={SYSTEM.anim.page}
                     className="max-w-[1600px] mx-auto px-10 py-10"
                 >
                     {children}
