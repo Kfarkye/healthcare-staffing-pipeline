@@ -1078,16 +1078,22 @@ Healthcare Recruiter`;
                 }
 
                 // Generate Outlook mailto deep links
+                // NOTE: Must use encodeURIComponent (not URLSearchParams) because mailto
+                // requires %20 for spaces, while URLSearchParams uses + which shows literally
                 const outlookLinks = recipients.map(r => {
-                    const params = new URLSearchParams();
-                    if (r.generated_subject) params.set('subject', r.generated_subject);
-                    if (r.generated_body) params.set('body', r.generated_body);
+                    const parts = [];
+                    if (r.generated_subject) {
+                        parts.push(`subject=${encodeURIComponent(r.generated_subject)}`);
+                    }
+                    if (r.generated_body) {
+                        parts.push(`body=${encodeURIComponent(r.generated_body)}`);
+                    }
 
                     return {
                         id: r.id,
                         name: `${r.first_name} ${r.last_name || ''}`.trim(),
                         email: r.email,
-                        mailto_link: `mailto:${r.email}?${params.toString()}`,
+                        mailto_link: `mailto:${r.email}?${parts.join('&')}`,
                     };
                 });
 

@@ -342,11 +342,12 @@ const EmailCard: FC<{ to?: string; subject: string; body: string }> = memo(({ to
     const isLongBody = formattedBody.length > 600 || formattedBody.split('\n').length > 15;
 
     // Outlook deep link (mailto: with pre-filled content)
+    // NOTE: Must use encodeURIComponent (not URLSearchParams) because mailto requires %20 for spaces
     const outlookLink = useMemo(() => {
-        const params = new URLSearchParams();
-        if (subject) params.set('subject', subject);
-        if (formattedBody) params.set('body', formattedBody);
-        return `mailto:${to || ''}?${params.toString()}`;
+        const parts: string[] = [];
+        if (subject) parts.push(`subject=${encodeURIComponent(subject)}`);
+        if (formattedBody) parts.push(`body=${encodeURIComponent(formattedBody)}`);
+        return `mailto:${to || ''}?${parts.join('&')}`;
     }, [to, subject, formattedBody]);
 
     const handleOpenOutlook = useCallback(() => {
