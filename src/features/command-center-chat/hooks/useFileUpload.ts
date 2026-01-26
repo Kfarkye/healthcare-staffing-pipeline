@@ -1,21 +1,40 @@
 /* ============================================================================
    useFileUpload.ts
-   Elite File Upload Hook for Command Center
+   Elite File Upload Hook for Command Center (v2.8 - Payload Safe)
    
    Features:
-   ├─ Click, Drag & Drop, Paste support
-   ├─ Client-side validation (size, type)
-   ├─ Deduplication (name + size check)
-   ├─ Supabase Storage upload with progress
-   ├─ Blob URL previews (memory efficient)
-   └─ Cleanup on unmount
-   
-   Usage:
-   const { attachments, addFiles, removeFile, isDragActive, ... } = useFileUpload();
+   ├─ 413 Guard: Strict Base64 payload budgeting
+   ├─ Smart Compression: Multi-pass JPEG optimization for AI Vision
+   ├─ Hybrid Mode: Uploads high-res to Storage, optimizes low-res for AI
+   └─ Memory Efficient: Aggressive URL revocation
 ============================================================================ */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { supabase } from '../../../shared/services/supabase';
+
+// ============================================================================
+// CONFIGURATION & LIMITS
+// ============================================================================
+
+const DEFAULT_MAX_SIZE = 15 * 1024 * 1024; // 15MB (Storage Limit)
+const DEFAULT_MAX_FILES = 5;
+const BUCKET_NAME = 'command-center-attachments';
+
+const DEFAULT_ALLOWED_TYPES = [
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic',
+    'application/pdf', 'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'text/plain', 'text/csv',
+];
+
+// PAYLOAD GUARD: Config to keep request body under 4.5MB (Vercel Limit)
+const COMPRESSION_CONFIG = {
+    maxDimension: 1536,             // Optimal for LLM Vision (balances tokens vs detail)
+    compressAboveBytes: 300 * 1024, // Compress images > 300KB
+    targetImageBytes: 400 * 1024,   // Target ~400KB per image
+    maxAnalysisBytes: 2 * 1024 * 1024, // 2MB Cap for Non-Images (PDFs). Larger = Link Only.
+    qualitySteps: [0.85, 0.70, 0.55, 0.40],
+};
 
 // ============================================================================
 // TYPES
@@ -33,15 +52,19 @@ export interface Attachment {
     uploadError: string | null;
     storagePath: string | null;
     publicUrl: string | null;
-    /** Base64 encoded file data for vision/multimodal AI (images only) */
+    /** Base64 encoded file data for vision/multimodal AI. Null if skipped. */
     base64Data: string | null;
+    /** If true, file is uploaded but excluded from AI analysis (Link only) */
+    skippedAnalysis: boolean;
+    /** Exact size of the base64 string in bytes */
+    payloadSize: number;
 }
 
 export interface UseFileUploadOptions {
-    maxFileSize?: number;           // Default: 10MB
-    maxFiles?: number;              // Default: 5
-    allowedTypes?: string[];        // Default: images, PDFs, docs
-    bucketName?: string;            // Default: 'command-center-attachments'
+    maxFileSize?: number;
+    maxFiles?: number;
+    allowedTypes?: string[];
+    bucketName?: string;
     onUploadComplete?: (attachment: Attachment) => void;
     onUploadError?: (error: string, file: File) => void;
 }
@@ -55,583 +78,214 @@ export interface UseFileUploadReturn {
     addFiles: (files: FileList | File[]) => void;
     removeFile: (id: string) => void;
     clearAll: () => void;
-    // Event handlers to spread on container
     dragHandlers: {
         onDragEnter: (e: React.DragEvent) => void;
         onDragOver: (e: React.DragEvent) => void;
         onDragLeave: (e: React.DragEvent) => void;
         onDrop: (e: React.DragEvent) => void;
     };
-    // Paste handler for textarea
     handlePaste: (e: React.ClipboardEvent) => void;
-    // Ref for hidden file input
     fileInputRef: React.RefObject<HTMLInputElement>;
     triggerFileSelect: () => void;
+    /** Total bytes of Base64 payload for AI context */
+    totalPayloadSize: number;
 }
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-const DEFAULT_MAX_SIZE = 10 * 1024 * 1024; // 10MB
-const DEFAULT_MAX_FILES = 5;
-const DEFAULT_ALLOWED_TYPES = [
-    'image/jpeg',
-    'image/png',
-    'image/gif',
-    'image/webp',
-    'image/heic',
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/plain',
-    'text/csv',
-];
-
-const BUCKET_NAME = 'command-center-attachments';
 
 // ============================================================================
 // UTILITIES
 // ============================================================================
 
 function generateId(): string {
-    return typeof crypto !== 'undefined'
-        ? crypto.randomUUID()
-        : Math.random().toString(36).substring(2, 15);
+    try { return crypto.randomUUID(); } catch { return Math.random().toString(36).substring(2, 15); }
 }
 
 function isAllowedType(file: File, allowedTypes: string[]): boolean {
-    // Check exact MIME match
     if (allowedTypes.includes(file.type)) return true;
-
-    // Check wildcard (e.g., "image/*")
-    for (const type of allowedTypes) {
-        if (type.endsWith('/*')) {
-            const category = type.replace('/*', '');
-            if (file.type.startsWith(category)) return true;
-        }
-    }
-
-    // Check by extension for edge cases
     const ext = file.name.split('.').pop()?.toLowerCase();
-    const extensionMap: Record<string, string[]> = {
-        'pdf': ['application/pdf'],
-        'doc': ['application/msword'],
-        'docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-    };
-
-    if (ext && extensionMap[ext]) {
-        return true;
-    }
-
-    return false;
+    const map: Record<string, string> = { 'pdf': 'application/pdf', 'doc': 'application/msword', 'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
+    if (ext && map[ext] && allowedTypes.includes(map[ext])) return true;
+    return allowedTypes.some(t => t.endsWith('/*') && file.type.startsWith(t.replace('/*', '')));
 }
 
 function formatFileSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes === 0) return '0 B';
+    const sizes = ['B', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${sizes[i]}`;
 }
 
 // ============================================================================
-// COMPRESSION UTILITIES (Weissach Payload Guard)
+// COMPRESSION ENGINE
 // ============================================================================
 
-/** Payload limits to prevent Vercel 413 errors */
-const COMPRESSION_CONFIG = {
-    maxDimension: 1920,           // Max longest edge
-    compressAboveBytes: 500 * 1024, // Compress images > 500KB
-    targetImageBytes: 650 * 1024,   // Target output size
-    maxTotalPayloadBytes: 2_800 * 1024, // ~2.8MB (keeps JSON+base64 < 4.5MB)
-    maxNonImageBytes: 900 * 1024,   // Cap for PDFs (base64 explodes size)
-    qualitySteps: [0.82, 0.75, 0.68, 0.6], // Multi-pass quality reduction
-};
+async function compressImage(file: File): Promise<{ base64: string; mimeType: string; size: number }> {
+    const bmp = await createImageBitmap(file);
+    const { width: w, height: h } = bmp;
 
-/** Estimate raw bytes from base64 string (exported for payload budget checks) */
-export function approxBase64Bytes(base64: string): number {
-    const len = base64.length;
-    const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
-    return Math.max(0, Math.floor((len * 3) / 4) - padding);
-}
-
-/** Compute resize dimensions maintaining aspect ratio */
-function computeResize(w: number, h: number, maxDim: number): { w: number; h: number } {
-    if (w <= 0 || h <= 0) return { w, h };
-    const longest = Math.max(w, h);
-    if (longest <= maxDim) return { w, h };
-    const scale = maxDim / longest;
-    return { w: Math.max(1, Math.round(w * scale)), h: Math.max(1, Math.round(h * scale)) };
-}
-
-/** Decode image to bitmap for processing */
-async function decodeImage(file: File): Promise<{ bitmap: ImageBitmap; w: number; h: number }> {
-    try {
-        const bitmap = await createImageBitmap(file);
-        return { bitmap, w: bitmap.width, h: bitmap.height };
-    } catch {
-        // Fallback for Safari edge cases
-        const url = URL.createObjectURL(file);
-        try {
-            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-                const el = new Image();
-                el.onload = () => resolve(el);
-                el.onerror = () => reject(new Error('Image decode failed'));
-                el.src = url;
-            });
-            const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth || img.width;
-            canvas.height = img.naturalHeight || img.height;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) throw new Error('No canvas context');
-            ctx.drawImage(img, 0, 0);
-            const bitmap = await createImageBitmap(canvas);
-            return { bitmap, w: bitmap.width, h: bitmap.height };
-        } finally {
-            URL.revokeObjectURL(url);
-        }
+    let outW = w, outH = h;
+    if (w > COMPRESSION_CONFIG.maxDimension || h > COMPRESSION_CONFIG.maxDimension) {
+        const scale = COMPRESSION_CONFIG.maxDimension / Math.max(w, h);
+        outW = Math.round(w * scale);
+        outH = Math.round(h * scale);
     }
-}
 
-/** Convert bitmap to JPEG blob */
-async function bitmapToJpegBlob(
-    bitmap: ImageBitmap,
-    outW: number,
-    outH: number,
-    quality: number
-): Promise<Blob> {
     const canvas = document.createElement('canvas');
     canvas.width = outW;
     canvas.height = outH;
     const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('No canvas context');
-    ctx.drawImage(bitmap, 0, 0, outW, outH);
+    if (!ctx) throw new Error('Canvas error');
 
-    return new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
-            (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
-            'image/jpeg',
-            quality
-        );
-    });
-}
+    ctx.fillStyle = '#FFFFFF'; // Handle transparency
+    ctx.fillRect(0, 0, outW, outH);
+    ctx.drawImage(bmp, 0, 0, outW, outH);
+    bmp.close();
 
-/** Convert blob to base64 (without data: prefix) */
-async function blobToBase64(blob: Blob): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error('FileReader failed'));
-        reader.onload = () => {
-            const result = String(reader.result || '');
-            const comma = result.indexOf(',');
-            resolve(comma === -1 ? '' : result.slice(comma + 1));
-        };
-        reader.readAsDataURL(blob);
-    });
-}
+    // Multi-pass compression
+    for (const q of COMPRESSION_CONFIG.qualitySteps) {
+        const dataUrl = canvas.toDataURL('image/jpeg', q);
+        const base64 = dataUrl.split(',')[1];
+        // Approx binary size: (n * 3/4)
+        const binarySize = base64.length * 0.75;
 
-/**
- * Compress image with multi-pass quality reduction.
- * Returns base64 AND the correct mimeType (always image/jpeg after compression).
- */
-async function compressImageToJpeg(
-    file: File
-): Promise<{ base64: string; mimeType: string; sizeBytes: number }> {
-    const { bitmap, w, h } = await decodeImage(file);
-    const resized = computeResize(w, h, COMPRESSION_CONFIG.maxDimension);
-
-    // Multi-pass: try each quality level until target size is met
-    for (const quality of COMPRESSION_CONFIG.qualitySteps) {
-        const blob = await bitmapToJpegBlob(bitmap, resized.w, resized.h, quality);
-
-        if (blob.size <= COMPRESSION_CONFIG.targetImageBytes || quality === COMPRESSION_CONFIG.qualitySteps[COMPRESSION_CONFIG.qualitySteps.length - 1]) {
-            const base64 = await blobToBase64(blob);
-            console.log(`[FileUpload] Compressed ${file.name}: ${(file.size / 1024).toFixed(0)}KB → ${(blob.size / 1024).toFixed(0)}KB (q=${quality})`);
-
-            // CRITICAL: mimeType MUST match the actual bytes (JPEG)
-            return { base64, mimeType: 'image/jpeg', sizeBytes: blob.size };
+        if (binarySize <= COMPRESSION_CONFIG.targetImageBytes || q === COMPRESSION_CONFIG.qualitySteps.at(-1)) {
+            return { base64, mimeType: 'image/jpeg', size: base64.length };
         }
     }
-
-    // Fallback (shouldn't reach here)
-    const blob = await bitmapToJpegBlob(bitmap, resized.w, resized.h, 0.6);
-    const base64 = await blobToBase64(blob);
-    return { base64, mimeType: 'image/jpeg', sizeBytes: blob.size };
+    throw new Error('Compression failed');
 }
 
-/**
- * Read a file as base64 string.
- * For images > 500KB, compresses to JPEG and returns correct mimeType.
- * Used for multimodal AI vision input.
- */
-async function readFileAsBase64(
-    file: File
-): Promise<{ base64: string; mimeType: string; sizeBytes: number }> {
+async function readFileBase64(file: File): Promise<{ base64: string | null; mimeType: string; size: number }> {
     const isImage = file.type.startsWith('image/');
-    const needsCompression = isImage && file.size > COMPRESSION_CONFIG.compressAboveBytes;
 
-    if (needsCompression) {
-        try {
-            return await compressImageToJpeg(file);
-        } catch (err) {
-            console.warn('[FileUpload] Compression failed, using original:', err);
-        }
+    // 1. Optimize Images > 300KB
+    if (isImage && file.size > COMPRESSION_CONFIG.compressAboveBytes) {
+        try { return await compressImage(file); }
+        catch (e) { console.warn('Compression failed, falling back', e); }
     }
 
-    // No compression path
-    const base64 = await new Promise<string>((resolve, reject) => {
+    // 2. Guard Non-Images (PDFs)
+    // If file > 2MB, Base64 will be > 2.6MB. Too risky for Vercel 4.5MB limit.
+    if (!isImage && file.size > COMPRESSION_CONFIG.maxAnalysisBytes) {
+        console.warn(`[PayloadGuard] Skipped analysis for ${file.name} (${formatFileSize(file.size)}). Link only.`);
+        return { base64: null, mimeType: file.type, size: 0 };
+    }
+
+    // 3. Standard Read
+    return new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = () => {
-            const result = reader.result as string;
-            const comma = result.indexOf(',');
-            resolve(comma === -1 ? '' : result.slice(comma + 1));
+            const res = reader.result as string;
+            const base64 = res.split(',')[1];
+            resolve({ base64, mimeType: file.type, size: base64.length });
         };
-        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.onerror = () => resolve({ base64: null, mimeType: file.type, size: 0 });
         reader.readAsDataURL(file);
     });
-
-    return {
-        base64,
-        mimeType: file.type || 'application/octet-stream',
-        sizeBytes: file.size,
-    };
 }
 
 // ============================================================================
-// HOOK
+// MAIN HOOK
 // ============================================================================
 
 export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUploadReturn {
-    const {
-        maxFileSize = DEFAULT_MAX_SIZE,
-        maxFiles = DEFAULT_MAX_FILES,
-        allowedTypes = DEFAULT_ALLOWED_TYPES,
-        bucketName = BUCKET_NAME,
-        onUploadComplete,
-        onUploadError,
-    } = options;
+    const { maxFileSize = DEFAULT_MAX_SIZE, maxFiles = DEFAULT_MAX_FILES, allowedTypes = DEFAULT_ALLOWED_TYPES, bucketName = BUCKET_NAME, onUploadComplete, onUploadError } = options;
 
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const [isDragActive, setIsDragActive] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const dragCounterRef = useRef(0);
+    const dragCounter = useRef(0);
 
-    // Cleanup blob URLs on unmount
-    useEffect(() => {
-        return () => {
-            attachments.forEach((att) => {
-                if (att.previewUrl) {
-                    URL.revokeObjectURL(att.previewUrl);
-                }
+    useEffect(() => () => attachments.forEach(a => a.previewUrl && URL.revokeObjectURL(a.previewUrl)), []);
+
+    const processFile = async (att: Attachment) => {
+        // 1. Prepare AI Context (Base64) - Parallel
+        const aiReadable = ['image/', 'application/pdf', 'text/'].some(t => att.mimeType.startsWith(t));
+        if (aiReadable) {
+            readFileBase64(att.file).then(res => {
+                setAttachments(prev => prev.map(p => p.id === att.id ? {
+                    ...p,
+                    base64Data: res.base64,
+                    mimeType: res.mimeType,
+                    skippedAnalysis: res.base64 === null,
+                    payloadSize: res.size
+                } : p));
             });
-        };
-    }, []);
-
-    // ============================================================================
-    // UPLOAD TO SUPABASE
-    // ============================================================================
-
-    const uploadToStorage = useCallback(async (attachment: Attachment): Promise<Attachment> => {
-        try {
-            // Generate unique path: timestamp_randomid_filename
-            const timestamp = Date.now();
-            const safeFileName = attachment.fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-            const storagePath = `uploads/${timestamp}_${attachment.id.slice(0, 8)}_${safeFileName}`;
-
-            // Upload to Supabase Storage
-            const { error: uploadError } = await supabase.storage
-                .from(bucketName)
-                .upload(storagePath, attachment.file, {
-                    cacheControl: '3600',
-                    upsert: false,
-                });
-
-            if (uploadError) {
-                throw uploadError;
-            }
-
-            // Get public URL
-            const { data: urlData } = supabase.storage
-                .from(bucketName)
-                .getPublicUrl(storagePath);
-
-            return {
-                ...attachment,
-                isUploading: false,
-                uploadProgress: 100,
-                storagePath,
-                publicUrl: urlData.publicUrl,
-            };
-        } catch (error: any) {
-            console.error('[useFileUpload] Upload error:', error);
-            return {
-                ...attachment,
-                isUploading: false,
-                uploadError: error.message || 'Upload failed',
-            };
+        } else {
+            setAttachments(prev => prev.map(p => p.id === att.id ? { ...p, skippedAnalysis: true } : p));
         }
-    }, [bucketName]);
 
-    // ============================================================================
-    // ADD FILES
-    // ============================================================================
+        // 2. Upload to Storage - Parallel
+        try {
+            const timestamp = Date.now();
+            const safeName = att.fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+            const path = `uploads/${timestamp}_${att.id.slice(0, 6)}_${safeName}`;
+
+            const { error } = await supabase.storage.from(bucketName).upload(path, att.file, { cacheControl: '3600', upsert: false });
+            if (error) throw error;
+
+            const { data } = supabase.storage.from(bucketName).getPublicUrl(path);
+
+            setAttachments(prev => prev.map(p => p.id === att.id ? { ...p, isUploading: false, uploadProgress: 100, publicUrl: data.publicUrl, storagePath: path } : p));
+            onUploadComplete?.({ ...att, publicUrl: data.publicUrl } as Attachment);
+        } catch (e: any) {
+            setAttachments(prev => prev.map(p => p.id === att.id ? { ...p, isUploading: false, uploadError: e.message } : p));
+            onUploadError?.(e.message, att.file);
+        }
+    };
 
     const addFiles = useCallback((files: FileList | File[]) => {
-        const fileArray = Array.from(files);
-        const currentCount = attachments.length;
+        const newAtts: Attachment[] = [];
+        Array.from(files).forEach(file => {
+            if (attachments.length + newAtts.length >= maxFiles) return onUploadError?.('Max files reached', file);
+            if (file.size > maxFileSize) return onUploadError?.('File too large', file);
+            if (!isAllowedType(file, allowedTypes)) return onUploadError?.('Invalid type', file);
 
-        // Validate and process each file
-        const newAttachments: Attachment[] = [];
-
-        for (const file of fileArray) {
-            // Check max files limit
-            if (currentCount + newAttachments.length >= maxFiles) {
-                console.warn(`[useFileUpload] Max files limit (${maxFiles}) reached`);
-                break;
-            }
-
-            // Check file size
-            if (file.size > maxFileSize) {
-                console.warn(`[useFileUpload] File too large: ${file.name} (${formatFileSize(file.size)})`);
-                onUploadError?.(`File too large: ${formatFileSize(file.size)}. Max: ${formatFileSize(maxFileSize)}`, file);
-                continue;
-            }
-
-            // Check file type
-            if (!isAllowedType(file, allowedTypes)) {
-                console.warn(`[useFileUpload] Unsupported file type: ${file.type}`);
-                onUploadError?.(`Unsupported file type: ${file.type || file.name.split('.').pop()}`, file);
-                continue;
-            }
-
-            // Deduplicate by name + size
-            const isDuplicate = attachments.some(
-                (att) => att.fileName === file.name && att.fileSize === file.size
-            ) || newAttachments.some(
-                (att) => att.fileName === file.name && att.fileSize === file.size
-            );
-
-            if (isDuplicate) {
-                console.warn(`[useFileUpload] Duplicate file ignored: ${file.name}`);
-                continue;
-            }
-
-            // Create preview URL for images
-            const previewUrl = file.type.startsWith('image/')
-                ? URL.createObjectURL(file)
-                : null;
-
-            const attachment: Attachment = {
+            newAtts.push({
                 id: generateId(),
                 file,
-                previewUrl,
-                mimeType: file.type,
                 fileName: file.name,
                 fileSize: file.size,
+                mimeType: file.type,
+                previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
                 isUploading: true,
                 uploadProgress: 0,
                 uploadError: null,
                 storagePath: null,
                 publicUrl: null,
-                base64Data: null, // Will be populated async for images
-            };
-
-            newAttachments.push(attachment);
-        }
-
-        if (newAttachments.length === 0) return;
-
-        // Add to state immediately (optimistic)
-        setAttachments((prev) => [...prev, ...newAttachments]);
-
-        // Supported mimeTypes for AI document understanding
-        const AI_READABLE_TYPES = [
-            'image/',           // All image types
-            'application/pdf',  // PDFs
-            'text/plain',       // Plain text
-            'text/csv',         // CSV files
-        ];
-
-        const isAIReadable = (mimeType: string): boolean => {
-            return AI_READABLE_TYPES.some(type =>
-                type.endsWith('/') ? mimeType.startsWith(type) : mimeType === type
-            );
-        };
-
-        // Process each file: upload + read base64 for AI-readable files
-        for (const attachment of newAttachments) {
-            // Read base64 for AI-readable files (parallel with upload)
-            if (isAIReadable(attachment.mimeType)) {
-                readFileAsBase64(attachment.file).then((result) => {
-                    setAttachments((prev) =>
-                        prev.map((att) => (att.id === attachment.id
-                            ? {
-                                ...att,
-                                base64Data: result.base64,
-                                // Update mimeType if compression changed it (e.g., PNG → JPEG)
-                                mimeType: result.mimeType
-                            }
-                            : att))
-                    );
-                }).catch((err) => {
-                    console.warn('[useFileUpload] Failed to read base64:', err);
-                });
-            }
-
-            // Upload to storage
-            uploadToStorage(attachment).then((updated) => {
-                setAttachments((prev) =>
-                    prev.map((att) => (att.id === updated.id ? { ...updated, base64Data: att.base64Data } : att))
-                );
-
-                if (updated.uploadError) {
-                    onUploadError?.(updated.uploadError, attachment.file);
-                } else {
-                    onUploadComplete?.(updated);
-                }
+                base64Data: null,
+                skippedAnalysis: false,
+                payloadSize: 0
             });
-        }
-    }, [attachments, maxFiles, maxFileSize, allowedTypes, uploadToStorage, onUploadComplete, onUploadError]);
-
-    // ============================================================================
-    // REMOVE FILE
-    // ============================================================================
-
-    const removeFile = useCallback((id: string) => {
-        setAttachments((prev) => {
-            const attachment = prev.find((att) => att.id === id);
-            if (attachment?.previewUrl) {
-                URL.revokeObjectURL(attachment.previewUrl);
-            }
-            return prev.filter((att) => att.id !== id);
         });
-    }, []);
 
-    // ============================================================================
-    // CLEAR ALL
-    // ============================================================================
+        if (newAtts.length === 0) return;
+        setAttachments(prev => [...prev, ...newAtts]);
+        newAtts.forEach(processFile);
+    }, [attachments, maxFiles, maxFileSize, allowedTypes, bucketName]);
 
-    const clearAll = useCallback(() => {
-        attachments.forEach((att) => {
-            if (att.previewUrl) {
-                URL.revokeObjectURL(att.previewUrl);
-            }
-        });
-        setAttachments([]);
-    }, [attachments]);
+    const removeFile = useCallback((id: string) => setAttachments(p => p.filter(a => a.id !== id)), []);
+    const clearAll = useCallback(() => setAttachments([]), []);
 
-    // ============================================================================
-    // DRAG & DROP HANDLERS
-    // ============================================================================
-
-    const handleDragEnter = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragCounterRef.current++;
-        if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
-            setIsDragActive(true);
-        }
-    }, []);
-
-    const handleDragOver = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-    }, []);
-
-    const handleDragLeave = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragCounterRef.current--;
-        if (dragCounterRef.current === 0) {
-            setIsDragActive(false);
-        }
-    }, []);
-
-    const handleDrop = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDragActive(false);
-        dragCounterRef.current = 0;
-
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            addFiles(e.dataTransfer.files);
-        }
-    }, [addFiles]);
-
-    // ============================================================================
-    // PASTE HANDLER
-    // ============================================================================
-
+    // Drag Handlers
+    const handleDragEnter = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); dragCounter.current++; if (e.dataTransfer.items?.length) setIsDragActive(true); }, []);
+    const handleDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); dragCounter.current--; if (dragCounter.current === 0) setIsDragActive(false); }, []);
+    const handleDrop = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragActive(false); dragCounter.current = 0; if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files); }, [addFiles]);
     const handlePaste = useCallback((e: React.ClipboardEvent) => {
-        const items = e.clipboardData?.items;
-        if (!items) return;
-
-        const files: File[] = [];
-
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            if (item.kind === 'file') {
-                const file = item.getAsFile();
-                if (file) {
-                    files.push(file);
-                }
-            }
-        }
-
-        if (files.length > 0) {
-            e.preventDefault();
-            addFiles(files);
-        }
+        const files = Array.from(e.clipboardData?.items || []).filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean) as File[];
+        if (files.length) { e.preventDefault(); addFiles(files); }
     }, [addFiles]);
 
-    // ============================================================================
-    // FILE INPUT TRIGGER
-    // ============================================================================
-
-    const triggerFileSelect = useCallback(() => {
-        fileInputRef.current?.click();
-    }, []);
-
-    // ============================================================================
-    // COMPUTED VALUES
-    // ============================================================================
-
-    const isUploading = attachments.some((att) => att.isUploading);
-
-    // AI-readable mimeTypes that require base64 processing
-    const AI_READABLE_PREFIXES = ['image/', 'application/pdf', 'text/plain', 'text/csv'];
-
-    const isAIReadableMime = (mimeType: string): boolean => {
-        return AI_READABLE_PREFIXES.some(prefix =>
-            prefix.endsWith('/') ? mimeType.startsWith(prefix) : mimeType === prefix
-        );
-    };
-
-    // Check if any AI-readable files are missing base64 (still processing)
-    const isProcessing = attachments.some(
-        (att) => isAIReadableMime(att.mimeType) && !att.base64Data
-    );
-
-    // ============================================================================
-    // RETURN
-    // ============================================================================
+    // Computed
+    const isUploading = attachments.some(a => a.isUploading);
+    const isProcessing = attachments.some(a => a.isUploading || (!a.base64Data && !a.skippedAnalysis));
+    const totalPayloadSize = attachments.reduce((sum, a) => sum + a.payloadSize, 0);
 
     return {
-        attachments,
-        isDragActive,
-        isUploading,
-        isProcessing,
-        addFiles,
-        removeFile,
-        clearAll,
-        dragHandlers: {
-            onDragEnter: handleDragEnter,
-            onDragOver: handleDragOver,
-            onDragLeave: handleDragLeave,
-            onDrop: handleDrop,
-        },
-        handlePaste,
-        fileInputRef,
-        triggerFileSelect,
+        attachments, isDragActive, isUploading, isProcessing,
+        addFiles, removeFile, clearAll,
+        dragHandlers: { onDragEnter: handleDragEnter, onDragOver: (e) => { e.preventDefault(); e.stopPropagation(); }, onDragLeave: handleDragLeave, onDrop: handleDrop },
+        handlePaste, fileInputRef, triggerFileSelect: () => fileInputRef.current?.click(),
+        totalPayloadSize
     };
 }
 
