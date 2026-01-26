@@ -312,15 +312,27 @@ export default async function handler(req, ctx) {
     // ========================================================================
 
     /**
-     * Normalize messages for AI SDK, preserving multimodal content.
+     * Normalize messages for AI SDK v6, preserving multimodal content.
      * 
-     * Supports formats:
-     * 1. Simple: { role, content: string }
-     * 2. Multimodal: { role, parts: [{ type: 'text', text }, { type: 'file', mimeType, data }] }
+     * AI SDK v6 Requirements:
+     * - Uses `mediaType` (not mimeType)
+     * - Images: { type: 'image', image: 'data:mime;base64,...', mediaType: '...' }
+     * - Files: { type: 'file', data: 'data:mime;base64,...', mediaType: '...' }
+     * - Data must be full data URLs, not raw base64
      * 
-     * Gemini 1.5 supports native document understanding for PDFs, images, text files.
-     * @see https://sdk.vercel.ai/providers/ai-sdk-providers/google-generative-ai#multi-modal
+     * @see https://ai-sdk.dev/docs/migration-guides/migration-guide-5-0
+     * @see https://ai-sdk.dev/cookbook/next/generate-object-with-file-prompt
      */
+
+    // Helper: Convert raw base64 to data URL format
+    const toDataUrl = (base64, mimeType) => {
+        if (!base64) return null;
+        // Already a data URL? Return as-is
+        if (base64.startsWith('data:')) return base64;
+        // Convert raw base64 to data URL
+        return `data:${mimeType};base64,${base64}`;
+    };
+
     const normalizedMessages = messages.map(msg => {
         // Case 1: Simple string content
         if (typeof msg.content === 'string') {
@@ -329,32 +341,37 @@ export default async function handler(req, ctx) {
 
         // Case 2: Multimodal parts array
         if (Array.isArray(msg.parts) && msg.parts.length > 0) {
-            // Build content array for AI SDK multimodal format
+            // Build content array for AI SDK v6 multimodal format
             const content = msg.parts.map(part => {
                 if (part.type === 'text') {
                     return { type: 'text', text: part.text || '' };
                 }
 
-                // Handle file parts (images, PDFs, documents)
-                // Supports both 'file' (new) and 'image' (legacy) type values
+                // Handle file/image parts
+                // Supports both 'file' (new) and 'image' (legacy) type values from client
                 if ((part.type === 'file' || part.type === 'image') && part.data) {
                     const mimeType = part.mimeType || 'application/octet-stream';
+                    const dataUrl = toDataUrl(part.data, mimeType);
 
-                    // Images go through image type
+                    if (!dataUrl) {
+                        console.warn('[AI] Skipping part with missing data');
+                        return null;
+                    }
+
+                    // Images: use 'image' property (AI SDK v6 schema)
                     if (mimeType.startsWith('image/')) {
                         return {
                             type: 'image',
-                            image: part.data, // Base64 string (without data: prefix)
-                            mimeType: mimeType,
+                            image: dataUrl,      // Full data URL
+                            mediaType: mimeType, // AI SDK v6 uses mediaType
                         };
                     }
 
-                    // PDFs and other documents use file type with inline_data
-                    // Gemini 1.5 supports: application/pdf, text/plain, text/csv, etc.
+                    // Documents (PDF, text, CSV): use 'data' property (AI SDK v6 schema)
                     return {
                         type: 'file',
-                        data: part.data, // Base64 string
-                        mimeType: mimeType,
+                        data: dataUrl,           // Full data URL
+                        mediaType: mimeType,     // AI SDK v6 uses mediaType
                     };
                 }
                 return null;
@@ -364,7 +381,14 @@ export default async function handler(req, ctx) {
             if (content.length > 0) {
                 const imageCount = content.filter(c => c.type === 'image').length;
                 const docCount = content.filter(c => c.type === 'file').length;
-                console.log(`[AI] Multimodal message: ${content.length} parts (${imageCount} images, ${docCount} documents)`);
+                console.log(`[AI] Multimodal content: ${content.length} parts (${imageCount} images, ${docCount} documents)`);
+
+                // Debug: Log structure of first non-text part (keys only, not data)
+                const firstMedia = content.find(c => c.type !== 'text');
+                if (firstMedia) {
+                    console.log(`[AI] Part structure: { type: '${firstMedia.type}', mediaType: '${firstMedia.mediaType}', dataUrl: ${(firstMedia.data || firstMedia.image || '').substring(0, 50)}... }`);
+                }
+
                 return { role: msg.role, content };
             }
         }
