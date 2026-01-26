@@ -685,5 +685,590 @@ export function createCommandCenterTools(supabase) {
                 };
             },
         }),
+
+        // ============================================================================
+        // COLD OUTREACH BLAST TOOLS
+        // ============================================================================
+
+        /**
+         * Create a new cold outreach campaign.
+         * Sets owner_id for RLS compliance.
+         */
+        create_campaign: tool({
+            description: 'Create a new cold outreach campaign for a travel healthcare position. Provide job details, pay package info, and optional template/hook. Returns campaign_id for adding recipients.',
+            inputSchema: z.object({
+                position_title: z.string().describe('Job title (e.g., "Exercise Physiologist", "ICU RN")'),
+                facility_name: z.string().describe('Facility name (e.g., "Sparrow Eaton Hospital")'),
+                city: z.string().describe('City name'),
+                state: z.string().length(2).describe('State abbreviation (e.g., "MI", "CA")'),
+                start_date: z.string().describe('Contract start date (ISO format: YYYY-MM-DD)'),
+                end_date: z.string().describe('Contract end date (ISO format: YYYY-MM-DD)'),
+                gross_weekly_pay: z.number().positive().describe('Total weekly gross pay in dollars'),
+                // Optional fields
+                facility_address: z.string().optional().describe('Facility street address'),
+                specialty: z.string().optional().describe('Specialty code (e.g., "SPORT", "ICU")'),
+                job_id: z.string().optional().describe('Aya Job ID for reference'),
+                weeks_length: z.number().optional().describe('Contract length in weeks'),
+                shift_type: z.string().optional().describe('Shift type: Day, Night, or Rotating'),
+                hours_per_week: z.number().optional().describe('Hours per week'),
+                taxable_hourly_rate: z.number().optional().describe('Taxable hourly rate'),
+                weekly_housing_stipend: z.number().optional().describe('Weekly housing stipend'),
+                weekly_meals_stipend: z.number().optional().describe('Weekly meals stipend'),
+                pay_package_path: z.string().optional().describe('Storage path for pay package screenshot'),
+                template_id: z.string().uuid().optional().describe('Template UUID to use for emails'),
+                custom_hook: z.string().optional().describe('Custom opening line for emails'),
+                custom_closing: z.string().optional().describe('Custom closing for emails'),
+            }),
+            strict: true,
+            execute: async (args) => {
+                // Get current user ID for ownership
+                const { data: { user } } = await supabase.auth.getUser();
+                const owner_id = user?.id;
+
+                if (!owner_id) {
+                    return { error: 'Authentication required. Please sign in to create campaigns.' };
+                }
+
+                const { data, error } = await supabase
+                    .from('cold_outreach_campaigns')
+                    .insert({
+                        position_title: args.position_title,
+                        facility_name: args.facility_name,
+                        city: args.city,
+                        state: args.state.toUpperCase(),
+                        start_date: args.start_date,
+                        end_date: args.end_date,
+                        gross_weekly_pay: args.gross_weekly_pay,
+                        facility_address: args.facility_address,
+                        specialty: args.specialty,
+                        job_id: args.job_id,
+                        weeks_length: args.weeks_length,
+                        shift_type: args.shift_type,
+                        hours_per_week: args.hours_per_week,
+                        taxable_hourly_rate: args.taxable_hourly_rate,
+                        weekly_housing_stipend: args.weekly_housing_stipend,
+                        weekly_meals_stipend: args.weekly_meals_stipend,
+                        pay_package_path: args.pay_package_path,
+                        template_id: args.template_id,
+                        custom_hook: args.custom_hook,
+                        custom_closing: args.custom_closing,
+                        owner_id: owner_id,
+                        status: 'draft',
+                    })
+                    .select()
+                    .single();
+
+                if (error) return { error: error.message };
+
+                return {
+                    action: 'CAMPAIGN_CREATED',
+                    campaign_id: data.id,
+                    position: `${data.position_title} at ${data.facility_name}`,
+                    location: `${data.city}, ${data.state}`,
+                    pay: `$${data.gross_weekly_pay}/week`,
+                    status: data.status,
+                    message: `Campaign created. Use add_recipients to add candidates, then generate_blast_emails to create personalized content.`,
+                    next_steps: [
+                        `add_recipients(campaign_id: "${data.id}", raw_text: "paste candidate list")`,
+                        `generate_blast_emails(campaign_id: "${data.id}")`,
+                    ],
+                };
+            },
+        }),
+
+        /**
+         * Add recipients to a campaign from raw text.
+         * Handles fuzzy parsing and enforces dedupe via email_normalized.
+         */
+        add_recipients: tool({
+            description: 'Add recipients to a cold outreach campaign from pasted text. Parses names and emails from messy input. Deduplicates by email to prevent double-sends. Returns count of inserted, skipped (duplicates), and rejected entries.',
+            inputSchema: z.object({
+                campaign_id: z.string().uuid().describe('The campaign ID to add recipients to'),
+                raw_text: z.string().describe('Raw pasted text containing candidate names and emails. Accepts various formats: CSV, tab-separated, or freeform text.'),
+            }),
+            strict: true,
+            execute: async ({ campaign_id, raw_text }) => {
+                // Verify campaign exists and user owns it
+                const { data: campaign, error: campaignError } = await supabase
+                    .from('cold_outreach_campaigns')
+                    .select('id, position_title')
+                    .eq('id', campaign_id)
+                    .maybeSingle();
+
+                if (campaignError) return { error: campaignError.message };
+                if (!campaign) return { error: `Campaign ${campaign_id} not found or access denied.` };
+
+                // Parse raw text into candidates
+                // Supports: "First Last, email@example.com" | "First Last\temail" | CSV rows
+                const lines = raw_text.split(/[\n\r]+/).filter(line => line.trim());
+                const candidates = [];
+                const rejected = [];
+
+                // Email regex
+                const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi;
+
+                for (const line of lines) {
+                    const emails = line.match(emailRegex);
+                    if (!emails || emails.length === 0) {
+                        rejected.push({ line: line.substring(0, 50), reason: 'no_email_found' });
+                        continue;
+                    }
+
+                    const email = emails[0].toLowerCase().trim();
+
+                    // Extract name: everything before the email, cleaned up
+                    let name = line.replace(email, '').replace(/[,\t|;]+/g, ' ').trim();
+                    // Remove common noise
+                    name = name.replace(/^[\d\s.,-]+/, '').trim();
+
+                    // Split into first/last
+                    const nameParts = name.split(/\s+/).filter(p => p.length > 0);
+                    const first_name = nameParts[0] || 'Unknown';
+                    const last_name = nameParts.slice(1).join(' ') || null;
+
+                    candidates.push({
+                        campaign_id,
+                        first_name,
+                        last_name,
+                        email,
+                        email_normalized: email.toLowerCase().trim(),
+                        status: 'pending',
+                    });
+                }
+
+                if (candidates.length === 0) {
+                    return {
+                        error: 'No valid candidates found in the provided text.',
+                        rejected,
+                        suggestion: 'Ensure each line contains at least one email address.',
+                    };
+                }
+
+                // Insert with ON CONFLICT DO NOTHING (dedupe)
+                const { data: inserted, error: insertError } = await supabase
+                    .from('cold_outreach_recipients')
+                    .upsert(candidates, {
+                        onConflict: 'campaign_id,email_normalized',
+                        ignoreDuplicates: true,
+                    })
+                    .select('id, first_name, last_name, email');
+
+                if (insertError) return { error: insertError.message };
+
+                const insertedCount = inserted?.length || 0;
+                const dedupedCount = candidates.length - insertedCount;
+
+                return {
+                    action: 'RECIPIENTS_ADDED',
+                    campaign_id,
+                    inserted: insertedCount,
+                    deduped: dedupedCount,
+                    rejected: rejected.length,
+                    rejected_details: rejected.length > 0 ? rejected.slice(0, 5) : undefined,
+                    message: `Added ${insertedCount} recipients. ${dedupedCount} duplicates skipped. ${rejected.length} lines rejected (no email).`,
+                    next_step: insertedCount > 0
+                        ? `generate_blast_emails(campaign_id: "${campaign_id}")`
+                        : 'Fix rejected entries and try again.',
+                };
+            },
+        }),
+
+        /**
+         * Generate personalized emails for all pending recipients in a campaign.
+         * Uses template + job details to create unique subject/body.
+         */
+        generate_blast_emails: tool({
+            description: 'Generate personalized email content for all pending recipients in a campaign. Uses the campaign template (or default cold_outreach) to create unique subject lines and bodies. Updates recipient status to "generated".',
+            inputSchema: z.object({
+                campaign_id: z.string().uuid().describe('The campaign ID to generate emails for'),
+            }),
+            strict: true,
+            execute: async ({ campaign_id }) => {
+                // Get campaign with template
+                const { data: campaign, error: campaignError } = await supabase
+                    .from('cold_outreach_campaigns')
+                    .select(`
+                        *,
+                        template:communication_templates(subject_template, body_template)
+                    `)
+                    .eq('id', campaign_id)
+                    .maybeSingle();
+
+                if (campaignError) return { error: campaignError.message };
+                if (!campaign) return { error: `Campaign ${campaign_id} not found or access denied.` };
+
+                // Get pending recipients
+                const { data: recipients, error: recipientError } = await supabase
+                    .from('cold_outreach_recipients')
+                    .select('id, first_name, last_name, email, specialty')
+                    .eq('campaign_id', campaign_id)
+                    .eq('status', 'pending');
+
+                if (recipientError) return { error: recipientError.message };
+                if (!recipients?.length) {
+                    return { message: 'No pending recipients to generate emails for.', generated_count: 0 };
+                }
+
+                // Get template (use linked or fetch default)
+                let subjectTemplate = campaign.template?.subject_template;
+                let bodyTemplate = campaign.template?.body_template;
+
+                if (!subjectTemplate || !bodyTemplate) {
+                    // Fallback to default cold_outreach template
+                    const { data: defaultTemplate } = await supabase
+                        .from('communication_templates')
+                        .select('subject_template, body_template')
+                        .eq('name', 'cold_outreach')
+                        .eq('is_active', true)
+                        .maybeSingle();
+
+                    if (defaultTemplate) {
+                        subjectTemplate = subjectTemplate || defaultTemplate.subject_template;
+                        bodyTemplate = bodyTemplate || defaultTemplate.body_template;
+                    }
+                }
+
+                // Default templates if none found
+                if (!subjectTemplate) {
+                    subjectTemplate = 'Exciting {{position_title}} opportunity in {{city}}, {{state}} - ${{gross_weekly_pay}}/week';
+                }
+                if (!bodyTemplate) {
+                    bodyTemplate = `Hi {{first_name}},
+
+{{custom_hook}}
+
+I'm reaching out about an exciting {{position_title}} position at {{facility_name}} in {{city}}, {{state}}.
+
+**Contract Details:**
+- Start Date: {{start_date}}
+- Duration: {{weeks_length}} weeks
+- Gross Weekly Pay: ${{ gross_weekly_pay }}
+
+{{custom_closing}}
+
+Best regards,
+Kofi Farkye
+Healthcare Recruiter`;
+                }
+
+                // Generate personalized content for each recipient
+                const updates = recipients.map(recipient => {
+                    const variables = {
+                        first_name: recipient.first_name,
+                        last_name: recipient.last_name || '',
+                        position_title: campaign.position_title,
+                        facility_name: campaign.facility_name,
+                        city: campaign.city,
+                        state: campaign.state,
+                        start_date: campaign.start_date,
+                        end_date: campaign.end_date,
+                        weeks_length: campaign.weeks_length || 'TBD',
+                        gross_weekly_pay: campaign.gross_weekly_pay?.toLocaleString() || 'TBD',
+                        custom_hook: campaign.custom_hook || "I came across your profile and thought you'd be a great fit.",
+                        custom_closing: campaign.custom_closing || "Let me know if you'd like to learn more!",
+                    };
+
+                    // Replace {{placeholders}}
+                    let subject = subjectTemplate;
+                    let body = bodyTemplate;
+                    for (const [key, value] of Object.entries(variables)) {
+                        const regex = new RegExp(`{{${key}}}`, 'gi');
+                        subject = subject.replace(regex, String(value));
+                        body = body.replace(regex, String(value));
+                    }
+
+                    return {
+                        id: recipient.id,
+                        generated_subject: subject,
+                        generated_body: body,
+                        status: 'generated',
+                    };
+                });
+
+                // Batch update recipients
+                let successCount = 0;
+                for (const update of updates) {
+                    const { error } = await supabase
+                        .from('cold_outreach_recipients')
+                        .update({
+                            generated_subject: update.generated_subject,
+                            generated_body: update.generated_body,
+                            status: update.status,
+                        })
+                        .eq('id', update.id);
+
+                    if (!error) successCount++;
+                }
+
+                // Update campaign status
+                await supabase
+                    .from('cold_outreach_campaigns')
+                    .update({ status: 'ready' })
+                    .eq('id', campaign_id);
+
+                return {
+                    action: 'EMAILS_GENERATED',
+                    campaign_id,
+                    generated_count: successCount,
+                    total_recipients: recipients.length,
+                    campaign_status: 'ready',
+                    message: `Generated ${successCount} personalized emails. Campaign is ready to send.`,
+                    next_step: `send_campaign(campaign_id: "${campaign_id}")`,
+                    preview: updates.length > 0 ? {
+                        subject: updates[0].generated_subject,
+                        body_preview: updates[0].generated_body.substring(0, 200) + '...',
+                    } : null,
+                };
+            },
+        }),
+
+        /**
+         * Generate Outlook deep links for campaign emails.
+         * Returns mailto: links for manual sending via Outlook (IT restriction workaround).
+         */
+        send_campaign: tool({
+            description: 'Generate Outlook mailto links for all recipients with status "generated". Returns clickable deep links for manual sending via Outlook. Use this when ready to send the campaign.',
+            inputSchema: z.object({
+                campaign_id: z.string().uuid().describe('The campaign ID to generate send links for'),
+                batch_size: z.number().optional().default(10).describe('Number of mailto links to return per batch (default: 10)'),
+                offset: z.number().optional().default(0).describe('Offset for pagination (default: 0)'),
+            }),
+            strict: true,
+            execute: async ({ campaign_id, batch_size, offset }) => {
+                // Verify campaign
+                const { data: campaign, error: campaignError } = await supabase
+                    .from('cold_outreach_campaigns')
+                    .select('id, status, position_title, facility_name')
+                    .eq('id', campaign_id)
+                    .maybeSingle();
+
+                if (campaignError) return { error: campaignError.message };
+                if (!campaign) return { error: `Campaign ${campaign_id} not found or access denied.` };
+
+                // Get recipients ready to send (generated status)
+                const { data: recipients, error: recipientError, count } = await supabase
+                    .from('cold_outreach_recipients')
+                    .select('id, first_name, last_name, email, generated_subject, generated_body', { count: 'exact' })
+                    .eq('campaign_id', campaign_id)
+                    .eq('status', 'generated')
+                    .range(offset, offset + batch_size - 1);
+
+                if (recipientError) return { error: recipientError.message };
+                if (!recipients?.length) {
+                    // Check if all are already sent
+                    const { count: sentCount } = await supabase
+                        .from('cold_outreach_recipients')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('campaign_id', campaign_id)
+                        .eq('status', 'sent');
+
+                    if (sentCount > 0) {
+                        return {
+                            message: 'All recipients have been sent. Campaign complete.',
+                            campaign_id,
+                            sent_count: sentCount,
+                        };
+                    }
+
+                    return {
+                        error: 'No recipients ready to send. Run generate_blast_emails first.',
+                        campaign_id,
+                        recipients_ready: 0,
+                    };
+                }
+
+                // Generate Outlook mailto deep links
+                const outlookLinks = recipients.map(r => {
+                    const params = new URLSearchParams();
+                    if (r.generated_subject) params.set('subject', r.generated_subject);
+                    if (r.generated_body) params.set('body', r.generated_body);
+
+                    return {
+                        id: r.id,
+                        name: `${r.first_name} ${r.last_name || ''}`.trim(),
+                        email: r.email,
+                        mailto_link: `mailto:${r.email}?${params.toString()}`,
+                    };
+                });
+
+                // Update campaign status if first batch
+                if (offset === 0) {
+                    await supabase
+                        .from('cold_outreach_campaigns')
+                        .update({ status: 'sending' })
+                        .eq('id', campaign_id);
+                }
+
+                const totalRemaining = (count || 0) - batch_size;
+                const hasMore = totalRemaining > 0;
+
+                return {
+                    action: 'OUTLOOK_LINKS_GENERATED',
+                    campaign_id,
+                    campaign: `${campaign.position_title} at ${campaign.facility_name}`,
+                    batch: {
+                        offset,
+                        count: recipients.length,
+                        total_remaining: Math.max(0, totalRemaining),
+                        has_more: hasMore,
+                    },
+                    outlook_links: outlookLinks,
+                    message: `Generated ${recipients.length} Outlook links. Click each to open in Outlook and send.`,
+                    next_step: hasMore
+                        ? `send_campaign(campaign_id: "${campaign_id}", offset: ${offset + batch_size})`
+                        : 'Mark recipients as sent after clicking all links.',
+                    instructions: 'Click each mailto link to open Outlook with pre-filled email. After sending, use mark_recipient_sent to update status.',
+                };
+            },
+        }),
+
+        /**
+         * Get campaign status and recipient counts.
+         */
+        campaign_status: tool({
+            description: 'Get the status of a cold outreach campaign including recipient counts by status (pending, generated, sent, opened, replied). Use this to monitor campaign progress.',
+            inputSchema: z.object({
+                campaign_id: z.string().uuid().optional().describe('Specific campaign ID to check. If not provided, returns all recent campaigns.'),
+            }),
+            strict: true,
+            execute: async ({ campaign_id }) => {
+                if (campaign_id) {
+                    // Get specific campaign
+                    const { data: campaign, error: campaignError } = await supabase
+                        .from('cold_outreach_campaigns')
+                        .select('*')
+                        .eq('id', campaign_id)
+                        .maybeSingle();
+
+                    if (campaignError) return { error: campaignError.message };
+                    if (!campaign) return { error: `Campaign ${campaign_id} not found or access denied.` };
+
+                    // Get recipient counts by status
+                    const { data: recipients, error: recipientError } = await supabase
+                        .from('cold_outreach_recipients')
+                        .select('status')
+                        .eq('campaign_id', campaign_id);
+
+                    if (recipientError) return { error: recipientError.message };
+
+                    const counts = {
+                        pending: 0,
+                        generated: 0,
+                        sent: 0,
+                        opened: 0,
+                        replied: 0,
+                        bounced: 0,
+                        skipped: 0,
+                    };
+
+                    (recipients || []).forEach(r => {
+                        if (counts.hasOwnProperty(r.status)) {
+                            counts[r.status]++;
+                        }
+                    });
+
+                    return {
+                        action: 'CAMPAIGN_STATUS',
+                        campaign: {
+                            id: campaign.id,
+                            position: `${campaign.position_title} at ${campaign.facility_name}`,
+                            location: `${campaign.city}, ${campaign.state}`,
+                            pay: `$${campaign.gross_weekly_pay}/week`,
+                            status: campaign.status,
+                            created_at: campaign.created_at,
+                            sent_at: campaign.sent_at,
+                        },
+                        recipients: {
+                            total: recipients?.length || 0,
+                            ...counts,
+                        },
+                    };
+                } else {
+                    // Get all recent campaigns
+                    const { data: campaigns, error } = await supabase
+                        .from('cold_outreach_campaigns')
+                        .select('id, position_title, facility_name, city, state, status, created_at, sent_at')
+                        .order('created_at', { ascending: false })
+                        .limit(10);
+
+                    if (error) return { error: error.message };
+
+                    return {
+                        action: 'CAMPAIGNS_LIST',
+                        campaigns: (campaigns || []).map(c => ({
+                            id: c.id,
+                            position: `${c.position_title} at ${c.facility_name}`,
+                            location: `${c.city}, ${c.state}`,
+                            status: c.status,
+                            created_at: c.created_at,
+                            sent_at: c.sent_at,
+                        })),
+                        count: campaigns?.length || 0,
+                        message: campaigns?.length
+                            ? `Found ${campaigns.length} recent campaigns.`
+                            : 'No campaigns found. Use create_campaign to start one.',
+                    };
+                }
+            },
+        }),
+
+        /**
+         * Mark recipients as sent after clicking Outlook links.
+         * Used for manual send tracking.
+         */
+        mark_recipient_sent: tool({
+            description: 'Mark one or more recipients as "sent" after manually sending via Outlook. Call this after clicking the mailto links to update tracking status.',
+            inputSchema: z.object({
+                recipient_ids: z.array(z.string().uuid()).optional().describe('Array of recipient IDs to mark as sent'),
+                campaign_id: z.string().uuid().optional().describe('Mark ALL generated recipients in this campaign as sent'),
+            }),
+            strict: true,
+            execute: async ({ recipient_ids, campaign_id }) => {
+                if (!recipient_ids && !campaign_id) {
+                    return { error: 'Either recipient_ids or campaign_id must be provided.' };
+                }
+
+                const sentAt = new Date().toISOString();
+                let updated = 0;
+
+                if (campaign_id) {
+                    // Mark all generated recipients in the campaign as sent
+                    const { data, error } = await supabase
+                        .from('cold_outreach_recipients')
+                        .update({ status: 'sent', sent_at: sentAt })
+                        .eq('campaign_id', campaign_id)
+                        .eq('status', 'generated')
+                        .select('id');
+
+                    if (error) return { error: error.message };
+                    updated = data?.length || 0;
+
+                    // Update campaign status if all sent
+                    if (updated > 0) {
+                        await supabase
+                            .from('cold_outreach_campaigns')
+                            .update({ status: 'sent', sent_at: sentAt })
+                            .eq('id', campaign_id);
+                    }
+                } else if (recipient_ids) {
+                    // Mark specific recipients
+                    for (const id of recipient_ids) {
+                        const { error } = await supabase
+                            .from('cold_outreach_recipients')
+                            .update({ status: 'sent', sent_at: sentAt })
+                            .eq('id', id);
+
+                        if (!error) updated++;
+                    }
+                }
+
+                return {
+                    action: 'RECIPIENTS_MARKED_SENT',
+                    updated_count: updated,
+                    sent_at: sentAt,
+                    message: `Marked ${updated} recipient(s) as sent.`,
+                };
+            },
+        }),
     };
 }
