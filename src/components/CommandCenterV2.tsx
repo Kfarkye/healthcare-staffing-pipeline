@@ -53,6 +53,7 @@ import {
     Image as ImageIcon,
     AlertCircle,
     ExternalLink,
+    Mail,
 } from 'lucide-react';
 
 // Obsidian Weissach Design System
@@ -339,6 +340,20 @@ const EmailCard: FC<{ to?: string; subject: string; body: string }> = memo(({ to
     }, []);
     const formattedBody = useMemo(() => body.replace(/  \n/g, '\n').replace(/^---\s*$/gm, '').trim(), [body]);
     const isLongBody = formattedBody.length > 600 || formattedBody.split('\n').length > 15;
+
+    // Outlook deep link (mailto: with pre-filled content)
+    const outlookLink = useMemo(() => {
+        const params = new URLSearchParams();
+        if (subject) params.set('subject', subject);
+        if (formattedBody) params.set('body', formattedBody);
+        return `mailto:${to || ''}?${params.toString()}`;
+    }, [to, subject, formattedBody]);
+
+    const handleOpenOutlook = useCallback(() => {
+        triggerHaptic();
+        window.open(outlookLink, '_blank');
+    }, [outlookLink]);
+
     return (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={SYSTEM.anim.fluid} className={cn('rounded-[20px] overflow-hidden bg-white/[0.02] backdrop-blur-md border border-white/[0.08] shadow-[0_4px_24px_-4px_rgba(0,0,0,0.3)]')}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] bg-white/[0.02]">
@@ -346,9 +361,14 @@ const EmailCard: FC<{ to?: string; subject: string; body: string }> = memo(({ to
                     <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center"><FileText size={14} className="text-indigo-400" /></div>
                     <span className={cn(SYSTEM.type.mono, 'text-indigo-400')}>Email Draft</span>
                 </div>
-                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => handleCopy(`${to ? `To: ${to}\n` : ''}Subject: ${subject}\n\n${formattedBody}`, 'all')} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all text-[11px] font-medium', copiedField === 'all' ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-300 bg-white/[0.06] hover:bg-white/[0.1]')}>
-                    {copiedField === 'all' ? <Check size={12} /> : <Copy size={12} />} {copiedField === 'all' ? 'Copied!' : 'Copy All'}
-                </motion.button>
+                <div className="flex items-center gap-2">
+                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleOpenOutlook} className="flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all text-[11px] font-medium text-zinc-300 bg-white/[0.06] hover:bg-indigo-500/20 hover:text-indigo-300">
+                        <Mail size={12} /> Open in Outlook
+                    </motion.button>
+                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => handleCopy(`${to ? `To: ${to}\n` : ''}Subject: ${subject}\n\n${formattedBody}`, 'all')} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all text-[11px] font-medium', copiedField === 'all' ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-300 bg-white/[0.06] hover:bg-white/[0.1]')}>
+                        {copiedField === 'all' ? <Check size={12} /> : <Copy size={12} />} {copiedField === 'all' ? 'Copied!' : 'Copy All'}
+                    </motion.button>
+                </div>
             </div>
             {to && <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01] flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>To</span><p className="text-[14px] font-medium text-white mt-0.5">{to}</p></div><button onClick={() => handleCopy(to, 'to')} className="text-zinc-400 hover:text-white">{copiedField === 'to' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}</button></div>}
             <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01] flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>Subject</span><p className="text-[14px] font-medium text-white mt-0.5 line-clamp-2">{subject}</p></div><button onClick={() => handleCopy(subject, 'subject')} className="text-zinc-400 hover:text-white">{copiedField === 'subject' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}</button></div>
