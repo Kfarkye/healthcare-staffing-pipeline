@@ -133,22 +133,167 @@ function formatFileSize(bytes: number): string {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ============================================================================
+// COMPRESSION UTILITIES (Weissach Payload Guard)
+// ============================================================================
+
+/** Payload limits to prevent Vercel 413 errors */
+const COMPRESSION_CONFIG = {
+    maxDimension: 1920,           // Max longest edge
+    compressAboveBytes: 500 * 1024, // Compress images > 500KB
+    targetImageBytes: 650 * 1024,   // Target output size
+    maxTotalPayloadBytes: 2_800 * 1024, // ~2.8MB (keeps JSON+base64 < 4.5MB)
+    maxNonImageBytes: 900 * 1024,   // Cap for PDFs (base64 explodes size)
+    qualitySteps: [0.82, 0.75, 0.68, 0.6], // Multi-pass quality reduction
+};
+
+/** Estimate raw bytes from base64 string (exported for payload budget checks) */
+export function approxBase64Bytes(base64: string): number {
+    const len = base64.length;
+    const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+    return Math.max(0, Math.floor((len * 3) / 4) - padding);
+}
+
+/** Compute resize dimensions maintaining aspect ratio */
+function computeResize(w: number, h: number, maxDim: number): { w: number; h: number } {
+    if (w <= 0 || h <= 0) return { w, h };
+    const longest = Math.max(w, h);
+    if (longest <= maxDim) return { w, h };
+    const scale = maxDim / longest;
+    return { w: Math.max(1, Math.round(w * scale)), h: Math.max(1, Math.round(h * scale)) };
+}
+
+/** Decode image to bitmap for processing */
+async function decodeImage(file: File): Promise<{ bitmap: ImageBitmap; w: number; h: number }> {
+    try {
+        const bitmap = await createImageBitmap(file);
+        return { bitmap, w: bitmap.width, h: bitmap.height };
+    } catch {
+        // Fallback for Safari edge cases
+        const url = URL.createObjectURL(file);
+        try {
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const el = new Image();
+                el.onload = () => resolve(el);
+                el.onerror = () => reject(new Error('Image decode failed'));
+                el.src = url;
+            });
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || img.width;
+            canvas.height = img.naturalHeight || img.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('No canvas context');
+            ctx.drawImage(img, 0, 0);
+            const bitmap = await createImageBitmap(canvas);
+            return { bitmap, w: bitmap.width, h: bitmap.height };
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    }
+}
+
+/** Convert bitmap to JPEG blob */
+async function bitmapToJpegBlob(
+    bitmap: ImageBitmap,
+    outW: number,
+    outH: number,
+    quality: number
+): Promise<Blob> {
+    const canvas = document.createElement('canvas');
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('No canvas context');
+    ctx.drawImage(bitmap, 0, 0, outW, outH);
+
+    return new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+            (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+            'image/jpeg',
+            quality
+        );
+    });
+}
+
+/** Convert blob to base64 (without data: prefix) */
+async function blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('FileReader failed'));
+        reader.onload = () => {
+            const result = String(reader.result || '');
+            const comma = result.indexOf(',');
+            resolve(comma === -1 ? '' : result.slice(comma + 1));
+        };
+        reader.readAsDataURL(blob);
+    });
+}
+
 /**
- * Read a file as base64 string (without data: prefix).
+ * Compress image with multi-pass quality reduction.
+ * Returns base64 AND the correct mimeType (always image/jpeg after compression).
+ */
+async function compressImageToJpeg(
+    file: File
+): Promise<{ base64: string; mimeType: string; sizeBytes: number }> {
+    const { bitmap, w, h } = await decodeImage(file);
+    const resized = computeResize(w, h, COMPRESSION_CONFIG.maxDimension);
+
+    // Multi-pass: try each quality level until target size is met
+    for (const quality of COMPRESSION_CONFIG.qualitySteps) {
+        const blob = await bitmapToJpegBlob(bitmap, resized.w, resized.h, quality);
+
+        if (blob.size <= COMPRESSION_CONFIG.targetImageBytes || quality === COMPRESSION_CONFIG.qualitySteps[COMPRESSION_CONFIG.qualitySteps.length - 1]) {
+            const base64 = await blobToBase64(blob);
+            console.log(`[FileUpload] Compressed ${file.name}: ${(file.size / 1024).toFixed(0)}KB → ${(blob.size / 1024).toFixed(0)}KB (q=${quality})`);
+
+            // CRITICAL: mimeType MUST match the actual bytes (JPEG)
+            return { base64, mimeType: 'image/jpeg', sizeBytes: blob.size };
+        }
+    }
+
+    // Fallback (shouldn't reach here)
+    const blob = await bitmapToJpegBlob(bitmap, resized.w, resized.h, 0.6);
+    const base64 = await blobToBase64(blob);
+    return { base64, mimeType: 'image/jpeg', sizeBytes: blob.size };
+}
+
+/**
+ * Read a file as base64 string.
+ * For images > 500KB, compresses to JPEG and returns correct mimeType.
  * Used for multimodal AI vision input.
  */
-function readFileAsBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
+async function readFileAsBase64(
+    file: File
+): Promise<{ base64: string; mimeType: string; sizeBytes: number }> {
+    const isImage = file.type.startsWith('image/');
+    const needsCompression = isImage && file.size > COMPRESSION_CONFIG.compressAboveBytes;
+
+    if (needsCompression) {
+        try {
+            return await compressImageToJpeg(file);
+        } catch (err) {
+            console.warn('[FileUpload] Compression failed, using original:', err);
+        }
+    }
+
+    // No compression path
+    const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
             const result = reader.result as string;
-            // Remove data:image/png;base64, prefix
-            const base64 = result.split(',')[1] || '';
-            resolve(base64);
+            const comma = result.indexOf(',');
+            resolve(comma === -1 ? '' : result.slice(comma + 1));
         };
         reader.onerror = () => reject(new Error('Failed to read file'));
         reader.readAsDataURL(file);
     });
+
+    return {
+        base64,
+        mimeType: file.type || 'application/octet-stream',
+        sizeBytes: file.size,
+    };
 }
 
 // ============================================================================
@@ -316,9 +461,16 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
         for (const attachment of newAttachments) {
             // Read base64 for AI-readable files (parallel with upload)
             if (isAIReadable(attachment.mimeType)) {
-                readFileAsBase64(attachment.file).then((base64) => {
+                readFileAsBase64(attachment.file).then((result) => {
                     setAttachments((prev) =>
-                        prev.map((att) => (att.id === attachment.id ? { ...att, base64Data: base64 } : att))
+                        prev.map((att) => (att.id === attachment.id
+                            ? {
+                                ...att,
+                                base64Data: result.base64,
+                                // Update mimeType if compression changed it (e.g., PNG → JPEG)
+                                mimeType: result.mimeType
+                            }
+                            : att))
                     );
                 }).catch((err) => {
                     console.warn('[useFileUpload] Failed to read base64:', err);
