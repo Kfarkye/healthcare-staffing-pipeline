@@ -183,8 +183,8 @@ When drafting emails, ALWAYS use this exact structure for proper rendering:
 
 # EMAIL DRAFT
 
-**To:** recipient@email.com
-**Subject:** Your subject line here
+To: recipient@email.com
+Subject: Your subject line here
 
 ---
 
@@ -196,11 +196,12 @@ Do NOT include a signature - the user's email client adds it automatically.
 
 IMPORTANT EMAIL RULES:
 - Always start with "# EMAIL DRAFT" header
-- Include "**To:**" with recipient email if known from context (candidate email, etc.)
-- Always include "**Subject:**" on its own line
+- Include "To:" with recipient email if known from context (candidate email, etc.)
+- Always include "Subject:" on its own line
 - Use "---" horizontal rules to separate sections
 - NEVER include a signature (Best, Name, Title, Phone) - it's added by the email client
 - Never use [SUBJECT] or [BODY] tags
+- NEVER USE ASTERISKS OR MARKDOWN IN EMAIL BODY - email clients don't render markdown. Use plain text only. No **bold**, no *italics*, no bullet points with asterisks. Use dashes (-) for lists instead.
 
 RULES:
 - Never ask for data you can look up with tools
