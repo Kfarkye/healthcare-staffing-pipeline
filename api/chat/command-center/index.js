@@ -503,8 +503,22 @@ export default async function handler(req, ctx) {
     });
 
     const truncatedMessages = truncateHistory(normalizedMessages);
+
+    // INSTRUMENTATION: Count images BEFORE stripping
+    const countImages = (msgs) => msgs.reduce((sum, m) => {
+        if (Array.isArray(m.content)) {
+            return sum + m.content.filter(p => p.type === 'image').length;
+        }
+        return sum;
+    }, 0);
+    const imagesBefore = countImages(truncatedMessages);
+
     const safeMessages = stripImagesFromOldMessages(truncatedMessages);
-    console.log(`[AI] Message count: ${safeMessages.length} (from ${normalizedMessages.length}, images stripped from history)`);
+
+    // INSTRUMENTATION: Count images AFTER stripping + estimate payload
+    const imagesAfter = countImages(safeMessages);
+    const payloadEstimate = JSON.stringify(safeMessages).length;
+    console.log(`[AI] Image stripping: ${imagesBefore} → ${imagesAfter} images | Payload: ~${Math.round(payloadEstimate / 1024)}KB | Messages: ${safeMessages.length}`);
 
     // ========================================================================
     // 5. PREPARE AI REQUEST
