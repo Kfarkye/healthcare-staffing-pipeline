@@ -250,6 +250,69 @@ function truncateHistory(messages, maxLimit = MAX_HISTORY_LENGTH) {
     return [messages[0], ...messages.slice(-maxLimit + 1)];
 }
 
+/**
+ * CRITICAL: Strip Base64 images from older messages to prevent timeout.
+ * 
+ * Problem: Sending 8+ images in history causes Gemini to re-process ALL of them
+ * every request, leading to 25s+ processing time and timeout.
+ * 
+ * Solution: Keep images ONLY in the LAST user message. Replace older images
+ * with text placeholders so the AI knows context was provided but doesn't
+ * have to re-analyze the same screenshots repeatedly.
+ */
+function stripImagesFromOldMessages(messages) {
+    if (!messages || messages.length < 2) return messages;
+
+    // Find the index of the last user message
+    let lastUserIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'user') {
+            lastUserIndex = i;
+            break;
+        }
+    }
+
+    return messages.map((msg, index) => {
+        // Keep the last user message intact (with images)
+        if (index === lastUserIndex) return msg;
+
+        // For other messages, strip images from content array
+        if (Array.isArray(msg.content)) {
+            const hasImages = msg.content.some(part =>
+                part.type === 'image' ||
+                (part.type === 'file' && part.source?.media_type?.startsWith('image'))
+            );
+
+            if (hasImages) {
+                // Replace image parts with text placeholder
+                const strippedContent = msg.content.map(part => {
+                    if (part.type === 'image' ||
+                        (part.type === 'file' && part.source?.media_type?.startsWith('image'))) {
+                        return { type: 'text', text: '[Image previously analyzed]' };
+                    }
+                    return part;
+                });
+
+                // Dedupe consecutive "[Image previously analyzed]" placeholders
+                const deduped = strippedContent.filter((part, i, arr) => {
+                    if (i === 0) return true;
+                    if (part.type === 'text' && part.text === '[Image previously analyzed]') {
+                        const prev = arr[i - 1];
+                        if (prev.type === 'text' && prev.text === '[Image previously analyzed]') {
+                            return false; // Skip duplicate
+                        }
+                    }
+                    return true;
+                });
+
+                return { ...msg, content: deduped };
+            }
+        }
+
+        return msg;
+    });
+}
+
 /** 
  * CRITICAL: Use Edge Context's waitUntil to keep background tasks alive.
  * Without this, audit logs are killed when response stream closes.
@@ -439,8 +502,9 @@ export default async function handler(req, ctx) {
         return { role: msg.role, content: '' };
     });
 
-    const safeMessages = truncateHistory(normalizedMessages);
-    console.log(`[AI] Message count: ${safeMessages.length} (from ${normalizedMessages.length})`);
+    const truncatedMessages = truncateHistory(normalizedMessages);
+    const safeMessages = stripImagesFromOldMessages(truncatedMessages);
+    console.log(`[AI] Message count: ${safeMessages.length} (from ${normalizedMessages.length}, images stripped from history)`);
 
     // ========================================================================
     // 5. PREPARE AI REQUEST
