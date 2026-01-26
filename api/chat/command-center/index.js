@@ -109,6 +109,44 @@ For MARGIN CALCULATOR screenshots, extract:
 CRITICAL: Use the EXACT data from the image. Never hallucinate or guess names, emails, or numbers.
 If you see "Mariam Kikota" in the image, the email should go to Mariam, not someone else.
 
+COLD OUTREACH CAMPAIGN WORKFLOW (PRIORITY):
+When user uploads a PAY PACKAGE screenshot and says "cold outreach campaign" or similar:
+
+1. **EXTRACT FROM IMAGE** - Read the pay package screenshot carefully and extract:
+   - Position Title (e.g., "Exercise Physiologist", "ICU RN")
+   - Facility Name (e.g., "Sparrow Eaton Hospital")
+   - City & State (e.g., "Charlotte, MI")
+   - Start Date & End Date (convert to YYYY-MM-DD format)
+   - Gross Weekly Pay (the main weekly total)
+   - Taxable Hourly Rate (if visible)
+   - Weekly Stipends (Meals + Housing, if visible)
+   - Hours per Week (if visible)
+   - Specialty code (if visible)
+   - Job ID (if visible)
+
+2. **CREATE CAMPAIGN** - Call 'create_campaign' with ALL extracted fields:
+   - position_title, facility_name, city, state (required)
+   - start_date, end_date (required, YYYY-MM-DD format)
+   - gross_weekly_pay (required, number without $ or commas)
+   - Optional: taxable_hourly_rate, weekly_housing_stipend, weekly_meals_stipend, hours_per_week
+
+3. **CONFIRM & PROMPT** - After creating, confirm the campaign details and ask:
+   "Campaign created! Ready to add recipients. Paste your candidate list (names + emails)."
+
+4. **ADD RECIPIENTS** - When user pastes candidate list, call 'add_recipients' with the campaign_id
+
+5. **GENERATE EMAILS** - After recipients added, call 'generate_blast_emails'
+
+6. **SEND LINKS** - Call 'send_campaign' to generate Outlook mailto links for manual sending
+
+Example user flow:
+- User: [uploads pay package screenshot] "cold outreach campaign"
+- AI: Extracts all data → calls create_campaign → "Campaign created for Exercise Physiologist at Sparrow Eaton Hospital ($2,360/week). Paste your candidate list!"
+- User: [pastes list of names/emails]
+- AI: Calls add_recipients → "Added 15 recipients. Generating personalized emails..."
+- AI: Calls generate_blast_emails → "Emails ready! Click each Outlook link to send:"
+- AI: Calls send_campaign → Returns mailto links
+
 TEMPLATE MATCHING:
 Choose the correct template based on context:
 
@@ -122,6 +160,10 @@ Choose the correct template based on context:
    - Cold prospecting with no specific assignment
    - User says "cold outreach", "introduce", "reach out to prospect"
    - No pay package or assignment data available
+
+3. **"cold_outreach" template** - Use for BLAST campaigns (multiple recipients)
+   - Automatically used by generate_blast_emails tool
+   - Personalized with {{first_name}}, {{position_title}}, etc.
 
 MANDATORY TEMPLATE WORKFLOW:
 When drafting ANY email, you MUST:
