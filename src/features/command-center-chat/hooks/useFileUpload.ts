@@ -147,7 +147,7 @@ async function compressImage(file: File): Promise<{ base64: string; mimeType: st
         // Approx binary size: (n * 3/4)
         const binarySize = base64.length * 0.75;
 
-        if (binarySize <= COMPRESSION_CONFIG.targetImageBytes || q === COMPRESSION_CONFIG.qualitySteps.at(-1)) {
+        if (binarySize <= COMPRESSION_CONFIG.targetImageBytes || q === COMPRESSION_CONFIG.qualitySteps[COMPRESSION_CONFIG.qualitySteps.length - 1]) {
             return { base64, mimeType: 'image/jpeg', size: base64.length };
         }
     }

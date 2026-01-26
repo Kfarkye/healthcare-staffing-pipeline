@@ -3,7 +3,7 @@
    "Obsidian Weissach" — Healthcare Staffing Edition (v2.8 - 413 Fixed)
 ============================================================================ */
 
-import {
+import React, {
     useState,
     useEffect,
     useRef,
@@ -11,6 +11,7 @@ import {
     useMemo,
     memo,
     useLayoutEffect,
+    Component,
     type FC,
     type ReactNode,
     type KeyboardEvent as ReactKeyboardEvent,
@@ -349,7 +350,37 @@ const InputDeck: FC<InputDeckProps> = memo(({ value, onChange, onSend, onStop, i
 InputDeck.displayName = 'InputDeck';
 
 // ============================================================================
-// 7. INNER COMMAND CENTER (LOGIC CORE)
+// 7. ERROR BOUNDARY (Prevents White Screen Crashes)
+// ============================================================================
+
+class ChatErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+    state = { hasError: false };
+
+    static getDerivedStateFromError() {
+        return { hasError: true };
+    }
+
+    componentDidCatch(error: Error, info: React.ErrorInfo) {
+        console.error('[CommandCenter] Error Boundary caught:', error, info);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="fixed bottom-8 right-8 z-50 p-6 bg-rose-500/10 border border-rose-500/20 rounded-2xl backdrop-blur-md">
+                    <div className="flex items-center gap-3">
+                        <div className="w-2 h-2 bg-rose-500 rounded-full" />
+                        <span className="text-rose-400 text-sm font-medium">Command Center error. Please refresh.</span>
+                    </div>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
+// ============================================================================
+// 8. INNER COMMAND CENTER (LOGIC CORE)
 // ============================================================================
 
 const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void }> = ({ isOpen, setIsOpen }) => {
@@ -359,6 +390,13 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
     const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+
+    // Unmount safety: prevents setState after unmount when stream is active
+    const mountedRef = useRef(true);
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => { mountedRef.current = false; };
+    }, []);
 
     // Safe to use here because InnerCommandCenter is a child of ToastProvider
     const { showToast } = useToast();
@@ -468,16 +506,18 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
 };
 
 // ============================================================================
-// 8. MAIN WRAPPER (CONTEXT PROVIDER)
+// 9. MAIN WRAPPER (CONTEXT PROVIDER + ERROR BOUNDARY)
 // ============================================================================
 
 export const CommandCenterV2: FC = () => {
     const [isOpen, setIsOpen] = useState(false);
 
     return (
-        <ToastProvider>
-            <InnerCommandCenter isOpen={isOpen} setIsOpen={setIsOpen} />
-        </ToastProvider>
+        <ChatErrorBoundary>
+            <ToastProvider>
+                <InnerCommandCenter isOpen={isOpen} setIsOpen={setIsOpen} />
+            </ToastProvider>
+        </ChatErrorBoundary>
     );
 };
 
