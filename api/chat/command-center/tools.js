@@ -721,13 +721,9 @@ export function createCommandCenterTools(supabase) {
             }),
             strict: true,
             execute: async (args) => {
-                // Get current user ID for ownership
-                const { data: { user } } = await supabase.auth.getUser();
-                const owner_id = user?.id;
-
-                if (!owner_id) {
-                    return { error: 'Authentication required. Please sign in to create campaigns.' };
-                }
+                // Note: Running with Service Role Key - no user session available
+                // Default owner for single-user system
+                const owner_id = 'kofi.farkye';
 
                 const { data, error } = await supabase
                     .from('cold_outreach_campaigns')

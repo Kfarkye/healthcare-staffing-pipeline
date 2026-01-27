@@ -50,8 +50,8 @@ const REGEX_ATTACHMENT = /\[Attached:\s*([^\]]+)\]\(([^)]+)\)/g;
 const REGEX_VERDICT = /VERDICT:\s*(STRONG MATCH|REVIEW NEEDED|NOT A FIT)/i;
 const REGEX_INSIGHT = /(?:INSIGHT|ASSESSMENT|KEY QUALIFICATIONS):\s*(.+)/is;
 const REGEX_EMAIL_HEADER = /^#\s*EMAIL\s*DRAFT[\r\n]+/i;
-const REGEX_EMAIL_TO = /\*\*To:\*\*\s*([^\r\n]+)/i;
-const REGEX_EMAIL_SUBJECT = /\*\*Subject:\*\*\s*([^\r\n]+)/i;
+const REGEX_EMAIL_TO = /(?:\*\*)?To:(?:\*\*)?\s*([^\r\n]+)/i;
+const REGEX_EMAIL_SUBJECT = /(?:\*\*)?Subject:(?:\*\*)?\s*([^\r\n]+)/i;
 const REGEX_EMAIL_BODY = /---[\r\n]+([\s\S]+?)(?:[\r\n]+---[\r\n]*(?:$|[\r\n])|$)/;
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg', 'heic']);
