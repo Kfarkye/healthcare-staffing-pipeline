@@ -546,10 +546,16 @@ export function createCommandCenterTools(supabase) {
         }),
 
         campaign_status: tool({
-            description: 'Get campaign progress statistics.',
-            inputSchema: z.object({ campaign_id: z.string().uuid().optional() }),
+            description: 'Get campaign progress statistics. Search by facility, position, or city.',
+            inputSchema: z.object({
+                campaign_id: z.string().uuid().optional(),
+                facility_name: z.string().optional().describe('Search campaigns by facility name'),
+                position_title: z.string().optional().describe('Search campaigns by position'),
+                city: z.string().optional().describe('Search campaigns by city'),
+            }),
             strict: true,
-            execute: async ({ campaign_id }) => {
+            execute: async ({ campaign_id, facility_name, position_title, city }) => {
+                // Specific campaign by ID
                 if (campaign_id) {
                     const { data: c } = await supabase.from('cold_outreach_campaigns').select('*').eq('id', campaign_id).maybeSingle();
                     if (!c) return { error: 'Campaign not found.' };
@@ -559,8 +565,25 @@ export function createCommandCenterTools(supabase) {
                     (r || []).forEach(x => counts[x.status] = (counts[x.status] || 0) + 1);
                     return { action: 'CAMPAIGN_STATUS', campaign: c, stats: counts };
                 }
-                const { data } = await supabase.from('cold_outreach_campaigns').select('id, position_title, facility_name, city, state, status, created_at').order('created_at', { ascending: false }).limit(10);
-                return { action: 'CAMPAIGNS_LIST', campaigns: data };
+
+                // Search by filters
+                let query = supabase.from('cold_outreach_campaigns').select('id, position_title, facility_name, city, state, status, gross_weekly_pay, start_date, end_date, created_at');
+
+                if (facility_name) query = query.ilike('facility_name', `%${facility_name.trim()}%`);
+                if (position_title) query = query.ilike('position_title', `%${position_title.trim()}%`);
+                if (city) query = query.ilike('city', `%${city.trim()}%`);
+
+                const { data } = await query.order('created_at', { ascending: false }).limit(10);
+
+                if (!data?.length && (facility_name || position_title || city)) {
+                    return {
+                        action: 'CAMPAIGNS_LIST',
+                        campaigns: [],
+                        message: `No campaigns found matching: ${[facility_name, position_title, city].filter(Boolean).join(', ')}`
+                    };
+                }
+
+                return { action: 'CAMPAIGNS_LIST', campaigns: data || [] };
             },
         }),
 
