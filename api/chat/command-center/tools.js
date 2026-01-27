@@ -359,6 +359,44 @@ export function createCommandCenterTools(supabase) {
             },
         }),
 
+        update_campaign: tool({
+            description: 'Update an existing campaign. Use to set hourly rate, custom hook, or other fields.',
+            inputSchema: z.object({
+                campaign_id: z.string().uuid(),
+                taxable_hourly_rate: z.number().optional().describe('Hourly rate (e.g., 40 for $40/hr)'),
+                gross_weekly_pay: z.number().optional(),
+                hours_per_week: z.number().optional(),
+                custom_hook: z.string().optional().describe('Custom opening line for emails'),
+                custom_closing: z.string().optional(),
+                shift_type: z.string().optional(),
+            }),
+            strict: true,
+            execute: async ({ campaign_id, ...updates }) => {
+                // Filter out undefined values
+                const cleanUpdates = Object.fromEntries(
+                    Object.entries(updates).filter(([_, v]) => v !== undefined)
+                );
+
+                if (Object.keys(cleanUpdates).length === 0) {
+                    return { error: 'No updates provided.' };
+                }
+
+                const { data, error } = await supabase
+                    .from('cold_outreach_campaigns')
+                    .update(cleanUpdates)
+                    .eq('id', campaign_id)
+                    .select('id, position_title, facility_name, taxable_hourly_rate, gross_weekly_pay')
+                    .single();
+
+                if (error) return { error: error.message };
+                return {
+                    action: 'CAMPAIGN_UPDATED',
+                    campaign: data,
+                    message: `Updated campaign. Hourly rate: $${data.taxable_hourly_rate || 'N/A'}/hr`
+                };
+            },
+        }),
+
         add_recipients: tool({
             description: 'Add recipients to a campaign from text/CSV. Robust parsing and deduplication.',
             inputSchema: z.object({
@@ -449,8 +487,13 @@ export function createCommandCenterTools(supabase) {
                         city: campaign.city,
                         state: campaign.state,
                         gross_weekly_pay: campaign.gross_weekly_pay?.toLocaleString() || 'TBD',
+                        hourly_rate: campaign.taxable_hourly_rate ? `$${campaign.taxable_hourly_rate}/hr` : '',
+                        taxable_hourly_rate: campaign.taxable_hourly_rate || '',
+                        hours_per_week: campaign.hours_per_week || '',
                         start_date: campaign.start_date,
+                        end_date: campaign.end_date,
                         weeks_length: campaign.weeks_length,
+                        shift_type: campaign.shift_type || '',
                         custom_hook: campaign.custom_hook || '',
                         custom_closing: campaign.custom_closing || '',
                     };
