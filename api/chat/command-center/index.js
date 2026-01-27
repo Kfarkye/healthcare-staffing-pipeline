@@ -547,12 +547,15 @@ export default async function handler(req, ctx) {
 
     /**
      * Provider Options for Gemini 3
+     * - useSearchGrounding: Enables web search for real-time information
      * @see https://sdk.vercel.ai/providers/ai-sdk-providers/google-generative-ai#provider-options
+     * @see https://ai.google.dev/gemini-api/docs/grounding
      */
     const providerOptions = {
         google: {
             thinkingConfig: THINKING_CONFIG,
             safetySettings: SAFETY_SETTINGS,
+            useSearchGrounding: true,  // Enable Google Search grounding
         },
     };
 
