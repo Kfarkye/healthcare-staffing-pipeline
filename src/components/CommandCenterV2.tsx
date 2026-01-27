@@ -30,7 +30,7 @@ import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
     X, Minimize2, Maximize2, ArrowUp, Copy, Check, Square, Paperclip,
-    Search, FileText, DollarSign, Users, Activity, Calendar, ChevronRight,
+    FileText, Users, Activity, ChevronRight,
     Zap, Loader2, Image as ImageIcon, ExternalLink, Mail, Globe
 } from 'lucide-react';
 
