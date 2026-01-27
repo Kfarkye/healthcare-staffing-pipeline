@@ -67,15 +67,19 @@ const INTENT_PATTERNS = {
 
     [Intent.DRAFT_OUTREACH]: {
         keywords: [
-            /\bdraft\s*(a|an|me)?\s*(text|email|message|intro|outreach)\b/i,
-            /\bwrite\s*(a|an|me)?\s*(text|email|message|intro|outreach)\b/i,
+            // Match "draft [anything] email/text/message"
+            /\bdraft\s+(?:\w+\s+)*(email|text|message|outreach)\b/i,
+            /\bwrite\s+(?:\w+\s+)*(email|text|message|outreach)\b/i,
+            /\bcreate\s+(?:\w+\s+)*(email|text|message|outreach)\b/i,
+            /\bcompose\s+(?:\w+\s+)*(email|text|message)\b/i,
             /\bsend\s*(a|an)?\s*(text|email|message)\b/i,
-            /\bcreate\s*(a|an)?\s*(text|email|message|outreach)\b/i,
-            /\bcompose\s*(a|an)?\s*(text|email|message)\b/i,
             /\bintro\s*(text|message|email)\b/i,
             /\bfollow\s*up\s*(text|message|email)\b/i,
-            /\bpay\s*package\s*(outreach|interest)\b/i,
+            /\bpay\s*package\s*(outreach|interest|email)?\b/i,
             /\bcold\s*(outreach|email|text)\b/i,
+            // Specific template types
+            /\breassignment\s*(email|request|template)?\b/i,
+            /\bextension\s*(email|request|template)?\b/i,
         ],
         contextBoost: (message, hasAttachment) => hasAttachment ? 0.15 : 0,
         weight: 0.95,
