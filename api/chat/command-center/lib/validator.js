@@ -112,6 +112,24 @@ const VALIDATION_RULES = [
     },
 
     // =========================================================================
+    // LAZY RESPONSE DETECTION (AI not doing its job)
+    // =========================================================================
+    {
+        code: 'LAZY_CLARIFYING_QUESTION',
+        severity: Severity.WARNING,
+        pattern: /\b(?:are you looking to|would you like me to|do you want me to|should I|what type of|which one)\b/i,
+        message: 'AI asked clarifying question instead of doing the work',
+        autoFix: null,
+    },
+    {
+        code: 'LAZY_OPTION_LIST',
+        severity: Severity.WARNING,
+        pattern: /\b(?:Option A|Option B|option 1|option 2)\b/i,
+        message: 'AI presented options instead of taking action',
+        autoFix: null,
+    },
+
+    // =========================================================================
     // FORMAT ISSUES
     // =========================================================================
     {
@@ -130,6 +148,13 @@ const VALIDATION_RULES = [
             /nova\.ayahealthcare\.com\/traveler\/profile\/(\d+)/gi,
             'nova.ayahealthcare.com/#/recruiting/candidates/$1/new-profile/about'
         ),
+    },
+    {
+        code: 'SIGNATURE_DETECTED',
+        severity: Severity.WARNING,
+        pattern: /\n(?:Best|Regards|Thanks|Sincerely),?\n.+\n.*(?:\d{3}[-.]?\d{3}[-.]?\d{4}|Ext:?\s*\d+)/gi,
+        message: 'Email signature detected - should not be included',
+        autoFix: null, // Too risky to auto-remove
     },
 ];
 

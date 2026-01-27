@@ -336,14 +336,34 @@ export default async function handler(req, ctx) {
     // 7. EXECUTE AI CALL
     // ========================================================================
 
+    // Determine tool choice strategy based on intent
+    // 'required' = Model MUST call at least one tool (no lazy responses)
+    // 'auto' = Model decides (for general queries)
+    const getToolChoice = (intent) => {
+        switch (intent) {
+            case Intent.DRAFT_OUTREACH:
+            case Intent.DATABASE_ACTION:
+            case Intent.CAMPAIGN_WORKFLOW:
+                return 'required'; // Force tool usage - no lazy "let me ask you" responses
+            case Intent.SEARCH_QUERY:
+                return 'required'; // Always search, don't guess
+            default:
+                return 'auto'; // General queries can choose
+        }
+    };
+
     try {
         // For tool-heavy intents, use generateText for multi-step execution
         if (classification.requiresTools && classification.intent !== Intent.EDIT_CONTENT) {
+            const toolChoice = getToolChoice(classification.intent);
+            console.log(`[AI] Tool choice: ${toolChoice} for intent: ${classification.intent}`);
+
             const result = await generateText({
                 model: google(MODEL_CONFIG.primary),
                 system: finalPrompt,
                 messages: safeMessages,
                 tools,
+                toolChoice, // CRITICAL: Force tool usage for action intents
                 maxSteps: MAX_TOOL_STEPS,
                 maxTokens: MODEL_CONFIG.maxTokens,
                 temperature: MODEL_CONFIG.temperature,
