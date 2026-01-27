@@ -1,495 +1,331 @@
 /**
- * Command Center Chat - Vercel Edge Function (v5.0 Agentic Architecture)
+ * Command Center Chat - Production Service (v5.1)
  * 
- * Architecture:
- * ┌─────────────────────────────────────────────────────────────────────┐
- * │  User Request                                                       │
- * │       ↓                                                             │
- * │  ┌─────────────┐                                                    │
- * │  │   ROUTER    │ ← Classifies intent (edit, draft, search, etc.)   │
- * │  └─────────────┘                                                    │
- * │       ↓                                                             │
- * │  ┌─────────────┐                                                    │
- * │  │   PROMPTS   │ ← Loads specialized persona for the intent        │
- * │  └─────────────┘                                                    │
- * │       ↓                                                             │
- * │  ┌─────────────┐                                                    │
- * │  │   GEMINI    │ ← Executes with focused prompt + relevant tools   │
- * │  └─────────────┘                                                    │
- * │       ↓                                                             │
- * │  ┌─────────────┐                                                    │
- * │  │  VALIDATOR  │ ← Catches placeholders, banned phrases            │
- * │  └─────────────┘                                                    │
- * │       ↓                                                             │
- * │  User Response                                                      │
- * └─────────────────────────────────────────────────────────────────────┘
+ * Architecture: Hybrid "Safety Net" Agent
+ * - Runtime: Node.js (Serverless) for 5-minute tool execution (Critical for Agents)
+ * - Strategy: 
+ *    1. High Risk (Draft/Edit) -> Buffered + Auto-Fixed (100% Safety)
+ *    2. Low Risk (Chat/Search) -> Real-time Streaming (Min Latency)
+ * - Protocol: Unified Vercel Data Stream (v1)
  * 
- * @version 5.0.0 - Agentic Architecture
+ * @module api/chat
  */
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { streamText, generateText } from 'ai';
 import { createClient } from '@supabase/supabase-js';
+import { z } from 'zod';
+import { randomUUID } from 'node:crypto'; // Native Node.js, no external deps
 
 // Modular components
 import { createCommandCenterTools } from './tools.js';
-import { classify, describeIntent, Intent } from './lib/router.js';
-import { getPromptForIntent, RECRUITER_IDENTITY } from './lib/prompts.js';
+import { classify, Intent } from './lib/router.js';
+import { getPromptForIntent } from './lib/prompts.js';
 import { validate, summarize } from './lib/validator.js';
 
 // ============================================================================
-// CONFIGURATION
+// 1. CONFIGURATION & CONSTANTS
 // ============================================================================
 
 export const config = {
-    runtime: 'edge',
-    maxDuration: 60,
+    // Critical: Node.js allows 5-minute timeouts. Edge (30s) is too risky 
+    // for agents that need to "Think -> Search -> Act -> Result".
+    runtime: 'nodejs',
+    maxDuration: 300,
 };
 
-/** Model configuration */
 const MODEL_CONFIG = {
-    primary: 'gemini-3-flash-preview',
-    fallback: 'gemini-3-pro-preview',
-    temperature: 0.7,  // Lower than default 1.0 for more consistent behavior
-    maxTokens: 4096,
+    primary: 'gemini-3-flash-preview', // Speed + Reasoning
+    fallback: 'gemini-3-pro-preview',  // Complex logic fallback
+    temperature: 0.7,
+    maxSteps: 5, // Allow multi-step tool loops
 };
-
-/** Safety Settings for Healthcare Context */
-const SAFETY_SETTINGS = [
-    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
-    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
-    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
-    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
-];
-
-/** Thinking Configuration for Gemini 3 */
-const THINKING_CONFIG = {
-    thinkingLevel: 'high',
-    includeThoughts: false,
-};
-
-/** Message history limits */
-const MAX_HISTORY_LENGTH = 12;
-const MAX_TOOL_STEPS = 5;
-
-// ============================================================================
-// UTILITIES
-// ============================================================================
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-vercel-ai-data-stream, x-trace-id',
 };
 
-function errorResponse(message, status = 500, details = null) {
-    return new Response(JSON.stringify({ error: message, details }), {
-        status,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+// Strict Validation Schemas (Fail Fast)
+const EnvSchema = z.object({
+    SUPABASE_URL: z.string().url(),
+    SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+    GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1),
+});
+
+const RequestSchema = z.object({
+    messages: z.array(z.any()).min(1),
+    context: z.record(z.any()).optional(),
+});
+
+// ============================================================================
+// 2. OBSERVABILITY & UTILITIES
+// ============================================================================
+
+class Logger {
+    constructor(traceId) {
+        this.traceId = traceId;
+        this.startTime = Date.now();
+    }
+
+    info(event, data = {}) {
+        console.log(JSON.stringify({
+            lvl: 'INFO',
+            time: new Date(),
+            trace: this.traceId,
+            ms: Date.now() - this.startTime,
+            event,
+            ...data
+        }));
+    }
+
+    error(event, err) {
+        console.error(JSON.stringify({
+            lvl: 'ERROR',
+            time: new Date(),
+            trace: this.traceId,
+            event,
+            err: err.message
+        }));
+    }
+}
+
+/**
+ * Creates a "Fake" Stream response from a buffered string.
+ * Mimics Vercel AI Data Stream Protocol v1 (0:"text")
+ */
+function createBufferedStreamResponse(text, metadata = {}) {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+        start(controller) {
+            // Channel 0: Text Content
+            controller.enqueue(encoder.encode(`0:${JSON.stringify(text)}\n`));
+
+            // Channel 2: Metadata (Optional)
+            if (Object.keys(metadata).length > 0) {
+                controller.enqueue(encoder.encode(`2:${JSON.stringify([metadata])}\n`));
+            }
+            controller.close();
+        }
+    });
+
+    return new Response(stream, {
+        headers: { ...CORS_HEADERS, 'Content-Type': 'text/plain; charset=utf-8', 'x-vercel-ai-data-stream': 'v1' }
     });
 }
 
-function isRetryableError(error) {
-    const msg = error?.message?.toLowerCase() || '';
-    return /429|503|overloaded|rate.?limit|quota|temporarily.?unavailable/.test(msg);
-}
-
 /**
- * Extract the last user message text for routing
+ * Normalizes messages for Multimodal inputs (Images/Files)
+ * Includes Context Pruning: Strips heavy images from older messages to save tokens.
  */
-function getLastUserMessage(messages) {
-    for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === 'user') {
-            const content = messages[i].content;
-            if (typeof content === 'string') return content;
-            if (Array.isArray(content)) {
-                const textPart = content.find(p => p.type === 'text');
-                return textPart?.text || '';
-            }
-        }
-    }
-    return '';
-}
-
-/**
- * Check if messages contain attachments
- */
-function hasAttachments(messages) {
-    const lastUser = messages.findLast(m => m.role === 'user');
-    if (!lastUser || !Array.isArray(lastUser.content)) return false;
-    return lastUser.content.some(p => p.type === 'image' || p.type === 'file');
-}
-
-/**
- * Truncate history to prevent context overflow
- */
-function truncateHistory(messages, maxLimit = MAX_HISTORY_LENGTH) {
-    if (!messages || messages.length <= maxLimit) return messages;
-    return [messages[0], ...messages.slice(-maxLimit + 1)];
-}
-
-/**
- * Strip base64 images from older messages to prevent timeout
- */
-function stripImagesFromOldMessages(messages) {
-    if (!messages || messages.length < 2) return messages;
-
-    let lastUserIndex = -1;
-    for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === 'user') {
-            lastUserIndex = i;
-            break;
-        }
-    }
+function normalizeMessages(messages) {
+    if (!Array.isArray(messages)) return [];
+    const lastIndex = messages.length - 1;
 
     return messages.map((msg, index) => {
-        if (index === lastUserIndex) return msg;
+        if (typeof msg.content === 'string') return { role: msg.role, content: msg.content };
 
+        // Handle Multimodal Content Arrays
         if (Array.isArray(msg.content)) {
-            const hasImages = msg.content.some(part =>
-                part.type === 'image' ||
-                (part.type === 'file' && part.mediaType?.startsWith('image'))
-            );
+            const content = msg.content.map(part => {
+                if (part.type === 'text') return { type: 'text', text: part.text };
 
-            if (hasImages) {
-                const strippedContent = msg.content.map(part => {
-                    if (part.type === 'image' || (part.type === 'file' && part.mediaType?.startsWith('image'))) {
-                        return { type: 'text', text: '[Image previously analyzed]' };
+                // Handle Images/Files
+                if (part.type === 'image' || (part.type === 'file' && part.mimeType?.startsWith('image/'))) {
+                    // Optimization: Only keep full base64 images for the MOST RECENT message
+                    if (index !== lastIndex) {
+                        return { type: 'text', text: '[Image from previous turn]' };
                     }
-                    return part;
-                });
-                return { ...msg, content: strippedContent };
-            }
-        }
 
+                    const mime = part.mimeType || 'image/jpeg';
+                    const dataUrl = part.data?.startsWith('data:')
+                        ? part.data
+                        : `data:${mime};base64,${part.data || part.image}`;
+
+                    return { type: 'image', image: dataUrl };
+                }
+                return null;
+            }).filter(Boolean);
+
+            return { role: msg.role, content };
+        }
         return msg;
     });
 }
 
 /**
- * Normalize messages for AI SDK
+ * Resilience: Retry logic for transient API errors
  */
-function normalizeMessages(messages) {
-    const toDataUrl = (base64, mimeType) => {
-        if (!base64) return null;
-        if (base64.startsWith('data:')) return base64;
-        return `data:${mimeType};base64,${base64}`;
-    };
+async function withRetry(fn, retries = 2) {
+    try { return await fn(); }
+    catch (error) {
+        if (retries === 0 || !['429', '503', 'overloaded'].some(c => (error.message || '').toLowerCase().includes(c))) throw error;
+        await new Promise(r => setTimeout(r, 1000));
+        return withRetry(fn, retries - 1);
+    }
+}
 
-    return messages.map(msg => {
-        if (typeof msg.content === 'string') {
-            return { role: msg.role, content: msg.content };
-        }
+// ============================================================================
+// 3. MAIN HANDLER
+// ============================================================================
 
-        if (Array.isArray(msg.parts) && msg.parts.length > 0) {
-            const content = msg.parts.map(part => {
-                if (part.type === 'text') {
-                    return { type: 'text', text: part.text || '' };
-                }
+export async function POST(req) {
+    const traceId = randomUUID();
+    const logger = new Logger(traceId);
 
-                if ((part.type === 'file' || part.type === 'image') && part.data) {
-                    const mimeType = part.mimeType || 'application/octet-stream';
-                    const dataUrl = toDataUrl(part.data, mimeType);
+    // 1. CORS Preflight
+    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
 
-                    if (!dataUrl) return null;
+    try {
+        // 2. Validation
+        const env = EnvSchema.parse(process.env);
+        const json = await req.json();
+        const { messages, context } = RequestSchema.parse(json);
 
-                    if (mimeType.startsWith('image/')) {
-                        return { type: 'image', image: dataUrl, mediaType: mimeType };
-                    }
-                    return { type: 'file', data: dataUrl, mediaType: mimeType };
-                }
-                return null;
-            }).filter(Boolean);
+        // 3. Infrastructure
+        const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+            global: { headers: { 'x-trace-id': traceId } }
+        });
+        const google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY });
 
-            if (content.length > 0) {
-                return { role: msg.role, content };
+        // 4. Intent & Prep
+        const normalizedMsgs = normalizeMessages(messages);
+        const lastMsg = normalizedMsgs.findLast(m => m.role === 'user');
+
+        // Extract text safely for classification
+        const inputContent = Array.isArray(lastMsg.content)
+            ? lastMsg.content.find(p => p.type === 'text')?.text || ''
+            : lastMsg.content;
+
+        const classification = classify({
+            message: inputContent || 'Multimodal Input',
+            history: normalizedMsgs,
+            hasAttachment: Array.isArray(lastMsg.content) && lastMsg.content.some(c => c.type === 'image')
+        });
+
+        logger.info('intent_classified', { intent: classification.intent, conf: classification.confidence });
+
+        const systemPrompt = getPromptForIntent(classification.intent) +
+            (context ? `\n\nCONTEXT:\n${JSON.stringify(context, null, 2)}` : '');
+
+        const tools = classification.requiresTools ? createCommandCenterTools(supabase) : undefined;
+
+        // STRATEGY: Force tools for specific intents to prevent lazy "I can do that" responses
+        const toolChoice = [
+            Intent.DRAFT_OUTREACH,
+            Intent.DATABASE_ACTION,
+            Intent.CAMPAIGN_WORKFLOW,
+            Intent.SEARCH_QUERY
+        ].includes(classification.intent) ? 'required' : 'auto';
+
+        const providerOptions = {
+            google: {
+                // Enable Search Grounding only when helpful
+                useSearchGrounding: classification.intent === Intent.SEARCH_QUERY || classification.intent === Intent.GENERAL
             }
+        };
+
+        // ====================================================================
+        // 5. HYBRID EXECUTION STRATEGY
+        // ====================================================================
+
+        // PATH A: BUFFERED (Drafts/Edits) - High Safety
+        // Intent: "Draft an email" -> We generate, Validate (Auto-Fix), then Stream
+        if (classification.intent === Intent.DRAFT_OUTREACH || classification.intent === Intent.EDIT_CONTENT) {
+            logger.info('strategy_buffered');
+
+            const result = await withRetry(() => generateText({
+                model: google(MODEL_CONFIG.primary),
+                system: systemPrompt,
+                messages: normalizedMsgs,
+                tools,
+                toolChoice,
+                maxSteps: MODEL_CONFIG.maxSteps,
+                providerOptions,
+                abortSignal: req.signal,
+            }));
+
+            // AUTO-FIX PIPELINE
+            const validation = validate(result.text, { autoFix: true });
+
+            if (validation.text !== result.text) {
+                logger.info('auto_fixed', { fixed_issues: validation.issues.map(i => i.code) });
+            }
+
+            // Async Audit (Fire & Forget)
+            logAudit(supabase, traceId, classification.intent, inputContent, validation);
+
+            return createBufferedStreamResponse(validation.text, {
+                status: validation.valid ? 'clean' : 'flagged',
+                issues: validation.issues
+            });
         }
 
-        return { role: msg.role, content: '' };
-    });
+        // PATH B: STREAMING (Chat/Search) - High Speed
+        // Intent: "Find nurses in Texas" -> Stream immediately
+        else {
+            logger.info('strategy_streaming');
+
+            const result = await streamText({
+                model: google(MODEL_CONFIG.primary),
+                system: systemPrompt,
+                messages: normalizedMsgs,
+                tools,
+                toolChoice,
+                maxSteps: MODEL_CONFIG.maxSteps,
+                providerOptions,
+                abortSignal: req.signal,
+                onFinish: ({ text, toolCalls }) => {
+                    const validation = validate(text);
+                    logAudit(supabase, traceId, classification.intent, inputContent, validation);
+                    logger.info('stream_finish', { tools: toolCalls?.length || 0 });
+                }
+            });
+
+            return result.toDataStreamResponse({ headers: CORS_HEADERS });
+        }
+
+    } catch (error) {
+        // Fallback Logic: Try Pro model if Flash fails heavily (503/429)
+        if (error.message?.includes('429') || error.message?.includes('503')) {
+            logger.error('primary_model_overloaded', error);
+        } else {
+            logger.error('handler_failed', error);
+        }
+
+        const isUserErr = error instanceof z.ZodError;
+        return new Response(JSON.stringify({
+            error: isUserErr ? 'Invalid Request' : 'Service Unavailable',
+            details: isUserErr ? error.errors : undefined,
+            traceId
+        }), {
+            status: isUserErr ? 400 : 500,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
+        });
+    }
 }
 
 /**
- * Log to audit table (fire-and-forget)
+ * Audit Logging (Non-blocking)
  */
-function scheduleAuditLog(ctx, supabase, data) {
-    const logPromise = supabase.from('ai_audit_logs')
-        .insert({ ...data, created_at: new Date().toISOString() })
-        .then(({ error }) => {
-            if (error) console.error('[Audit] DB Error:', error.message);
-        })
-        .catch((err) => console.error('[Audit] Net Error:', err));
-
-    if (ctx && typeof ctx.waitUntil === 'function') {
-        ctx.waitUntil(logPromise);
+async function logAudit(supabase, traceId, intent, input, validation) {
+    try {
+        await supabase.from('ai_audit_logs').insert({
+            function_name: 'command-center',
+            trace_id: traceId,
+            intent: intent,
+            input_message: (input || '').slice(0, 500),
+            output_text: validation.text,
+            validation_issues: validation.issues.length,
+            created_at: new Date().toISOString()
+        });
+    } catch (e) {
+        console.error(`[Audit Fail] ${traceId}: ${e.message}`);
     }
 }
 
-// ============================================================================
-// MAIN HANDLER
-// ============================================================================
-
-export default async function handler(req, ctx) {
-    const startTime = Date.now();
-
-    // CORS Preflight
-    if (req.method === 'OPTIONS') {
-        return new Response(null, { status: 204, headers: CORS_HEADERS });
-    }
-
-    if (req.method !== 'POST') {
-        return errorResponse('Method Not Allowed', 405);
-    }
-
-    // ========================================================================
-    // 1. ENVIRONMENT SETUP
-    // ========================================================================
-
-    const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim().replace(/^["']|["']$/g, '');
-    const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim().replace(/^["']|["']$/g, '');
-    const googleApiKey = (process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
-
-    if (!supabaseUrl || !googleApiKey) {
-        return errorResponse('Server Configuration Error', 500);
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const google = createGoogleGenerativeAI({ apiKey: googleApiKey });
-
-    // ========================================================================
-    // 2. PARSE REQUEST
-    // ========================================================================
-
-    let body;
-    try {
-        body = await req.json();
-    } catch (e) {
-        return errorResponse('Invalid JSON body', 400);
-    }
-
-    const { messages = [], context } = body;
-    if (!messages.length) {
-        return errorResponse('Messages array is required', 400);
-    }
-
-    // ========================================================================
-    // 3. ROUTE: Classify Intent
-    // ========================================================================
-
-    const lastMessage = getLastUserMessage(messages);
-    const hasFiles = hasAttachments(messages);
-
-    const classification = classify({
-        message: lastMessage,
-        hasAttachment: hasFiles,
-        history: messages,
-    });
-
-    console.log(`[Router] Intent: ${classification.intent} (confidence: ${classification.confidence.toFixed(2)})`);
-    console.log(`[Router] ${describeIntent(classification.intent)}`);
-
-    // ========================================================================
-    // 4. LOAD SPECIALIZED PROMPT
-    // ========================================================================
-
-    const systemPrompt = getPromptForIntent(classification.intent);
-
-    // Inject current context if available
-    let finalPrompt = systemPrompt;
-    if (context && Object.keys(context).length > 0) {
-        finalPrompt += `\n\nCURRENT CONTEXT:\n${JSON.stringify(context, null, 2)}`;
-    }
-
-    // ========================================================================
-    // 5. PREPARE MESSAGES
-    // ========================================================================
-
-    const normalizedMessages = normalizeMessages(messages);
-    const truncatedMessages = truncateHistory(normalizedMessages);
-    const safeMessages = stripImagesFromOldMessages(truncatedMessages);
-
-    console.log(`[AI] Messages: ${safeMessages.length}, Intent: ${classification.intent}`);
-
-    // ========================================================================
-    // 6. CONFIGURE TOOLS BASED ON INTENT
-    // ========================================================================
-
-    // Only load tools for intents that need them
-    const tools = classification.requiresTools
-        ? createCommandCenterTools(supabase)
-        : undefined;
-
-    // Enable grounded search for general queries and search intents
-    const useGrounding = classification.intent === Intent.GENERAL ||
-        classification.intent === Intent.SEARCH_QUERY;
-
-    const providerOptions = {
-        google: {
-            thinkingConfig: THINKING_CONFIG,
-            safetySettings: SAFETY_SETTINGS,
-            useSearchGrounding: useGrounding,
-        },
-    };
-
-    // ========================================================================
-    // 7. EXECUTE AI CALL
-    // ========================================================================
-
-    // Determine tool choice strategy based on intent
-    // 'required' = Model MUST call at least one tool (no lazy responses)
-    // 'auto' = Model decides (for general queries)
-    const getToolChoice = (intent) => {
-        switch (intent) {
-            case Intent.DRAFT_OUTREACH:
-            case Intent.DATABASE_ACTION:
-            case Intent.CAMPAIGN_WORKFLOW:
-                return 'required'; // Force tool usage - no lazy "let me ask you" responses
-            case Intent.SEARCH_QUERY:
-                return 'required'; // Always search, don't guess
-            default:
-                return 'auto'; // General queries can choose
-        }
-    };
-
-    try {
-        // For tool-heavy intents, use generateText for multi-step execution
-        if (classification.requiresTools && classification.intent !== Intent.EDIT_CONTENT) {
-            const toolChoice = getToolChoice(classification.intent);
-            console.log(`[AI] Tool choice: ${toolChoice} for intent: ${classification.intent}`);
-
-            const result = await generateText({
-                model: google(MODEL_CONFIG.primary),
-                system: finalPrompt,
-                messages: safeMessages,
-                tools,
-                toolChoice, // CRITICAL: Force tool usage for action intents
-                maxSteps: MAX_TOOL_STEPS,
-                maxTokens: MODEL_CONFIG.maxTokens,
-                temperature: MODEL_CONFIG.temperature,
-                providerOptions,
-                abortSignal: req.signal,
-            });
-
-            let responseText = result.text || '';
-
-            // If tools were called but no text, synthesize a response
-            if (!responseText && result.toolResults?.length > 0) {
-                const toolSummary = result.toolResults.map(tr =>
-                    `${tr.toolName}: ${JSON.stringify(tr.result)}`
-                ).join('\n');
-
-                const synthesisResult = await generateText({
-                    model: google(MODEL_CONFIG.primary),
-                    system: finalPrompt,
-                    messages: [
-                        ...safeMessages,
-                        { role: 'assistant', content: `Tool results:\n${toolSummary}` },
-                        { role: 'user', content: 'Summarize these results clearly.' },
-                    ],
-                    maxTokens: 1024,
-                    temperature: MODEL_CONFIG.temperature,
-                    providerOptions,
-                });
-
-                responseText = synthesisResult.text || 'Operation completed.';
-            }
-
-            // VALIDATE OUTPUT
-            const validation = validate(responseText);
-            console.log(`[Validator] ${summarize(validation)}`);
-
-            // Audit
-            scheduleAuditLog(ctx, supabase, {
-                function_name: 'command-center',
-                input_message: lastMessage,
-                input_metadata: {
-                    intent: classification.intent,
-                    confidence: classification.confidence,
-                    model: MODEL_CONFIG.primary,
-                },
-                output_text: validation.text,
-                validation_issues: validation.issues.length,
-                latency_ms: Date.now() - startTime,
-            });
-
-            // Return validated response
-            const encoder = new TextEncoder();
-            const stream = new ReadableStream({
-                start(controller) {
-                    controller.enqueue(encoder.encode(validation.text));
-                    controller.close();
-                }
-            });
-
-            return new Response(stream, {
-                headers: { ...CORS_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' },
-            });
-        }
-
-        // For editing and simple responses, use streamText for better UX
-        // Note: DRAFT_OUTREACH is handled in the generateText branch above (requiresTools = true)
-        const streamResult = await streamText({
-            model: google(MODEL_CONFIG.primary),
-            system: finalPrompt,
-            messages: safeMessages,
-            maxTokens: MODEL_CONFIG.maxTokens,
-            temperature: MODEL_CONFIG.temperature,
-            providerOptions,
-            abortSignal: req.signal,
-            onFinish: async ({ text }) => {
-                // Validate and log after stream completes
-                const validation = validate(text);
-                console.log(`[Validator] ${summarize(validation)}`);
-
-                scheduleAuditLog(ctx, supabase, {
-                    function_name: 'command-center',
-                    input_message: lastMessage,
-                    input_metadata: {
-                        intent: classification.intent,
-                        confidence: classification.confidence,
-                        model: MODEL_CONFIG.primary,
-                    },
-                    output_text: text,
-                    validation_issues: validation.issues.length,
-                    latency_ms: Date.now() - startTime,
-                });
-            },
-        });
-
-        return streamResult.toTextStreamResponse({ headers: CORS_HEADERS });
-
-    } catch (error) {
-        console.error('[AI] Error:', error.message);
-
-        // Retry with fallback model if retryable
-        if (isRetryableError(error)) {
-            console.log(`[AI] Retrying with ${MODEL_CONFIG.fallback}...`);
-
-            try {
-                const fallbackResult = await streamText({
-                    model: google(MODEL_CONFIG.fallback),
-                    system: finalPrompt,
-                    messages: safeMessages,
-                    maxTokens: MODEL_CONFIG.maxTokens,
-                    temperature: MODEL_CONFIG.temperature,
-                    providerOptions,
-                    abortSignal: req.signal,
-                });
-
-                return fallbackResult.toTextStreamResponse({ headers: CORS_HEADERS });
-            } catch (fallbackError) {
-                console.error('[AI] Fallback failed:', fallbackError.message);
-            }
-        }
-
-        scheduleAuditLog(ctx, supabase, {
-            function_name: 'command-center',
-            input_message: lastMessage,
-            error_message: error.message,
-            latency_ms: Date.now() - startTime,
-        });
-
-        return errorResponse('AI Service Unavailable', 503, error.message);
-    }
+// Default export for compatibility with different Vercel routing
+export default async function handler(req, res) {
+    return POST(req);
 }
