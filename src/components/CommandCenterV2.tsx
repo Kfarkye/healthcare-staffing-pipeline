@@ -206,7 +206,13 @@ ThinkingPill.displayName = 'ThinkingPill';
 
 const SmartChips: FC<{ onSelect: (query: string) => void }> = memo(({ onSelect }) => (
     <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide px-1">
-        {[{ icon: <Search size={12} />, label: 'Find Candidates', query: 'Find candidates for this position.' }, { icon: <FileText size={12} />, label: 'Screen Resume', query: 'Screen this resume and provide assessment.' }, { icon: <DollarSign size={12} />, label: 'Analyze Pay', query: 'Calculate competitive pay package for this role.' }, { icon: <Calendar size={12} />, label: 'Schedule', query: 'Help me schedule an interview.' }].map((chip, index) => (
+        {[
+            { icon: <Search size={12} />, label: 'Find Candidates', query: 'Find candidates for this position.' },
+            { icon: <FileText size={12} />, label: 'Screen Resume', query: 'Screen this resume and provide assessment.' },
+            { icon: <DollarSign size={12} />, label: 'Analyze Pay', query: 'Calculate competitive pay package for this role.' },
+            { icon: <Calendar size={12} />, label: 'Schedule', query: 'Help me schedule an interview.' },
+            { icon: <Activity size={12} />, label: 'Reassignment', query: 'Find candidates whose contracts are ending soon for reassignment outreach.' },
+        ].map((chip, index) => (
             <motion.button key={chip.label} onClick={() => { triggerHaptic(); onSelect(chip.query); }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04, ...SYSTEM.anim.fluid }} whileHover={{ scale: 1.02, y: -1, backgroundColor: 'rgba(255,255,255,0.06)' }} whileTap={{ scale: 0.98 }} className={cn('flex-shrink-0 flex items-center gap-2 px-3.5 py-2 bg-white/[0.03] border border-white/[0.08] transition-all backdrop-blur-sm', SYSTEM.geo.pill)}><span className="text-zinc-400">{chip.icon}</span><span className="text-[10px] font-medium text-zinc-300 tracking-wide uppercase">{chip.label}</span></motion.button>
         ))}
     </div>
@@ -391,11 +397,68 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
 MessageBubble.displayName = 'MessageBubble';
 
 const ToolResultCard: FC<{ toolName: string; result: any; state: string }> = memo(({ toolName, result, state }) => {
-    const [expanded, setExpanded] = useState(false); const isComplete = state === 'result'; const displayName = useMemo(() => toolName.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' '), [toolName]);
+    const [expanded, setExpanded] = useState(false);
+    const [copied, setCopied] = useState(false);
+    const isComplete = state === 'result';
+    const displayName = useMemo(() => toolName.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' '), [toolName]);
+
+    // Auto-copy pay breakdown to clipboard on successful extraction
+    useEffect(() => {
+        if (!isComplete || !result) return;
+
+        // Detect pay package results (from calculate_pay_package or campaign with pay data)
+        if (toolName === 'calculate_pay_package' && result.breakdown) {
+            const bd = result.breakdown;
+            const payText = [
+                `PAY BREAKDOWN`,
+                `Weekly Gross: $${bd.weekly_gross || bd.gross_weekly_pay || 'N/A'}`,
+                bd.hourly_rate ? `Hourly Rate: $${bd.hourly_rate}/hr` : null,
+                bd.housing_stipend ? `Housing Stipend: $${bd.housing_stipend}/week` : null,
+                bd.meals_stipend ? `Meals Stipend: $${bd.meals_stipend}/week` : null,
+                bd.taxable_hourly ? `Taxable Hourly: $${bd.taxable_hourly}/hr` : null,
+            ].filter(Boolean).join('\n');
+
+            navigator.clipboard?.writeText(payText).catch(() => { });
+        }
+
+        // Auto-copy campaign summary
+        if (toolName === 'create_campaign' && result.campaign_id) {
+            const summary = `Campaign Created: ${result.message || ''}\nID: ${result.campaign_id}`;
+            navigator.clipboard?.writeText(summary).catch(() => { });
+        }
+    }, [isComplete, result, toolName]);
+
+    const handleCopyResult = useCallback(async () => {
+        const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        await navigator.clipboard?.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    }, [result]);
+
     return (
         <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className={cn('rounded-[16px] overflow-hidden', SYSTEM.surface.panel)}>
-            <button onClick={() => isComplete && setExpanded(!expanded)} disabled={!isComplete} className={cn('w-full px-4 py-3 flex items-center justify-between text-left transition-colors', isComplete && 'hover:bg-white/[0.02] cursor-pointer')}><div className="flex items-center gap-3"><span className={cn(SYSTEM.type.mono, isComplete ? 'text-indigo-400' : 'text-zinc-500')}>{isComplete ? 'Result' : 'Running'}</span><span className={cn(SYSTEM.type.h1)}>{displayName}</span></div>{!isComplete ? <OrbitalRadar /> : <ChevronRight size={14} className={cn('text-zinc-500 transition-transform', expanded && 'rotate-90')} />}</button>
-            <AnimatePresence>{expanded && isComplete && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden"><div className="px-4 pb-4 border-t border-white/[0.04]"><pre className="text-xs font-mono text-zinc-400 overflow-x-auto pt-3 whitespace-pre-wrap">{JSON.stringify(result, null, 2)}</pre></div></motion.div>}</AnimatePresence>
+            <button onClick={() => isComplete && setExpanded(!expanded)} disabled={!isComplete} className={cn('w-full px-4 py-3 flex items-center justify-between text-left transition-colors', isComplete && 'hover:bg-white/[0.02] cursor-pointer')}>
+                <div className="flex items-center gap-3">
+                    <span className={cn(SYSTEM.type.mono, isComplete ? 'text-indigo-400' : 'text-zinc-500')}>{isComplete ? 'Result' : 'Running'}</span>
+                    <span className={cn(SYSTEM.type.h1)}>{displayName}</span>
+                </div>
+                {!isComplete ? <OrbitalRadar /> : <ChevronRight size={14} className={cn('text-zinc-500 transition-transform', expanded && 'rotate-90')} />}
+            </button>
+            <AnimatePresence>
+                {expanded && isComplete && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                        <div className="px-4 pb-4 border-t border-white/[0.04]">
+                            <div className="flex justify-end pt-2">
+                                <button onClick={handleCopyResult} className="text-xs text-zinc-500 hover:text-indigo-400 flex items-center gap-1.5 transition-colors">
+                                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                                    {copied ? 'Copied' : 'Copy'}
+                                </button>
+                            </div>
+                            <pre className="text-xs font-mono text-zinc-400 overflow-x-auto pt-1 whitespace-pre-wrap">{JSON.stringify(result, null, 2)}</pre>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 });

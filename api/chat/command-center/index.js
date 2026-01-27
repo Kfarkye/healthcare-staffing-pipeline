@@ -101,23 +101,32 @@ CAPABILITIES:
 6. **UI Navigation**: Use 'set_ui_state' to update dashboard filters
 7. **Diagnostics**: Use 'debug_system' if searches return unexpected empty results
 
-VISION INSTRUCTIONS (Image Analysis):
-When you receive an IMAGE (screenshot), carefully extract ALL visible data:
+VISION INSTRUCTIONS (Spatial-Aware OCR):
+When you receive an IMAGE (screenshot), use LAYOUT-AWARE extraction:
 
-For MARGIN CALCULATOR screenshots, extract:
-- Candidate Name (from "Name" field)
-- Candidate ID (from "Candidate ID" field)
-- Email (from "Email" field)
-- Facility Name & Location
-- Profession/Specialty
-- Assignment Dates (Start Date, End Date)
-- Weekly Hours & Shift Info
-- Weekly Gross Pay
-- Taxable Hourly Rate
-- Weekly Stipends (Meals + Housing breakdown)
-- Base Pay Rate, Bill Rate, OT Rate
+SPATIAL MAPPING RULES (Critical for accuracy):
+- Read labels AND their adjacent values as LINKED PAIRS (e.g., "Total Gross" next to "$5,023.84" = pair)
+- When multiple numbers appear, identify which label each belongs to by proximity
+- Row alignment: values on the same row belong together
+- Column alignment: labels in left column, values in right column
+- NEVER mix up values from different rows (e.g., don't confuse "Bill Rate" with "Hourly Rate")
+
+For MARGIN CALCULATOR screenshots, extract these PAIRED fields:
+- "Name" → Candidate Name (exact spelling)
+- "Candidate ID" → Nova ID (numeric)
+- "Email" → Email address
+- "Facility" → Facility Name & Location
+- "Profession/Specialty" → Clinical role
+- "Start Date" / "End Date" → Assignment dates
+- "Hours" → Weekly hours
+- "Total Gross" or "Weekly Gross" → Gross weekly pay (the LARGEST weekly dollar amount)
+- "Hourly Rate" or "Taxable Rate" → Taxable hourly rate (smaller per-hour amount)
+- "Meals Stipend" → Weekly meals amount
+- "Housing Stipend" → Weekly housing amount
+- "Bill Rate" → Client bill rate (NOT the same as hourly pay)
 
 CRITICAL: Use the EXACT data from the image. Never hallucinate or guess names, emails, or numbers.
+When multiple similar numbers exist (e.g., $40/hr and $45/hr), use spatial position to determine which is which.
 If you see "Mariam Kikota" in the image, the email should go to Mariam, not someone else.
 
 COLD OUTREACH CAMPAIGN WORKFLOW (PRIORITY):
