@@ -60,6 +60,70 @@ export function createCommandCenterTools(supabase) {
         }),
 
         // ============================================================================
+        // 1b. TEMPLATE TOOLS (Communication Templates)
+        // ============================================================================
+
+        list_templates: tool({
+            description: 'List all available communication templates. Use this to see what templates exist before drafting.',
+            inputSchema: z.object({
+                category: z.enum(['active', 'prospect', 'retention', 'all']).optional()
+                    .describe('Filter by category: active (for travelers), prospect (cold outreach), retention, or all'),
+            }),
+            strict: true,
+            execute: async ({ category }) => {
+                let query = supabase
+                    .from('communication_templates')
+                    .select('name, category, description, required_variables')
+                    .eq('is_active', true);
+
+                if (category && category !== 'all') {
+                    query = query.eq('category', category);
+                }
+
+                const { data, error } = await query.order('category');
+                if (error) return { error: error.message };
+
+                return {
+                    templates: data?.map(t => ({
+                        name: t.name,
+                        category: t.category,
+                        description: t.description,
+                        required_variables: t.required_variables,
+                    })) || [],
+                    count: data?.length || 0,
+                };
+            },
+        }),
+
+        get_template: tool({
+            description: 'Get a specific email template by name. Returns subject and body with variable placeholders.',
+            inputSchema: z.object({
+                template_name: z.string().describe('Template name (e.g., "reassignment_request", "cold_outreach", "extension_request")'),
+            }),
+            strict: true,
+            execute: async ({ template_name }) => {
+                const { data, error } = await supabase
+                    .from('communication_templates')
+                    .select('*')
+                    .eq('name', template_name)
+                    .eq('is_active', true)
+                    .single();
+
+                if (error) return { error: `Template "${template_name}" not found. Use list_templates to see available options.` };
+
+                return {
+                    name: data.name,
+                    category: data.category,
+                    description: data.description,
+                    subject_template: data.subject_template,
+                    body_template: data.body_template,
+                    required_variables: data.required_variables,
+                    usage: 'Replace {{variable_name}} with actual values when drafting.',
+                };
+            },
+        }),
+
+        // ============================================================================
         // 2. CANDIDATE SEARCH (Unified & Targeted)
         // ============================================================================
 
