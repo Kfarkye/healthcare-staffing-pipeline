@@ -207,13 +207,14 @@ ThinkingPill.displayName = 'ThinkingPill';
 const SmartChips: FC<{ onSelect: (query: string) => void }> = memo(({ onSelect }) => (
     <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide px-1">
         {[
-            { icon: <Search size={12} />, label: 'Find Candidates', query: 'Find candidates for this position.' },
-            { icon: <FileText size={12} />, label: 'Screen Resume', query: 'Screen this resume and provide assessment.' },
-            { icon: <DollarSign size={12} />, label: 'Analyze Pay', query: 'Calculate competitive pay package for this role.' },
-            { icon: <Calendar size={12} />, label: 'Schedule', query: 'Help me schedule an interview.' },
-            { icon: <Activity size={12} />, label: 'Reassignment', query: 'Find candidates whose contracts are ending soon for reassignment outreach.' },
+            { label: 'Find Candidates', query: 'Find candidates for this position.' },
+            { label: 'Screen Resume', query: 'Screen this resume and provide assessment.' },
+            { label: 'Analyze Pay', query: 'Calculate competitive pay package for this role.' },
+            { label: 'Pay Package Outreach', query: 'Draft a pay package interest email using the attached screenshot.' },
+            { label: 'Schedule', query: 'Help me schedule an interview.' },
+            { label: 'Reassignment', query: 'Find candidates whose contracts are ending soon for reassignment outreach.' },
         ].map((chip, index) => (
-            <motion.button key={chip.label} onClick={() => { triggerHaptic(); onSelect(chip.query); }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04, ...SYSTEM.anim.fluid }} whileHover={{ scale: 1.02, y: -1, backgroundColor: 'rgba(255,255,255,0.06)' }} whileTap={{ scale: 0.98 }} className={cn('flex-shrink-0 flex items-center gap-2 px-3.5 py-2 bg-white/[0.03] border border-white/[0.08] transition-all backdrop-blur-sm', SYSTEM.geo.pill)}><span className="text-zinc-400">{chip.icon}</span><span className="text-[10px] font-medium text-zinc-300 tracking-wide uppercase">{chip.label}</span></motion.button>
+            <motion.button key={chip.label} onClick={() => { triggerHaptic(); onSelect(chip.query); }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04, ...SYSTEM.anim.fluid }} whileHover={{ scale: 1.02, y: -1, backgroundColor: 'rgba(255,255,255,0.06)' }} whileTap={{ scale: 0.98 }} className={cn('flex-shrink-0 px-3.5 py-2 bg-white/[0.03] border border-white/[0.08] transition-all backdrop-blur-sm', SYSTEM.geo.pill)}><span className="text-[10px] font-medium text-zinc-300 tracking-wide uppercase">{chip.label}</span></motion.button>
         ))}
     </div>
 ));
