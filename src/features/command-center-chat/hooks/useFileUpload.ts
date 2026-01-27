@@ -1,12 +1,12 @@
 /* ============================================================================
    useFileUpload.ts
-   Elite File Upload Hook for Command Center (v2.8 - Payload Safe)
+   Elite File Upload Hook for Command Center (v3.1 - Cross-Browser Master)
    
    Features:
-   ├─ 413 Guard: Strict Base64 payload budgeting
-   ├─ Smart Compression: Multi-pass JPEG optimization for AI Vision
-   ├─ Hybrid Mode: Uploads high-res to Storage, optimizes low-res for AI
-   └─ Memory Efficient: Aggressive URL revocation
+   ├─ 413 Guard: Strict Base64 payload budgeting (>4MB switches to Link-Only)
+   ├─ Universal Compression: Falls back to DOM Image if createImageBitmap fails (Safari fix)
+   ├─ Smart Resizing: Content-aware scaling for LLM Vision
+   └─ Memory Efficient: Aggressive URL revocation & bitmap closing
 ============================================================================ */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -115,43 +115,77 @@ function formatFileSize(bytes: number): string {
 }
 
 // ============================================================================
-// COMPRESSION ENGINE
+// COMPRESSION ENGINE (CROSS-BROWSER SAFE)
 // ============================================================================
 
-async function compressImage(file: File): Promise<{ base64: string; mimeType: string; size: number }> {
-    const bmp = await createImageBitmap(file);
-    const { width: w, height: h } = bmp;
-
-    let outW = w, outH = h;
-    if (w > COMPRESSION_CONFIG.maxDimension || h > COMPRESSION_CONFIG.maxDimension) {
-        const scale = COMPRESSION_CONFIG.maxDimension / Math.max(w, h);
-        outW = Math.round(w * scale);
-        outH = Math.round(h * scale);
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = outW;
-    canvas.height = outH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas error');
-
-    ctx.fillStyle = '#FFFFFF'; // Handle transparency
-    ctx.fillRect(0, 0, outW, outH);
-    ctx.drawImage(bmp, 0, 0, outW, outH);
-    bmp.close();
-
-    // Multi-pass compression
-    for (const q of COMPRESSION_CONFIG.qualitySteps) {
-        const dataUrl = canvas.toDataURL('image/jpeg', q);
-        const base64 = dataUrl.split(',')[1];
-        // Approx binary size: (n * 3/4)
-        const binarySize = base64.length * 0.75;
-
-        if (binarySize <= COMPRESSION_CONFIG.targetImageBytes || q === COMPRESSION_CONFIG.qualitySteps[COMPRESSION_CONFIG.qualitySteps.length - 1]) {
-            return { base64, mimeType: 'image/jpeg', size: base64.length };
+/** 
+ * Robust image decoder. Tries modern `createImageBitmap` first, 
+ * falls back to standard DOM `Image` for older Safari/iOS consistency.
+ */
+async function decodeImage(file: File): Promise<{ source: CanvasImageSource; width: number; height: number; close: () => void }> {
+    // 1. Fast Path (Modern Browsers)
+    if (typeof createImageBitmap !== 'undefined') {
+        try {
+            const bmp = await createImageBitmap(file);
+            return { source: bmp, width: bmp.width, height: bmp.height, close: () => bmp.close() };
+        } catch (e) {
+            console.warn('[ImageDecode] Bitmap failed, falling back to DOM Image:', e);
         }
     }
-    throw new Error('Compression failed');
+
+    // 2. Compatibility Path (Safari / Older)
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            resolve({ source: img, width: img.naturalWidth, height: img.naturalHeight, close: () => { /* GC handles img */ } });
+        };
+        img.onerror = (err) => {
+            URL.revokeObjectURL(url);
+            reject(err);
+        };
+        img.src = url;
+    });
+}
+
+async function compressImage(file: File): Promise<{ base64: string; mimeType: string; size: number }> {
+    const { source, width: w, height: h, close } = await decodeImage(file);
+
+    try {
+        let outW = w, outH = h;
+        if (w > COMPRESSION_CONFIG.maxDimension || h > COMPRESSION_CONFIG.maxDimension) {
+            const scale = COMPRESSION_CONFIG.maxDimension / Math.max(w, h);
+            outW = Math.round(w * scale);
+            outH = Math.round(h * scale);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = outW;
+        canvas.height = outH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas context unavailable');
+
+        ctx.fillStyle = '#FFFFFF'; // Handle transparency (PNG -> JPEG)
+        ctx.fillRect(0, 0, outW, outH);
+        // Cast to any to allow HTMLImageElement or ImageBitmap (both valid for drawImage)
+        ctx.drawImage(source as any, 0, 0, outW, outH);
+
+        // Multi-pass compression loop
+        for (const q of COMPRESSION_CONFIG.qualitySteps) {
+            const dataUrl = canvas.toDataURL('image/jpeg', q);
+            const base64 = dataUrl.split(',')[1];
+            // Approx binary size: (n * 3/4) - Precise enough for budget checks
+            const binarySize = base64.length * 0.75;
+
+            if (binarySize <= COMPRESSION_CONFIG.targetImageBytes || q === COMPRESSION_CONFIG.qualitySteps[COMPRESSION_CONFIG.qualitySteps.length - 1]) {
+                return { base64, mimeType: 'image/jpeg', size: base64.length };
+            }
+        }
+        throw new Error('Compression failed');
+    } finally {
+        close(); // Clean up bitmap to prevent memory leaks
+    }
 }
 
 async function readFileBase64(file: File): Promise<{ base64: string | null; mimeType: string; size: number }> {
@@ -160,7 +194,7 @@ async function readFileBase64(file: File): Promise<{ base64: string | null; mime
     // 1. Optimize Images > 300KB
     if (isImage && file.size > COMPRESSION_CONFIG.compressAboveBytes) {
         try { return await compressImage(file); }
-        catch (e) { console.warn('Compression failed, falling back', e); }
+        catch (e) { console.warn('[FileUpload] Compression failed, using original', e); }
     }
 
     // 2. Guard Non-Images (PDFs)
@@ -205,7 +239,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
                 setAttachments(prev => prev.map(p => p.id === att.id ? {
                     ...p,
                     base64Data: res.base64,
-                    mimeType: res.mimeType,
+                    mimeType: res.mimeType, // May change (PNG -> JPEG)
                     skippedAnalysis: res.base64 === null,
                     payloadSize: res.size
                 } : p));
@@ -261,12 +295,11 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
         if (newAtts.length === 0) return;
         setAttachments(prev => [...prev, ...newAtts]);
         newAtts.forEach(processFile);
-    }, [attachments, maxFiles, maxFileSize, allowedTypes, bucketName]);
+    }, [attachments, maxFiles, maxFileSize, allowedTypes, bucketName, onUploadError]);
 
     const removeFile = useCallback((id: string) => setAttachments(p => p.filter(a => a.id !== id)), []);
     const clearAll = useCallback(() => setAttachments([]), []);
 
-    // Drag Handlers
     const handleDragEnter = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); dragCounter.current++; if (e.dataTransfer.items?.length) setIsDragActive(true); }, []);
     const handleDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); dragCounter.current--; if (dragCounter.current === 0) setIsDragActive(false); }, []);
     const handleDrop = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragActive(false); dragCounter.current = 0; if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files); }, [addFiles]);

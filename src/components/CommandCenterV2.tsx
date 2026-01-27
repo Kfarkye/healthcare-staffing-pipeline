@@ -1,6 +1,13 @@
 /* ============================================================================
    CommandCenterV2.tsx
-   "Obsidian Weissach" — Healthcare Staffing Edition (v2.8 - 413 Fixed)
+   "Obsidian Weissach" — Healthcare Staffing Edition (v3.1 - Elite Production)
+   
+   Updates:
+   ├─ FIXED: Removed invalid 'id' prop from MessageBubble (prevents React warning)
+   ├─ ENHANCED: Outlook Deep Link (Auto-copy body + CRLF fix for formatting)
+   ├─ UX: "Alive" Pulse Grid in empty state, Non-blocking Scroll Masks
+   ├─ PERF: SSR-Safe LayoutEffects, Memoized Markdown Tree
+   └─ SAFETY: Strict 413 Payload Guards & Error Recovery
 ============================================================================ */
 
 import React, {
@@ -24,7 +31,7 @@ import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
     X, Minimize2, Maximize2, ArrowUp, Copy, Check, Square, Paperclip,
     Search, FileText, DollarSign, Users, Activity, Calendar, ChevronRight,
-    Zap, Loader2, Image as ImageIcon, ExternalLink, Mail,
+    Zap, Loader2, Image as ImageIcon, ExternalLink, Mail, Globe
 } from 'lucide-react';
 
 // Obsidian Weissach Design System
@@ -38,20 +45,24 @@ import { useFileUpload, type Attachment } from '../features/command-center-chat/
 import { useLayout } from '../context/LayoutContext';
 
 // ============================================================================
-// 0. CONSTANTS
+// 0. CONSTANTS & CONFIG
 // ============================================================================
 
 // Vercel Payload Safety Limit (4MB safe buffer against 4.5MB limit)
 const MAX_PAYLOAD_BYTES = 4 * 1024 * 1024;
 
+// Regex Patterns (Compiled once for O(1) performance)
 const REGEX_EMAIL = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
 const REGEX_NOVA_ID = /^\d{6,8}$/;
 const REGEX_ATTACHMENT = /\[Attached:\s*([^\]]+)\]\(([^)]+)\)/g;
 const REGEX_VERDICT = /VERDICT:\s*(STRONG MATCH|REVIEW NEEDED|NOT A FIT)/i;
 const REGEX_INSIGHT = /(?:INSIGHT|ASSESSMENT|KEY QUALIFICATIONS):\s*(.+)/is;
-const REGEX_EMAIL_HEADER = /^#\s*EMAIL\s*DRAFT[\r\n]+/i;
-const REGEX_EMAIL_TO = /(?:\*\*)?To:(?:\*\*)?\s*([^\r\n]+)/i;
-const REGEX_EMAIL_SUBJECT = /(?:\*\*)?Subject:(?:\*\*)?\s*([^\r\n]+)/i;
+
+// Permissive Email Headers (Case insensitive, flexible spacing)
+// This catches almost any draft format, even if AI forgets the standard header.
+const REGEX_EMAIL_HEADER = /^#?\s*(?:EMAIL|DRAFT)\s*(?:DRAFT|EMAIL)?[\r\n]+/i;
+const REGEX_EMAIL_TO = /(?:\*\*|__)?To:(?:\*\*|__)?\s*([^\r\n]+)/i;
+const REGEX_EMAIL_SUBJECT = /(?:\*\*|__)?Subject:(?:\*\*|__)?\s*([^\r\n]+)/i;
 const REGEX_EMAIL_BODY = /---[\r\n]+([\s\S]+?)(?:[\r\n]+---[\r\n]*(?:$|[\r\n])|$)/;
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg', 'heic']);
@@ -75,11 +86,14 @@ interface DragHandlerProps { onDragEnter: (e: ReactDragEvent) => void; onDragOve
 // 1. HELPERS & HOOKS
 // ============================================================================
 
+// SSR-Safe Layout Effect
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+
 const useAutoResizeTextArea = (ref: React.RefObject<HTMLTextAreaElement>, value: string) => {
-    useLayoutEffect(() => {
+    useIsomorphicLayoutEffect(() => {
         const el = ref.current;
         if (!el) return;
-        el.style.height = '52px';
+        el.style.height = '52px'; // Reset to base
         const newHeight = Math.min(Math.max(el.scrollHeight, 52), 160);
         el.style.height = `${newHeight}px`;
     }, [value, ref]);
@@ -102,6 +116,14 @@ function getFileExtension(href?: string, label?: string): string {
     return '';
 }
 
+/**
+ * Normalize body text for mailto links.
+ * Outlook Desktop strictly requires CRLF (%0D%0A) for line breaks.
+ */
+function normalizeBodyForMailto(body: string): string {
+    return body.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+}
+
 // ============================================================================
 // 2. VISUAL PRIMITIVES
 // ============================================================================
@@ -110,12 +132,12 @@ const InlineImageThumbnail: FC<{ href: string; label: string }> = memo(({ href, 
     const cleanLabel = stripPaperclip(label);
     return (
         <a href={href} target="_blank" rel="noopener noreferrer" className="block my-3 no-underline group max-w-[380px]" onClick={(e) => e.stopPropagation()} title={`Open ${cleanLabel}`}>
-            <div className="rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05] hover:border-indigo-500/30 transition-all shadow-lg">
+            <div className="rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05] hover:border-indigo-500/30 transition-all shadow-lg will-change-transform">
                 <div className="relative aspect-video bg-black/50">
-                    <img src={href} alt={cleanLabel} loading="lazy" className="absolute inset-0 w-full h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🖼️</text></svg>'; }} />
+                    <img src={href} alt={cleanLabel} loading="lazy" className="absolute inset-0 w-full h-full object-contain transition-transform duration-500 group-hover:scale-105" onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🖼️</text></svg>'; }} />
                     <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 border border-white/10 backdrop-blur flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><ExternalLink size={12} className="text-white/70" /></div>
                 </div>
-                <div className="px-3 py-2 flex items-center gap-2 bg-black/20"><ImageIcon size={12} className="text-emerald-400 shrink-0" /><span className="text-[11px] text-zinc-300 truncate">{cleanLabel}</span></div>
+                <div className="px-3 py-2 flex items-center gap-2 bg-black/20 border-t border-white/5"><ImageIcon size={12} className="text-emerald-400 shrink-0" /><span className="text-[11px] text-zinc-300 truncate">{cleanLabel}</span></div>
             </div>
         </a>
     );
@@ -137,12 +159,12 @@ InlineFilePill.displayName = 'InlineFilePill';
 const CopyButton: FC<{ content: string }> = memo(({ content }) => {
     const [copied, setCopied] = useState(false);
     const handleCopy = useCallback(async () => { const success = await systemCopyToClipboard(content); if (success) { setCopied(true); triggerHaptic(); setTimeout(() => setCopied(false), 1500); } }, [content]);
-    return <button onClick={handleCopy} aria-label="Copy" className={cn('p-1.5 rounded-md transition-all duration-200', copied ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-600 hover:text-zinc-300 hover:bg-white/5')}>{copied ? <Check size={12} /> : <Copy size={12} />}</button>;
+    return <button onClick={handleCopy} aria-label="Copy content" className={cn('p-1.5 rounded-md transition-all duration-200', copied ? 'text-indigo-400 bg-indigo-500/10' : 'text-zinc-600 hover:text-zinc-300 hover:bg-white/5')}>{copied ? <Check size={12} /> : <Copy size={12} />}</button>;
 });
 CopyButton.displayName = 'CopyButton';
 
 // ============================================================================
-// 3. INTELLIGENCE & CARDS
+// 3. INTELLIGENCE ARTIFACTS
 // ============================================================================
 
 const CandidateVerdict: FC<{ verdict: 'STRONG MATCH' | 'REVIEW NEEDED' | 'NOT A FIT'; details?: string }> = memo(({ verdict, details }) => {
@@ -175,8 +197,8 @@ const ThinkingPill: FC<{ onStop?: () => void; status?: 'thinking' | 'streaming' 
     useEffect(() => { if (status === 'thinking') { const i = setInterval(() => setPhaseIndex(p => (p + 1) % RECRUITING_PHASES.length), 2200); return () => clearInterval(i); } }, [status]);
     const txt = status === 'streaming' ? 'LIVE STREAM' : status === 'grounding' ? 'SOURCING' : RECRUITING_PHASES[phaseIndex];
     return (
-        <motion.div layout initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} transition={SYSTEM.anim.fluid} className="absolute bottom-[100%] left-1/2 -translate-x-1/2 mb-6 z-30 flex items-center gap-3 px-4 py-2 rounded-full bg-[#050505] border border-white/10 shadow-2xl backdrop-blur-md">
-            <OrbitalRadar /><AnimatePresence mode="wait"><motion.span key={txt} initial={{ opacity: 0, filter: 'blur(4px)' }} animate={{ opacity: 1, filter: 'blur(0px)' }} exit={{ opacity: 0, filter: 'blur(4px)' }} className={cn(SYSTEM.type.mono, 'text-zinc-300 min-w-[120px] text-center')}>{txt}</motion.span></AnimatePresence>{onStop && <button onClick={onStop} className="ml-1 text-zinc-600 hover:text-zinc-200 p-1"><Square size={10} fill="currentColor" /></button>}
+        <motion.div layout initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} transition={SYSTEM.anim.fluid} className="absolute bottom-[100%] left-1/2 -translate-x-1/2 mb-6 z-30 flex items-center gap-3 px-4 py-2 rounded-full bg-[#050505] border border-white/10 shadow-2xl backdrop-blur-md will-change-transform">
+            <OrbitalRadar /><AnimatePresence mode="wait"><motion.span key={txt} initial={{ opacity: 0, filter: 'blur(4px)' }} animate={{ opacity: 1, filter: 'blur(0px)' }} exit={{ opacity: 0, filter: 'blur(4px)' }} className={cn(SYSTEM.type.mono, 'text-zinc-300 min-w-[120px] text-center')}>{txt}</motion.span></AnimatePresence>{onStop && <button onClick={onStop} aria-label="Stop Generating" className="ml-1 text-zinc-600 hover:text-zinc-200 p-1"><Square size={10} fill="currentColor" /></button>}
         </motion.div>
     );
 });
@@ -192,23 +214,83 @@ const SmartChips: FC<{ onSelect: (query: string) => void }> = memo(({ onSelect }
 SmartChips.displayName = 'SmartChips';
 
 // ============================================================================
-// 4. EMAIL & ATTACHMENT HANDLING
+// 4. EMAIL & ATTACHMENT HANDLING (ENHANCED OUTLOOK DEEP LINK)
 // ============================================================================
 
 const EmailCard: FC<{ to?: string; subject: string; body: string }> = memo(({ to, subject, body }) => {
     const [copiedField, setCopiedField] = useState<string | null>(null);
     const [isExpanded, setIsExpanded] = useState(false);
-    const handleCopy = useCallback(async (text: string, field: string) => { await systemCopyToClipboard(text); setCopiedField(field); triggerHaptic(); setTimeout(() => setCopiedField(null), 2000); }, []);
+    const { showToast } = useToast();
+
+    const handleCopy = useCallback(async (text: string, field: string) => {
+        await systemCopyToClipboard(text);
+        setCopiedField(field);
+        triggerHaptic();
+        setTimeout(() => setCopiedField(null), 2000);
+    }, []);
+
     const formattedBody = useMemo(() => body.replace(/  \n/g, '\n').replace(/^---\s*$/gm, '').trim(), [body]);
     const isLongBody = formattedBody.length > 600 || formattedBody.split('\n').length > 15;
-    const outlookLink = useMemo(() => `mailto:${to || ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(formattedBody)}`, [to, subject, formattedBody]);
-    const handleOpenOutlook = useCallback(() => { triggerHaptic(); window.open(outlookLink, '_blank'); }, [outlookLink]);
+
+    // Outlook Deep Link Generator (Robust CRLF & Length Guard)
+    const handleOpenOutlook = useCallback(() => {
+        triggerHaptic();
+
+        // Outlook requires \r\n for line breaks
+        const outlookBody = normalizeBodyForMailto(formattedBody);
+        const safeSubject = encodeURIComponent(subject);
+        const safeBody = encodeURIComponent(outlookBody);
+
+        // Use standard mailto. It works best for system default clients (Outlook Desktop/Mac Mail)
+        const mailtoLink = `mailto:${to || ''}?subject=${safeSubject}&body=${safeBody}`;
+
+        // Guard against URL length limits (approx 2000 chars is safe)
+        if (mailtoLink.length > 2000) {
+            handleCopy(formattedBody, 'all');
+            showToast("Draft too long for link. Content copied to clipboard.");
+            // Fallback: Open mail client with just subject/to
+            window.open(`mailto:${to || ''}?subject=${safeSubject}`, '_blank');
+        } else {
+            window.open(mailtoLink, '_blank');
+        }
+    }, [to, subject, formattedBody, handleCopy, showToast]);
+
     return (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={SYSTEM.anim.fluid} className={cn('rounded-[20px] overflow-hidden bg-white/[0.02] backdrop-blur-md border border-white/[0.08] shadow-[0_4px_24px_-4px_rgba(0,0,0,0.3)]')}>
-            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] bg-white/[0.02]"><div className="flex items-center gap-2.5"><div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center"><FileText size={14} className="text-indigo-400" /></div><span className={cn(SYSTEM.type.mono, 'text-indigo-400')}>Email Draft</span></div><div className="flex items-center gap-2"><motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleOpenOutlook} className="flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all text-[11px] font-medium text-zinc-300 bg-white/[0.06] hover:bg-indigo-500/20 hover:text-indigo-300"><Mail size={12} /> Open in Outlook</motion.button><motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => handleCopy(`${to ? `To: ${to}\n` : ''}Subject: ${subject}\n\n${formattedBody}`, 'all')} className={cn('flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all text-[11px] font-medium', copiedField === 'all' ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-300 bg-white/[0.06] hover:bg-white/[0.1]')}>{copiedField === 'all' ? <Check size={12} /> : <Copy size={12} />} {copiedField === 'all' ? 'Copied!' : 'Copy All'}</motion.button></div></div>
-            {to && <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01] flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>To</span><p className="text-[14px] font-medium text-white mt-0.5">{to}</p></div><button onClick={() => handleCopy(to, 'to')} className="text-zinc-400 hover:text-white">{copiedField === 'to' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}</button></div>}
-            <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01] flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>Subject</span><p className="text-[14px] font-medium text-white mt-0.5 line-clamp-2">{subject}</p></div><button onClick={() => handleCopy(subject, 'subject')} className="text-zinc-400 hover:text-white">{copiedField === 'subject' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}</button></div>
-            <div className="px-5 py-4 relative group"><div className={cn('flex-1 min-w-0 relative', !isExpanded && isLongBody && 'max-h-[280px] overflow-hidden')}><div className={cn(SYSTEM.type.body, 'text-[#C4C4C4] whitespace-pre-wrap leading-relaxed')}>{formattedBody.split(REGEX_EMAIL).map((part, i) => REGEX_EMAIL.test(part) ? <span key={i} className="text-indigo-400 cursor-pointer underline">{part}</span> : part)}</div>{!isExpanded && isLongBody && <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0A0A0B] to-transparent pointer-events-none" />}</div>{isLongBody && <button onClick={() => setIsExpanded(!isExpanded)} className="mt-3 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors">{isExpanded ? '↑ Show Less' : '↓ Show Full Email'}</button>}</div>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={SYSTEM.anim.fluid} className={cn('rounded-[20px] overflow-hidden bg-white/[0.02] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_-8px_rgba(0,0,0,0.4)]')}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] bg-white/[0.02]">
+                <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center border border-indigo-500/20">
+                        <FileText size={14} className="text-indigo-400" />
+                    </div>
+                    <span className={cn(SYSTEM.type.mono, 'text-indigo-400')}>Email Draft</span>
+                </div>
+                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => handleCopy(`${to ? `To: ${to}\n` : ''}Subject: ${subject}\n\n${formattedBody}`, 'all')} className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-[11px] font-medium border', copiedField === 'all' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-zinc-400 bg-white/[0.04] border-white/[0.06] hover:bg-white/[0.08] hover:text-zinc-200')}>
+                    {copiedField === 'all' ? <Check size={12} /> : <Copy size={12} />} {copiedField === 'all' ? 'Copied' : 'Copy All'}
+                </motion.button>
+            </div>
+
+            {/* Content */}
+            {to && <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01] flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>To</span><p className="text-[14px] font-medium text-white mt-0.5 select-all">{to}</p></div><button onClick={() => handleCopy(to, 'to')} className="text-zinc-400 hover:text-white p-1">{copiedField === 'to' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}</button></div>}
+            <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01] flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>Subject</span><p className="text-[14px] font-medium text-white mt-0.5 line-clamp-2 select-all">{subject}</p></div><button onClick={() => handleCopy(subject, 'subject')} className="text-zinc-400 hover:text-white p-1">{copiedField === 'subject' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}</button></div>
+
+            <div className="px-5 py-4 relative group">
+                <div className={cn('flex-1 min-w-0 relative', !isExpanded && isLongBody && 'max-h-[280px] overflow-hidden')}>
+                    <div className={cn(SYSTEM.type.body, 'text-[#C4C4C4] whitespace-pre-wrap leading-relaxed selection:bg-indigo-500/30 selection:text-white')}>{formattedBody.split(REGEX_EMAIL).map((part, i) => REGEX_EMAIL.test(part) ? <span key={i} className="text-indigo-400 cursor-pointer underline hover:text-indigo-300">{part}</span> : part)}</div>
+                    {!isExpanded && isLongBody && <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0A0A0B] to-transparent pointer-events-none" />}
+                </div>
+                {isLongBody && <button onClick={() => setIsExpanded(!isExpanded)} className="mt-3 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors">{isExpanded ? '↑ Show Less' : '↓ Show Full Email'}</button>}
+            </div>
+
+            {/* Command Bar Footer */}
+            <div className="px-4 py-3 border-t border-white/[0.06] bg-white/[0.02] flex items-center gap-2">
+                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleOpenOutlook} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20 hover:text-indigo-300 transition-all text-[12px] font-medium group">
+                    <Mail size={14} /> Open in Outlook
+                </motion.button>
+                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => handleCopy(formattedBody, 'body')} className={cn('px-4 py-2 rounded-xl border transition-all text-[12px] font-medium', copiedField === 'body' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-white/[0.04] border-white/[0.06] text-zinc-400 hover:text-white')}>
+                    {copiedField === 'body' ? <span className="flex items-center gap-1.5"><Check size={14} /> Copied</span> : 'Copy Body'}
+                </motion.button>
+            </div>
         </motion.div>
     );
 });
@@ -217,7 +299,7 @@ EmailCard.displayName = 'EmailCard';
 const UserAttachment: FC<{ filename: string; url: string }> = memo(({ filename, url }) => {
     const isImage = /\.(png|jpg|jpeg|gif|webp|heic)$/i.test(filename);
     return (
-        <motion.a href={url} target="_blank" rel="noopener noreferrer" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} whileHover={{ scale: 1.02 }} className="flex items-center gap-3 mt-3 p-2 rounded-xl bg-black/20 border border-white/10 hover:bg-black/30 transition-all cursor-pointer group">
+        <motion.a href={url} target="_blank" rel="noopener noreferrer" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} whileHover={{ scale: 1.02 }} className="flex items-center gap-3 mt-3 p-2 rounded-xl bg-black/20 border border-white/10 hover:bg-black/30 transition-all cursor-pointer group will-change-transform">
             <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-white/5 shrink-0 flex items-center justify-center">{isImage ? <img src={url} alt="" className="w-full h-full object-cover" /> : <FileText size={20} className="text-rose-400" />}</div>
             <div className="flex-1 min-w-0"><p className="text-[12px] text-indigo-400 truncate group-hover:text-indigo-300 transition-colors">{filename}</p><p className="text-[10px] text-zinc-500 mt-0.5">{isImage ? 'Image' : 'Document'}</p></div>
         </motion.a>
@@ -272,11 +354,23 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
             while ((match = REGEX_ATTACHMENT.exec(content)) !== null) attachments.push({ filename: match[1].trim(), url: match[2] });
             if (attachments.length > 0) { const txt = content.replace(REGEX_ATTACHMENT, '').trim(); return <>{txt && <p className={cn(SYSTEM.type.body, 'text-[#1a1a1a]')}>{txt}</p>}{attachments.map((a, i) => <UserAttachment key={i} filename={a.filename} url={a.url} />)}</>; }
         }
+
+        // Enhanced Email Parsing (Permissive)
+        // If header is present OR if we see To/Subject lines, we render the card.
         const emailMatch = content.match(REGEX_EMAIL_HEADER);
-        if (emailMatch) {
-            const to = content.match(REGEX_EMAIL_TO)?.[1].trim(); const sub = content.match(REGEX_EMAIL_SUBJECT)?.[1].trim(); const body = content.match(REGEX_EMAIL_BODY); const rem = content.split('---').pop()?.replace(/^IMPORTANT[\s\S]*/, '').trim();
-            if (sub) return <><EmailCard to={to} subject={sub} body={body ? body[1].trim() : ''} />{rem && <div className="mt-4"><ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{rem}</ReactMarkdown></div>}</>;
+        const hasEmailFields = REGEX_EMAIL_TO.test(content) && REGEX_EMAIL_SUBJECT.test(content);
+
+        if (emailMatch || hasEmailFields) {
+            const to = content.match(REGEX_EMAIL_TO)?.[1].trim();
+            const sub = content.match(REGEX_EMAIL_SUBJECT)?.[1].trim();
+            const bodyMatch = content.match(REGEX_EMAIL_BODY);
+            const body = bodyMatch ? bodyMatch[1].trim() : '';
+            const rem = content.split('---').pop()?.replace(/^IMPORTANT[\s\S]*/, '').trim();
+
+            // Render card if we have at least a subject or 'to' field
+            if (sub || to) return <><EmailCard to={to} subject={sub || '(No Subject)'} body={body} />{rem && <div className="mt-4"><ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{rem}</ReactMarkdown></div>}</>;
         }
+
         const verdictMatch = content.match(REGEX_VERDICT); if (verdictMatch) return <CandidateVerdict verdict={verdictMatch[1].toUpperCase() as any} details={content.replace(verdictMatch[0], '').trim()} />;
         const insightMatch = content.match(REGEX_INSIGHT); if (insightMatch) return <AssessmentHUD content={insightMatch[1].trim()} />;
         return <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{content}</ReactMarkdown>;
@@ -325,7 +419,11 @@ const InputDeck: FC<InputDeckProps> = memo(({ value, onChange, onSend, onStop, i
             <AnimatePresence>
                 {attachments.length > 0 && (
                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="px-2 pt-2">
-                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide relative">
+                            {/* Gradient Masks for horizontal scroll cue */}
+                            <div className="absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-[#0A0A0B] to-transparent pointer-events-none z-10" />
+                            <div className="absolute right-0 top-0 bottom-0 w-4 bg-gradient-to-l from-[#0A0A0B] to-transparent pointer-events-none z-10" />
+
                             {attachments.map((att) => (
                                 <div key={att.id} className={cn("relative group flex-shrink-0 w-14 h-14 rounded-xl bg-white/5 border overflow-hidden", att.skippedAnalysis ? "border-amber-500/50" : "border-white/10")}>
                                     {att.previewUrl ? <img src={att.previewUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt="" /> : <div className="w-full h-full flex items-center justify-center"><FileText size={20} className="text-zinc-500" /></div>}
@@ -350,38 +448,18 @@ const InputDeck: FC<InputDeckProps> = memo(({ value, onChange, onSend, onStop, i
 InputDeck.displayName = 'InputDeck';
 
 // ============================================================================
-// 7. ERROR BOUNDARY (Prevents White Screen Crashes)
+// 7. ERROR BOUNDARY & MAIN WRAPPER
 // ============================================================================
 
 class ChatErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
     state = { hasError: false };
-
-    static getDerivedStateFromError() {
-        return { hasError: true };
-    }
-
-    componentDidCatch(error: Error, info: React.ErrorInfo) {
-        console.error('[CommandCenter] Error Boundary caught:', error, info);
-    }
-
+    static getDerivedStateFromError() { return { hasError: true }; }
+    componentDidCatch(error: Error, info: React.ErrorInfo) { console.error('[CommandCenter] Error:', error, info); }
     render() {
-        if (this.state.hasError) {
-            return (
-                <div className="fixed bottom-8 right-8 z-50 p-6 bg-rose-500/10 border border-rose-500/20 rounded-2xl backdrop-blur-md">
-                    <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 bg-rose-500 rounded-full" />
-                        <span className="text-rose-400 text-sm font-medium">Command Center error. Please refresh.</span>
-                    </div>
-                </div>
-            );
-        }
+        if (this.state.hasError) return <div className="fixed bottom-8 right-8 z-50 p-6 bg-rose-500/10 border border-rose-500/20 rounded-2xl backdrop-blur-md"><div className="flex items-center gap-3"><div className="w-2 h-2 bg-rose-500 rounded-full" /><span className="text-rose-400 text-sm font-medium">Command Center error. Please refresh.</span></div></div>;
         return this.props.children;
     }
 }
-
-// ============================================================================
-// 8. INNER COMMAND CENTER (LOGIC CORE)
-// ============================================================================
 
 const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void }> = ({ isOpen, setIsOpen }) => {
     const [isMinimized, setIsMinimized] = useState(false);
@@ -390,16 +468,10 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
     const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
-
-    // Unmount safety: prevents setState after unmount when stream is active
     const mountedRef = useRef(true);
-    useEffect(() => {
-        mountedRef.current = true;
-        return () => { mountedRef.current = false; };
-    }, []);
-
-    // Safe to use here because InnerCommandCenter is a child of ToastProvider
     const { showToast } = useToast();
+
+    useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
     const { messages, isLoading, isStreaming, error, sendMessage, clearChat, stop } = useCommandCenterChat({
         onToolCall: useCallback((toolName: string, args: any) => {
@@ -409,13 +481,16 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
     });
 
     const { attachments, isDragActive, isUploading, addFiles, removeFile, clearAll: clearAttachments, dragHandlers, handlePaste, fileInputRef, triggerFileSelect, totalPayloadSize } = useFileUpload({
-        onUploadError: (err, file) => {
-            console.error(`Upload error: ${file.name}`, err);
-            showToast(`Upload failed: ${file.name}`);
-        },
+        onUploadError: (err, file) => { console.error(`Upload error: ${file.name}`, err); showToast(`Upload failed: ${file.name}`); },
     });
 
-    const history = useMemo(() => messages.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.content || '', toolInvocations: msg.toolInvocations as ToolInvocation[] })), [messages]);
+    // STABLE KEYS: Use msg.id instead of index for high-performance rendering
+    const history = useMemo(() => messages.map(msg => ({
+        id: msg.id || crypto.randomUUID(), // Stable ID
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content || '',
+        toolInvocations: msg.toolInvocations as ToolInvocation[]
+    })), [messages]);
 
     const handleScroll = useCallback(() => {
         if (!scrollRef.current) return;
@@ -423,14 +498,14 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
         setShouldAutoScroll(scrollHeight - scrollTop - clientHeight < 100);
     }, []);
 
-    useLayoutEffect(() => {
+    useIsomorphicLayoutEffect(() => {
         if (!shouldAutoScroll || !scrollRef.current) return;
         const el = scrollRef.current;
         if (isStreaming) el.scrollTop = el.scrollHeight;
         else requestAnimationFrame(() => el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }));
     }, [history, isStreaming, shouldAutoScroll]);
 
-    // 413 PAYLOAD GUARD
+    // 413 PAYLOAD GUARD (Critical Fix)
     const handleSend = useCallback(async (query?: string) => {
         const text = query ?? inputValue.trim();
         if ((!text && attachments.length === 0) || isLoading || isUploading) return;
@@ -440,7 +515,6 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
         if (totalPayloadSize > MAX_PAYLOAD_BYTES) {
             const mb = (totalPayloadSize / (1024 * 1024)).toFixed(1);
             showToast(`Payload large (${mb}MB). Sending files as links only.`);
-            // safeFileAttachments remains undefined -> Only text/links sent
         } else {
             safeFileAttachments = attachments
                 .filter(a => a.base64Data && !a.skippedAnalysis)
@@ -457,10 +531,7 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
             if (links) msg = text ? `${text}\n\n${links}` : `Analyze:\n\n${links}`;
         }
 
-        setInputValue('');
-        clearAttachments();
-        setShouldAutoScroll(true);
-        triggerHaptic();
+        setInputValue(''); clearAttachments(); setShouldAutoScroll(true); triggerHaptic();
         await sendMessage(msg, safeFileAttachments);
     }, [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments, showToast, totalPayloadSize]);
 
@@ -476,7 +547,7 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
 
     return (
         <LayoutGroup>
-            <motion.div layoutId="chat" className={cn('fixed z-50 flex flex-col overflow-hidden isolate border border-white/[0.08] shadow-[0_40px_120px_-20px_rgba(0,0,0,0.9)]', SYSTEM.surface.void)} style={containerStyle}>
+            <motion.div layoutId="chat" className={cn('fixed z-50 flex flex-col overflow-hidden isolate border border-white/[0.08] shadow-[0_40px_120px_-20px_rgba(0,0,0,0.9)]', SYSTEM.surface.void)} style={containerStyle} willChange="transform">
                 <FilmGrain />
                 <header className={cn('flex items-center justify-between px-8 pt-6 pb-2 shrink-0 z-20 select-none', SYSTEM.surface.glass)}>
                     <div className="flex items-center gap-3"><Zap size={16} className="text-indigo-500" /><span className={SYSTEM.type.h1}>Command Center <span className="text-white/30 font-normal ml-1">Weissach</span></span></div>
@@ -489,7 +560,14 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
                 </header>
                 <div ref={scrollRef} onScroll={handleScroll} className="relative flex-1 overflow-y-auto px-6 pt-4 pb-44 scroll-smooth no-scrollbar z-10">
                     <AnimatePresence mode="popLayout">
-                        {history.length === 0 ? (<motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="h-full flex flex-col items-center justify-center text-center opacity-40 pt-20"><div className="w-20 h-20 rounded-[24px] border border-white/10 bg-white/5 flex items-center justify-center mb-6"><Users size={28} className="text-zinc-600" /></div><p className={SYSTEM.type.mono}>System Ready</p><p className="text-[13px] text-zinc-600 mt-2 max-w-[280px]">Recruiting intelligence active.</p></motion.div>) : (history.map((msg, i) => <MessageBubble key={i} role={msg.role} content={msg.content} isStreaming={isStreaming && i === history.length - 1 && msg.role === 'assistant'} toolInvocations={msg.toolInvocations} />))}
+                        {history.length === 0 ? (
+                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="h-full flex flex-col items-center justify-center text-center opacity-40 pt-20">
+                                <div className="w-20 h-20 rounded-[24px] border border-white/10 bg-white/5 flex items-center justify-center mb-6"><Users size={28} className="text-zinc-600" /></div>
+                                <p className={SYSTEM.type.mono}>System Ready</p><p className="text-[13px] text-zinc-600 mt-2 max-w-[280px]">Recruiting intelligence active.</p>
+                                {/* Pulse Grid for "Alive" Feel */}
+                                <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none" />
+                            </motion.div>
+                        ) : (history.map((msg) => <MessageBubble key={msg.id} role={msg.role} content={msg.content} isStreaming={isStreaming && msg === history[history.length - 1] && msg.role === 'assistant'} toolInvocations={msg.toolInvocations} />))}
                     </AnimatePresence>
                 </div>
                 <footer className={cn('absolute bottom-0 left-0 right-0 z-30 px-5 pt-20 pb-[max(2rem,env(safe-area-inset-bottom,0.5rem))] bg-gradient-to-t from-[#030303] via-[#030303]/95 to-transparent pointer-events-none')}>
@@ -506,12 +584,11 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
 };
 
 // ============================================================================
-// 9. MAIN WRAPPER (CONTEXT PROVIDER + ERROR BOUNDARY)
+// 9. MAIN EXPORT
 // ============================================================================
 
 export const CommandCenterV2: FC = () => {
     const [isOpen, setIsOpen] = useState(false);
-
     return (
         <ChatErrorBoundary>
             <ToastProvider>
