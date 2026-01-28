@@ -268,7 +268,7 @@ export default async function handler(req, res) {
             else {
                 logger.info('strategy_streaming');
 
-                const result = await streamText({
+                const result = streamText({
                     model: google(MODEL_CONFIG.primary),
                     system: systemPrompt,
                     messages: normalizedMsgs,
@@ -284,24 +284,15 @@ export default async function handler(req, res) {
                     }
                 });
 
-                // Convert to Data Stream Response for useChat
-                const streamResponse = result.toDataStreamResponse({ headers: CORS_HEADERS });
-
-                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-                res.setHeader('x-vercel-ai-data-stream', 'v1');
-                res.status(200);
-
-                const reader = streamResponse.body.getReader();
-                const pump = async () => {
-                    const { done, value } = await reader.read();
-                    if (done) {
-                        res.end();
-                        return;
+                // Pages Router: Use pipeDataStreamToResponse (NOT toDataStreamResponse)
+                // This pipes directly to the Node.js response object
+                result.pipeDataStreamToResponse(res, {
+                    headers: {
+                        'Content-Type': 'text/plain; charset=utf-8',
+                        'x-vercel-ai-data-stream': 'v1',
+                        ...CORS_HEADERS
                     }
-                    res.write(value);
-                    await pump();
-                };
-                await pump();
+                });
                 return;
             }
         } catch (execError) {
@@ -312,20 +303,35 @@ export default async function handler(req, res) {
     } catch (error) {
         logger.error('handler_failed', error);
 
+        // Log full error for debugging
+        console.error('[FULL ERROR]', error);
+        console.error('[STACK]', error?.stack);
+
         let status = 500;
         let message = 'System Unavailable';
         let details = undefined;
+        let errorType = error?.constructor?.name || 'Unknown';
 
         if (error instanceof z.ZodError) {
             status = 400;
             message = 'Invalid Request';
             details = error.errors;
-        } else if (error.name === 'AbortError') {
+            errorType = 'ZodError';
+        } else if (error?.name === 'AbortError') {
             status = 504;
             message = 'Request timed out (55s limit). Try a simpler query.';
+            errorType = 'AbortError';
+        } else if (error?.message) {
+            // Include actual error message for debugging
+            details = {
+                message: error.message,
+                type: errorType,
+                // Only include stack in non-production for security
+                ...(process.env.NODE_ENV !== 'production' && { stack: error.stack })
+            };
         }
 
-        return res.status(status).json({ error: message, details, traceId });
+        return res.status(status).json({ error: message, details, traceId, errorType });
     }
 }
 
