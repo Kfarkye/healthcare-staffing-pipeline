@@ -121,25 +121,62 @@ function normalizeMessages(messages) {
     const lastIndex = messages.length - 1;
 
     return messages.map((msg, index) => {
-        if (typeof msg.content === 'string') return { role: msg.role, content: msg.content };
+        // Simple text content - pass through
+        if (typeof msg.content === 'string') {
+            return { role: msg.role, content: msg.content };
+        }
 
+        // Multimodal content array
         if (Array.isArray(msg.content)) {
             const content = msg.content.map(part => {
-                if (part.type === 'text') return { type: 'text', text: part.text };
-
-                if (part.type === 'image' || (part.type === 'file' && part.mimeType?.startsWith('image/'))) {
-                    if (index !== lastIndex) return { type: 'text', text: '[Image from previous turn]' };
-
-                    const mime = part.mimeType || 'image/jpeg';
-                    const dataUrl = part.data?.startsWith('data:')
-                        ? part.data
-                        : `data:${mime};base64,${part.data || part.image}`;
-                    return { type: 'image', image: dataUrl };
+                // Text part
+                if (part.type === 'text') {
+                    return { type: 'text', text: part.text || '' };
                 }
+
+                // Image or File with image mimeType
+                if (part.type === 'image' || (part.type === 'file' && part.mimeType?.startsWith('image/'))) {
+                    // Context Pruning: Replace old images with placeholder text
+                    if (index !== lastIndex) {
+                        return { type: 'text', text: '[Image from previous turn]' };
+                    }
+
+                    // Handle URL-based images
+                    if (part.image && typeof part.image === 'string') {
+                        if (part.image.startsWith('http://') || part.image.startsWith('https://')) {
+                            return { type: 'image', image: new URL(part.image) };
+                        }
+                        // Already a data URL or base64
+                        return { type: 'image', image: part.image };
+                    }
+
+                    // Handle base64 data
+                    if (part.data) {
+                        const mime = part.mimeType || 'image/jpeg';
+                        if (part.data.startsWith('data:')) {
+                            return { type: 'image', image: part.data };
+                        }
+                        // Raw base64 - prefix with data URL
+                        return { type: 'image', image: `data:${mime};base64,${part.data}` };
+                    }
+
+                    // Fallback: skip invalid image parts
+                    return null;
+                }
+
+                // Unknown part type - skip
                 return null;
             }).filter(Boolean);
+
+            // If all parts were filtered out, return empty string content
+            if (content.length === 0) {
+                return { role: msg.role, content: '' };
+            }
+
             return { role: msg.role, content };
         }
+
+        // Unknown format - pass through
         return msg;
     });
 }
