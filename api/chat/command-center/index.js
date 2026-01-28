@@ -276,23 +276,39 @@ export default async function handler(req, res) {
                     toolChoice,
                     maxSteps: MODEL_CONFIG.maxSteps,
                     abortSignal: timeoutController.signal,
-                    onFinish: async ({ text }) => {
-                        clearTimeout(timeoutId);
-                        const validation = validate(text);
-                        logAudit(supabase, traceId, classification.intent, inputContent, validation);
-                        logger.info('stream_finish', { validation_issues: validation.issues.length });
-                    }
                 });
 
-                // Pages Router: Use pipeDataStreamToResponse (NOT toDataStreamResponse)
-                // This pipes directly to the Node.js response object
-                result.pipeDataStreamToResponse(res, {
-                    headers: {
-                        'Content-Type': 'text/plain; charset=utf-8',
-                        'x-vercel-ai-data-stream': 'v1',
-                        ...CORS_HEADERS
+                // Manual Data Stream Protocol for Pages Router + useChat compatibility
+                // Protocol: 0:"text chunk"\n (each chunk is JSON-stringified)
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                res.setHeader('x-vercel-ai-data-stream', 'v1');
+                res.setHeader('Access-Control-Allow-Origin', '*');
+                res.status(200);
+
+                let fullText = '';
+
+                try {
+                    // Stream text chunks in Data Stream Protocol format
+                    for await (const textPart of result.textStream) {
+                        fullText += textPart;
+                        // Data Stream Protocol: 0 is the text channel
+                        res.write(`0:${JSON.stringify(textPart)}\n`);
                     }
-                });
+
+                    clearTimeout(timeoutId);
+
+                    // Log and audit after stream completes
+                    const validation = validate(fullText);
+                    logAudit(supabase, traceId, classification.intent, inputContent, validation);
+                    logger.info('stream_finish', { validation_issues: validation.issues.length });
+
+                } catch (streamError) {
+                    // Send error in Data Stream Protocol format
+                    res.write(`3:${JSON.stringify(streamError.message || 'Stream error')}\n`);
+                    logger.error('stream_error', streamError);
+                }
+
+                res.end();
                 return;
             }
         } catch (execError) {
