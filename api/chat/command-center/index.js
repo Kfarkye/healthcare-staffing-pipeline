@@ -121,14 +121,18 @@ function normalizeMessages(messages) {
     const lastIndex = messages.length - 1;
 
     return messages.map((msg, index) => {
-        // Simple text content - pass through
-        if (typeof msg.content === 'string') {
+        // Handle explicit "parts" property (common in some client implementations)
+        // Map it to "content" for the AI SDK
+        const potentialContent = Array.isArray(msg.content) ? msg.content : (Array.isArray(msg.parts) ? msg.parts : null);
+
+        // Simple text content - pass through if no array content
+        if (!potentialContent && typeof msg.content === 'string') {
             return { role: msg.role, content: msg.content };
         }
 
         // Multimodal content array
-        if (Array.isArray(msg.content)) {
-            const content = msg.content.map(part => {
+        if (potentialContent) {
+            const content = potentialContent.map(part => {
                 // Text part
                 if (part.type === 'text') {
                     return { type: 'text', text: part.text || '' };
@@ -160,7 +164,12 @@ function normalizeMessages(messages) {
                         return { type: 'image', image: `data:${mime};base64,${part.data}` };
                     }
 
-                    // Fallback: skip invalid image parts
+                    // Fallback: Check if we have any valid image data
+                    if (part.image || part.data) {
+                        // Default fallback for unknown image format
+                        return { type: 'text', text: '[Image]' };
+                    }
+
                     return null;
                 }
 
