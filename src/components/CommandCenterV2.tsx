@@ -210,9 +210,9 @@ const SmartChips: FC<{ onSelect: (query: string) => void }> = memo(({ onSelect }
             { label: 'Find Candidates', query: 'Find candidates for this position.' },
             { label: 'Screen Resume', query: 'Screen this resume and provide assessment.' },
             { label: 'Analyze Pay', query: 'Calculate competitive pay package for this role.' },
-            { label: 'Pay Package Outreach', query: 'Draft a pay package interest email using the attached screenshot.' },
-            { label: 'Schedule', query: 'Help me schedule an interview.' },
-            { label: 'Reassignment', query: 'Find candidates whose contracts are ending soon for reassignment outreach.' },
+            { label: 'Pay Package Email', query: 'Draft a pay package outreach email using the attached screenshot.' },
+            { label: 'Reassignment Email', query: 'Draft a reassignment request email.' },
+            { label: 'Extension Request', query: 'Draft an extension request email.' },
         ].map((chip, index) => (
             <motion.button key={chip.label} onClick={() => { triggerHaptic(); onSelect(chip.query); }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04, ...SYSTEM.anim.fluid }} whileHover={{ scale: 1.02, y: -1, backgroundColor: 'rgba(255,255,255,0.06)' }} whileTap={{ scale: 0.98 }} className={cn('flex-shrink-0 px-3.5 py-2 bg-white/[0.03] border border-white/[0.08] transition-all backdrop-blur-sm', SYSTEM.geo.pill)}><span className="text-[10px] font-medium text-zinc-300 tracking-wide uppercase">{chip.label}</span></motion.button>
         ))}

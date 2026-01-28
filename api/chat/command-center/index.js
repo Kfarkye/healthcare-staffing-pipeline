@@ -1,10 +1,14 @@
 /**
- * Command Center Chat - Production Service (v5.3)
+ * Command Center Chat - Production Service (v5.4)
  * 
- * Architecture: Hybrid "Safety Net" Agent (Node.js)
- * - Reliability: Auto-sanitizes Environment Variables (Fixes "Invalid URL")
- * - Config: Uses correct App Router exports (Fixes 60s Timeout)
- * - Safety: Implements Soft Timeout (55s) to prevent platform hard-crashes
+ * Architecture: Hybrid "Safety Net" Agent
+ * - Runtime: Node.js (Pages Router config)
+ * - Strategy: Buffered for Drafts, Streaming for Chat
+ * - Safety: Soft Timeout (55s), Auto-fix placeholders
+ * 
+ * NOTE: This file is in /api/ which uses PAGES ROUTER, not App Router.
+ * - Use `export const config` for runtime settings
+ * - Body is auto-parsed, use `req.body` not `req.json()`
  * 
  * @module api/chat/command-center
  */
@@ -22,14 +26,18 @@ import { getPromptForIntent } from './lib/prompts.js';
 import { validate } from './lib/validator.js';
 
 // ============================================================================
-// 1. APP ROUTER CONFIGURATION (CRITICAL)
+// 1. PAGES ROUTER CONFIGURATION
 // ============================================================================
 
-// Next.js App Router IGNORES 'export const config'. You must use named exports.
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-// Note: On Hobby Plan, maxDuration is capped at 60s regardless of this setting.
-export const maxDuration = 300;
+// CRITICAL: Pages Router uses this syntax, NOT named exports
+export const config = {
+    api: {
+        bodyParser: true, // Let Vercel parse JSON for us
+        responseLimit: false, // No response size limit for streaming
+    },
+    // Note: maxDuration only works on Pro plan. Hobby is capped at 60s.
+    maxDuration: 300,
+};
 
 const MODEL_CONFIG = {
     primary: 'gemini-3-flash-preview',
@@ -41,18 +49,16 @@ const MODEL_CONFIG = {
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-vercel-ai-data-stream, x-trace-id',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 // ============================================================================
-// 2. ROBUST VALIDATION & SANITIZATION
+// 2. VALIDATION & SANITIZATION
 // ============================================================================
 
-// Helper: Strips quotes and whitespace from env vars (Fixes "Invalid URL" crash)
 const cleanEnv = (val) => (val || '').trim().replace(/^["']|["']$/g, '');
 
 const EnvSchema = z.object({
-    // Transform input BEFORE validation to fix quotes issue
     SUPABASE_URL: z.string().transform(cleanEnv).pipe(z.string().url()),
     SUPABASE_SERVICE_ROLE_KEY: z.string().transform(cleanEnv).pipe(z.string().min(1)),
     GOOGLE_GENERATIVE_AI_API_KEY: z.string().transform(cleanEnv).pipe(z.string().min(1)),
@@ -88,15 +94,11 @@ class Logger {
             lvl: 'ERROR',
             trace: this.traceId,
             event,
-            err: err.message || err
+            err: err?.message || String(err)
         }));
     }
 }
 
-/**
- * Creates a "Fake" Stream response for buffered content.
- * Protocol: Vercel AI Data Stream v1 (0:"text")
- */
 function createBufferedStreamResponse(text, metadata = {}) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -121,12 +123,10 @@ function normalizeMessages(messages) {
     return messages.map((msg, index) => {
         if (typeof msg.content === 'string') return { role: msg.role, content: msg.content };
 
-        // Handle Multimodal Content
         if (Array.isArray(msg.content)) {
             const content = msg.content.map(part => {
                 if (part.type === 'text') return { type: 'text', text: part.text };
 
-                // Context Pruning: Remove old images to save tokens/time
                 if (part.type === 'image' || (part.type === 'file' && part.mimeType?.startsWith('image/'))) {
                     if (index !== lastIndex) return { type: 'text', text: '[Image from previous turn]' };
 
@@ -145,32 +145,37 @@ function normalizeMessages(messages) {
 }
 
 // ============================================================================
-// 4. MAIN HANDLER (POST)
+// 4. MAIN HANDLER (Pages Router Style)
 // ============================================================================
 
-export async function POST(req) {
+export default async function handler(req, res) {
     const traceId = randomUUID();
     const logger = new Logger(traceId);
 
+    // Set CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
     // 1. CORS Preflight
-    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
+    if (req.method === 'OPTIONS') {
+        return res.status(204).end();
+    }
+
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method Not Allowed' });
+    }
 
     try {
-        // 2. Validate Environment (Safe against dirty .env inputs)
+        // 2. Validate Environment
         const env = EnvSchema.parse(process.env);
 
-        // 3. Parse Request
-        let json;
-        try {
-            json = await req.json();
-        } catch (e) {
-            throw new z.ZodError([{ code: 'invalid_type', path: ['body'], message: 'Invalid JSON body' }]);
-        }
-        const { messages, context } = RequestSchema.parse(json);
+        // 3. Parse Request (Pages Router auto-parses JSON into req.body)
+        const { messages, context } = RequestSchema.parse(req.body);
 
         // 4. Infrastructure
         const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
-            auth: { persistSession: false }, // CRITICAL: Prevents Node process hang
+            auth: { persistSession: false },
             global: { headers: { 'x-trace-id': traceId } }
         });
         const google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY });
@@ -178,9 +183,9 @@ export async function POST(req) {
         // 5. Classification
         const normalizedMsgs = normalizeMessages(messages);
         const lastMsg = normalizedMsgs.findLast(m => m.role === 'user');
-        const inputContent = Array.isArray(lastMsg.content)
+        const inputContent = Array.isArray(lastMsg?.content)
             ? lastMsg.content.find(p => p.type === 'text')?.text || ''
-            : lastMsg.content;
+            : lastMsg?.content || '';
 
         const classification = classify({
             message: inputContent || 'Multimodal Input',
@@ -201,15 +206,14 @@ export async function POST(req) {
             Intent.SEARCH_QUERY
         ].includes(classification.intent) ? 'required' : 'auto';
 
-        // 6. SAFETY: Software Timeout (55s)
-        // This aborts the AI call before Vercel kills the whole function (Hobby Limit: 60s)
+        // 6. Soft Timeout (55s)
         const timeoutController = new AbortController();
         const timeoutId = setTimeout(() => timeoutController.abort(), 55000);
 
         try {
-            // ====================================================================
+            // ================================================================
             // STRATEGY A: BUFFERED (Drafts/Edits)
-            // ====================================================================
+            // ================================================================
             if (classification.intent === Intent.DRAFT_OUTREACH || classification.intent === Intent.EDIT_CONTENT) {
                 logger.info('strategy_buffered');
 
@@ -225,25 +229,42 @@ export async function POST(req) {
 
                 clearTimeout(timeoutId);
 
-                // Auto-Fix Pipeline
                 const validation = validate(result.text, { autoFix: true });
 
                 if (validation.text !== result.text) {
                     logger.info('auto_fixed', { issues: validation.issues.map(i => i.code) });
                 }
 
-                // Audit Log (Awaited for reliability)
-                await logAudit(supabase, traceId, classification.intent, inputContent, validation);
+                logAudit(supabase, traceId, classification.intent, inputContent, validation);
 
-                return createBufferedStreamResponse(validation.text, {
+                // Return as buffered stream for useChat compatibility
+                const response = createBufferedStreamResponse(validation.text, {
                     status: validation.valid ? 'clean' : 'flagged',
                     issues: validation.issues
                 });
+
+                // Convert Web Response to Node.js response
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                res.setHeader('x-vercel-ai-data-stream', 'v1');
+                res.status(200);
+
+                const reader = response.body.getReader();
+                const pump = async () => {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        res.end();
+                        return;
+                    }
+                    res.write(value);
+                    await pump();
+                };
+                await pump();
+                return;
             }
 
-            // ====================================================================
+            // ================================================================
             // STRATEGY B: STREAMING (Chat/Search)
-            // ====================================================================
+            // ================================================================
             else {
                 logger.info('strategy_streaming');
 
@@ -258,12 +279,30 @@ export async function POST(req) {
                     onFinish: async ({ text }) => {
                         clearTimeout(timeoutId);
                         const validation = validate(text);
-                        await logAudit(supabase, traceId, classification.intent, inputContent, validation);
+                        logAudit(supabase, traceId, classification.intent, inputContent, validation);
                         logger.info('stream_finish', { validation_issues: validation.issues.length });
                     }
                 });
 
-                return result.toDataStreamResponse({ headers: CORS_HEADERS });
+                // Convert to Data Stream Response for useChat
+                const streamResponse = result.toDataStreamResponse({ headers: CORS_HEADERS });
+
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                res.setHeader('x-vercel-ai-data-stream', 'v1');
+                res.status(200);
+
+                const reader = streamResponse.body.getReader();
+                const pump = async () => {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        res.end();
+                        return;
+                    }
+                    res.write(value);
+                    await pump();
+                };
+                await pump();
+                return;
             }
         } catch (execError) {
             clearTimeout(timeoutId);
@@ -279,38 +318,26 @@ export async function POST(req) {
 
         if (error instanceof z.ZodError) {
             status = 400;
-            message = 'Configuration Error';
+            message = 'Invalid Request';
             details = error.errors;
         } else if (error.name === 'AbortError') {
             status = 504;
-            message = 'Request timed out (Limit: 55s). Try a simpler query.';
+            message = 'Request timed out (55s limit). Try a simpler query.';
         }
 
-        return new Response(JSON.stringify({ error: message, details, traceId }), {
-            status,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
-        });
+        return res.status(status).json({ error: message, details, traceId });
     }
 }
 
-// Helper: Audit Logging
-async function logAudit(supabase, traceId, intent, input, validation) {
-    try {
-        await supabase.from('ai_audit_logs').insert({
-            function_name: 'command-center',
-            trace_id: traceId,
-            intent: intent,
-            input_message: (input || '').slice(0, 500),
-            output_text: validation.text,
-            validation_issues: validation.issues.length,
-            created_at: new Date().toISOString()
-        });
-    } catch (e) {
-        console.warn(`[Audit Fail] ${traceId}`, e.message);
-    }
-}
-
-// Default export for Vercel API Routes (Pages Router compatibility)
-export default async function handler(req, res) {
-    return POST(req);
+// Helper: Audit Logging (Fire and forget)
+function logAudit(supabase, traceId, intent, input, validation) {
+    supabase.from('ai_audit_logs').insert({
+        function_name: 'command-center',
+        trace_id: traceId,
+        intent: intent,
+        input_message: (input || '').slice(0, 500),
+        output_text: validation.text,
+        validation_issues: validation.issues.length,
+        created_at: new Date().toISOString()
+    }).then(() => { }).catch(e => console.warn(`[Audit Fail] ${traceId}`, e.message));
 }
