@@ -1,8 +1,7 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "framework": "nextjs",
   "functions": {
-    "api/**/*.js": {
+    "app/api/**/*.js": {
       "maxDuration": 60
     }
   }
