@@ -198,10 +198,11 @@ export default async function handler(req, res) {
     const traceId = randomUUID();
     const logger = new Logger(traceId);
 
-    // Set CORS headers
+    // Set CORS headers + trace ID for debugging
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('x-trace-id', traceId);
 
     // 1. CORS Preflight
     if (req.method === 'OPTIONS') {
@@ -245,12 +246,7 @@ export default async function handler(req, res) {
 
         const tools = classification.requiresTools ? createCommandCenterTools(supabase) : undefined;
 
-        const toolChoice = [
-            Intent.DRAFT_OUTREACH,
-            Intent.DATABASE_ACTION,
-            Intent.CAMPAIGN_WORKFLOW,
-            Intent.SEARCH_QUERY
-        ].includes(classification.intent) ? 'required' : 'auto';
+        const toolChoice = 'auto';
 
         // 6. Soft Timeout (55s)
         const timeoutController = new AbortController();
@@ -270,14 +266,21 @@ export default async function handler(req, res) {
                     tools,
                     toolChoice,
                     maxSteps: MODEL_CONFIG.maxSteps,
+                    temperature: MODEL_CONFIG.temperature,
                     abortSignal: timeoutController.signal,
                 });
 
                 clearTimeout(timeoutId);
 
-                const validation = validate(result.text, { autoFix: true });
+                // Handle edge case where model returns no text (e.g., only tool calls)
+                const outputText = result.text ||
+                    (result.toolCalls?.length > 0
+                        ? `I processed your request using ${result.toolCalls.length} tool(s). Please let me know if you need anything else.`
+                        : 'I was unable to generate a response. Please try rephrasing your request.');
 
-                if (validation.text !== result.text) {
+                const validation = validate(outputText, { autoFix: true });
+
+                if (validation.text !== outputText) {
                     logger.info('auto_fixed', { issues: validation.issues.map(i => i.code) });
                 }
 
@@ -321,6 +324,7 @@ export default async function handler(req, res) {
                     tools,
                     toolChoice,
                     maxSteps: MODEL_CONFIG.maxSteps,
+                    temperature: MODEL_CONFIG.temperature,
                     abortSignal: timeoutController.signal,
                 });
 
@@ -423,15 +427,26 @@ export default async function handler(req, res) {
     }
 }
 
-// Helper: Audit Logging (Fire and forget)
-function logAudit(supabase, traceId, intent, input, validation) {
-    supabase.from('ai_audit_logs').insert({
+// Helper: Audit Logging (Fire and forget with retry)
+function logAudit(supabase, traceId, intent, input, validation, attempt = 1) {
+    const payload = {
         function_name: 'command-center',
         trace_id: traceId,
         intent: intent,
         input_message: (input || '').slice(0, 500),
-        output_text: validation.text,
-        validation_issues: validation.issues.length,
+        output_text: (validation.text || '').slice(0, 2000),
+        validation_issues: validation.issues?.length || 0,
         created_at: new Date().toISOString()
-    }).then(() => { }).catch(e => console.warn(`[Audit Fail] ${traceId}`, e.message));
+    };
+
+    supabase.from('ai_audit_logs').insert(payload)
+        .then(() => { })
+        .catch(e => {
+            if (attempt < 2) {
+                // Retry once after 500ms
+                setTimeout(() => logAudit(supabase, traceId, intent, input, validation, attempt + 1), 500);
+            } else {
+                console.warn(`[Audit Fail] ${traceId}`, e.message);
+            }
+        });
 }
