@@ -325,20 +325,42 @@ export default async function handler(req, res) {
                 });
 
                 // Manual Data Stream Protocol for Pages Router + useChat compatibility
-                // Protocol: 0:"text chunk"\n (each chunk is JSON-stringified)
                 res.setHeader('Content-Type', 'text/plain; charset=utf-8');
                 res.setHeader('x-vercel-ai-data-stream', 'v1');
                 res.setHeader('Access-Control-Allow-Origin', '*');
                 res.status(200);
 
+                // Use the SDK's built-in data stream generator which handles 
+                // text (0:), tool calls (9:), tool results (a:), etc. correctly.
+                const dataStream = result.toDataStream();
+                const reader = dataStream.getReader();
+
                 let fullText = '';
 
                 try {
-                    // Stream text chunks in Data Stream Protocol format
-                    for await (const textPart of result.textStream) {
-                        fullText += textPart;
-                        // Data Stream Protocol: 0 is the text channel
-                        res.write(`0:${JSON.stringify(textPart)}\n`);
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        // Parse text content for auditing (simplified, best effort)
+                        // Value is Uint8Array (encoded string). 
+                        // We decode only for our internal logging accumulator
+                        const chunkStr = new TextDecoder().decode(value);
+
+                        // Simple heuristic to extract text from "0:..." parts for the audit log
+                        // This is optional but helps keep our audit log working
+                        const lines = chunkStr.split('\n');
+                        for (const line of lines) {
+                            if (line.startsWith('0:')) {
+                                try {
+                                    const textContent = JSON.parse(line.substring(2));
+                                    fullText += textContent;
+                                } catch (e) { /* ignore parse errors in chunks */ }
+                            }
+                        }
+
+                        // Write the raw protocol chunk to the client
+                        res.write(value);
                     }
 
                     clearTimeout(timeoutId);
@@ -346,11 +368,15 @@ export default async function handler(req, res) {
                     // Log and audit after stream completes
                     const validation = validate(fullText);
                     logAudit(supabase, traceId, classification.intent, inputContent, validation);
-                    logger.info('stream_finish', { validation_issues: validation.issues.length });
+                    logger.info('stream_finish', { validation_issues: validation.issues.length, text_length: fullText.length });
 
                 } catch (streamError) {
-                    // Send error in Data Stream Protocol format
-                    res.write(`3:${JSON.stringify(streamError.message || 'Stream error')}\n`);
+                    // Send error in Data Stream Protocol format if not already ended
+                    // 3: is error channel
+                    // Note: If toDataStream() caught it, it might have already emitted it.
+                    // But if it blew up outside, we send it here.
+                    const errorMessage = JSON.stringify(streamError.message || 'Stream error');
+                    res.write(`3:${errorMessage}\n`);
                     logger.error('stream_error', streamError);
                 }
 
