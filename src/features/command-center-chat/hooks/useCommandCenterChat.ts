@@ -229,8 +229,9 @@ export function useCommandCenterChat(
 
             setIsStreaming(true);
 
-            // 3. AI SDK Data-Stream Protocol parsing with throttling
-            // Protocol: "0:..." = text content, "2:..." = metadata (finish reason, etc.)
+            // 3. Dual Protocol Parser — handles both AI SDK formats
+            // - Data-Stream Protocol: "0:..." = text, "2:..." = metadata
+            // - UI Message Stream: {"type":"text-delta","delta":"..."} JSON objects
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
 
@@ -246,15 +247,28 @@ export function useCommandCenterChat(
                 // Decode chunk and add to buffer
                 buffer += decoder.decode(value, { stream: true });
 
-                // Process complete lines (protocol uses newline-delimited JSON)
+                // Process complete lines (both protocols use newline delimiters)
                 const lines = buffer.split('\n');
                 buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
                 for (const line of lines) {
                     if (!line.trim()) continue;
 
-                    // Parse AI SDK data-stream protocol
-                    // Format: "CHANNEL:JSON_PAYLOAD"
+                    // Try UI Message Stream protocol first (JSON objects)
+                    if (line.startsWith('{')) {
+                        try {
+                            const event = JSON.parse(line);
+                            if (event.type === 'text-delta' && typeof event.delta === 'string') {
+                                accumulatedText += event.delta;
+                            }
+                            // text-start, text-end, data-* events are ignored (metadata)
+                            continue;
+                        } catch {
+                            // Not valid JSON, try data-stream protocol
+                        }
+                    }
+
+                    // Fallback: Data-Stream Protocol ("CHANNEL:PAYLOAD")
                     const colonIndex = line.indexOf(':');
                     if (colonIndex === -1) continue;
 
@@ -273,8 +287,7 @@ export function useCommandCenterChat(
                             accumulatedText += payload;
                         }
                     }
-                    // Channel 2 = Metadata (finish reason, validation) - ignore for display
-                    // Channel 9 = Error - could handle if needed
+                    // Channel 2 = Metadata, Channel 9 = Error — ignore for display
                 }
 
                 // Throttle React state updates
