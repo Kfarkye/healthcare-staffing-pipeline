@@ -229,11 +229,13 @@ export function useCommandCenterChat(
 
             setIsStreaming(true);
 
-            // 3. Native text stream parsing with throttling
+            // 3. AI SDK Data-Stream Protocol parsing with throttling
+            // Protocol: "0:..." = text content, "2:..." = metadata (finish reason, etc.)
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
 
             let accumulatedText = '';
+            let buffer = ''; // Buffer for incomplete lines
             let lastRenderTime = 0;
             const RENDER_THROTTLE_MS = 16; // Cap at ~60fps
 
@@ -241,9 +243,39 @@ export function useCommandCenterChat(
                 const { done, value } = await reader.read();
                 if (done || signal.aborted) break;
 
-                // Decode text chunk
-                const text = decoder.decode(value, { stream: true });
-                accumulatedText += text;
+                // Decode chunk and add to buffer
+                buffer += decoder.decode(value, { stream: true });
+
+                // Process complete lines (protocol uses newline-delimited JSON)
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+
+                    // Parse AI SDK data-stream protocol
+                    // Format: "CHANNEL:JSON_PAYLOAD"
+                    const colonIndex = line.indexOf(':');
+                    if (colonIndex === -1) continue;
+
+                    const channel = line.slice(0, colonIndex);
+                    const payload = line.slice(colonIndex + 1);
+
+                    // Channel 0 = Text content (what we display)
+                    if (channel === '0') {
+                        try {
+                            const text = JSON.parse(payload);
+                            if (typeof text === 'string') {
+                                accumulatedText += text;
+                            }
+                        } catch {
+                            // If not valid JSON, use raw (fallback for plain text)
+                            accumulatedText += payload;
+                        }
+                    }
+                    // Channel 2 = Metadata (finish reason, validation) - ignore for display
+                    // Channel 9 = Error - could handle if needed
+                }
 
                 // Throttle React state updates
                 if (Date.now() - lastRenderTime > RENDER_THROTTLE_MS) {
