@@ -135,10 +135,20 @@ export function useCommandCenterChat(
         // Allow sending if there's text OR attachments
         if (!content.trim() && (!attachments || attachments.length === 0)) return;
 
-        // 1. Cancel active request
-        abortControllerRef.current?.abort();
+        // ═══════════════════════════════════════════════════════════════════
+        // IN-FLIGHT GUARD: Prevents double-fetch (ghost error fix)
+        // ═══════════════════════════════════════════════════════════════════
+        if (abortControllerRef.current && !abortControllerRef.current.signal.aborted) {
+            console.warn('[CommandCenterChat] Blocking duplicate request - previous request still in flight');
+            return;
+        }
+
+        // Create new abort controller for this request
         abortControllerRef.current = new AbortController();
         const signal = abortControllerRef.current.signal;
+
+        // Generate request ID for tracing
+        const requestId = generateId();
 
         // 2. Build multimodal parts for API
         const parts: MessagePart[] = [];
@@ -210,9 +220,13 @@ export function useCommandCenterChat(
                 };
             });
 
+            console.debug(`[CommandCenterChat] Starting request ${requestId}`);
             const response = await fetch('/api/chat/command-center', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-request-id': requestId,
+                },
                 body: JSON.stringify({
                     messages: requestMessages,
                     context: stableContext,
@@ -350,10 +364,14 @@ export function useCommandCenterChat(
                 return prev;
             });
         } finally {
+            // Reset abort controller to allow new requests
+            abortControllerRef.current = null;
+
             if (!signal.aborted) {
                 setIsLoading(false);
                 setIsStreaming(false);
             }
+            console.debug(`[CommandCenterChat] Request ${requestId} completed`);
         }
     }, [stableContext, onError]);
 
