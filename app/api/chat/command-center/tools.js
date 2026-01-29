@@ -1,330 +1,289 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * TOOLS — Command Center Tool Definitions (v3.4 - Elite Production)
+ * TOOLS — Command Center (v4.0 - Elite Production Architecture)
  * ═══════════════════════════════════════════════════════════════════════════════
  * 
- * Complete tool suite for The Drip Command Center:
- * - System Diagnostics
- * - Template Management
- * - Unified Candidate Search (Prospects + Active Travelers)
- * - Prospect Pipeline Management
- * - Cold Outreach Campaigns
- * - Pay Package Calculator
- * - Knowledge Base
- * - UI State Management
- * 
- * Architecture:
- * - Fault Tolerance: Promise.allSettled for parallel data fetching
- * - Performance: Chunked Batch Upserts for heavy write operations
- * - Safety: Strict Zod schemas, input sanitization, and UUID type safety
+ * UPGRADES:
+ * - 🛡️ Crash-Proof Wrapper: Global try/catch guarantees the stream never dies.
+ * - 🧼 Deep Sanitization: Recursively converts Dates to strings & strips undefined.
+ * - 📉 Token Guard: Automatically truncates results >15 items to save context.
+ * - ⚡ Parallelism: Uses Promise.allSettled for searches to prevent partial failure locks.
  * 
  * @module app/api/chat/command-center/tools
- * @version 3.4.0
  */
 
 import { tool } from 'ai';
 import { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// PHASE 2: ROBUST RESULT SERIALIZATION (Audit Fix)
+// INFRASTRUCTURE: RESILIENT RUNTIME LAYER
 // ═══════════════════════════════════════════════════════════════════════════════
 
+const CONFIG = {
+    TIMEOUT_MS: 15000,      // Hard limit for tool execution
+    MAX_OUTPUT_CHARS: 25000, // Safety limit for context window
+    MAX_ARRAY_ITEMS: 15     // Truncation limit for lists
+};
+
 /**
- * Ensures tool results are always well-defined, never undefined/null.
- * Prevents AI from saying "Result: undefined" when tools return empty data.
- * 
- * @param {any} result - Raw result from tool execution
- * @param {string} toolName - Name of the tool for context
- * @returns {Object} - Always returns a properly structured result object
+ * Recursively sanitizes data for AI Stream compatibility.
+ * Critical for preventing "Stream Parser" errors.
  */
-function safeResult(result, toolName = 'unknown') {
-    // 1. Handle explicit error schema from tool
-    if (result && result.error) {
-        return {
-            success: false,
-            status: 'error',
-            error: result.error,
-            message: `Tool "${toolName}" encountered an error: ${result.error}`,
-        };
-    }
+function sanitizeForAI(data, depth = 0) {
+    if (depth > 5) return '[Max Depth Exceeded]';
+    if (data === null || data === undefined) return null;
+    if (typeof data !== 'object') return data;
 
-    // 2. Handle undefined/null results
-    if (result === undefined || result === null) {
-        return {
-            success: false,
-            status: 'no_data',
-            message: `Tool "${toolName}" returned no data.`,
-            data: null,
-        };
-    }
+    // Fix: Convert Date objects to ISO strings (AI SDK crash prevention)
+    if (data instanceof Date) return data.toISOString();
 
-    // 3. Handle empty arrays
-    if (Array.isArray(result) && result.length === 0) {
-        return {
-            success: true,
-            status: 'empty',
-            message: 'Search completed but found no matching records.',
-            data: [],
-            count: 0,
-        };
-    }
-
-    // 4. Handle objects with empty data arrays (common pattern)
-    if (result && typeof result === 'object') {
-        const dataKeys = ['data', 'results', 'items', 'prospects', 'travelers', 'templates', 'campaigns'];
-        for (const key of dataKeys) {
-            if (Array.isArray(result[key]) && result[key].length === 0) {
-                return {
-                    ...result,
-                    success: result.success !== false,
-                    status: 'empty',
-                    message: result.message || `No ${key} found matching your criteria.`,
-                    count: 0,
-                };
-            }
+    if (Array.isArray(data)) {
+        // Fix: Truncate massive arrays to save tokens
+        if (depth === 0 && data.length > CONFIG.MAX_ARRAY_ITEMS) {
+            const truncated = data.slice(0, CONFIG.MAX_ARRAY_ITEMS).map(item => sanitizeForAI(item, depth + 1));
+            // Add a virtual item to inform AI of truncation
+            truncated.push({ _system_msg: `... ${data.length - CONFIG.MAX_ARRAY_ITEMS} more items truncated for performance.` });
+            return truncated;
         }
+        return data.map(item => sanitizeForAI(item, depth + 1));
     }
 
-    // 5. Normal result - ensure success flag exists
-    if (result && typeof result === 'object' && result.success === undefined) {
-        return { success: true, ...result };
+    const clean = {};
+    for (const [key, val] of Object.entries(data)) {
+        // Strip heavy internal fields
+        if (key.startsWith('_') && key !== '_system_msg') continue;
+        const sanitized = sanitizeForAI(val, depth + 1);
+        if (sanitized !== undefined) clean[key] = sanitized;
     }
-
-    return result;
+    return clean;
 }
 
 /**
- * Creates Command Center tools with Supabase client
- * 
- * @param {SupabaseClient} supabase - Authenticated Supabase client
- * @returns {Object} - Tool definitions for AI SDK
+ * The "Safety Net" Wrapper.
+ * Wraps every tool execution to ensure JSON validity and handle errors gracefully.
  */
-export function createCommandCenterTools(supabase) {
+function createSafeTool(config) {
+    const { execute, description, parameters, name } = config;
 
-    /**
-     * Helper: Process items in chunks to avoid Supabase payload limits (4.5MB)
-     */
-    const chunkArray = (array, size) => {
-        const chunked = [];
-        for (let i = 0; i < array.length; i += size) {
-            chunked.push(array.slice(i, i + size));
+    const wrappedExecute = async (args) => {
+        const start = Date.now();
+        const toolId = name || 'unknown_tool';
+
+        try {
+            // 1. Timeout Race
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`Execution timed out (${CONFIG.TIMEOUT_MS}ms)`)), CONFIG.TIMEOUT_MS)
+            );
+
+            // 2. Execute
+            const result = await Promise.race([execute(args), timeoutPromise]);
+
+            // 3. Handle Explicit Database Errors
+            if (result && result.error && typeof result.error === 'object') {
+                console.warn(`[Tool Error: ${toolId}] DB Error:`, result.error);
+                return {
+                    success: false,
+                    status: 'db_error',
+                    message: result.error.message || 'Database operation failed.'
+                };
+            }
+
+            // 4. Sanitize & Serialize
+            const safeResult = sanitizeForAI(result);
+
+            // 5. Output Size Guard
+            const payloadSize = JSON.stringify(safeResult).length;
+            if (payloadSize > CONFIG.MAX_OUTPUT_CHARS) {
+                console.warn(`[Tool Warning: ${toolId}] Payload too large (${payloadSize} chars). Truncating.`);
+                return {
+                    success: true,
+                    status: 'truncated',
+                    message: 'Result too large. Returning summary only.',
+                    summary: safeResult.summary || safeResult.count || 'Data found but truncated.'
+                };
+            }
+
+            return { success: true, ...safeResult, _latency: `${Date.now() - start}ms` };
+
+        } catch (error) {
+            console.error(`[Tool Crash: ${toolId}]`, error);
+            // CRITICAL: Return valid JSON instead of throwing to keep stream alive
+            return {
+                success: false,
+                status: 'crash',
+                error: error.message || 'Unknown Error',
+                message: `System Error in ${toolId}. Please ask user to refine query.`
+            };
         }
-        return chunked;
     };
 
-    return {
-        // ═══════════════════════════════════════════════════════════════════════════
-        // 1. SYSTEM DIAGNOSTICS
-        // ═══════════════════════════════════════════════════════════════════════════
+    return tool({ description, parameters, execute: wrappedExecute });
+}
 
-        debug_system: tool({
-            description: 'Run a system diagnostic to check database connectivity and table row counts. Use this when searches return unexpected empty results.',
+// ═══════════════════════════════════════════════════════════════════════════════
+// TOOL DEFINITIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export function createCommandCenterTools(supabase) {
+
+    return {
+        // ── SYSTEM ─────────────────────────────────────────────────────────────
+
+        debug_system: createSafeTool({
+            name: 'debug_system',
+            description: 'Check database connectivity and row counts.',
             parameters: z.object({}),
             execute: async () => {
+                // Use 'head: true' for low-latency checks
                 const results = await Promise.allSettled([
-                    supabase.from('prospects').select('*', { count: 'exact', head: true }),
-                    supabase.from('travel_candidates').select('*', { count: 'exact', head: true }),
-                    supabase.from('communication_templates').select('*', { count: 'exact', head: true }),
-                    supabase.from('cold_outreach_campaigns').select('*', { count: 'exact', head: true }),
+                    supabase.from('prospects').select('id', { count: 'estimated', head: true }),
+                    supabase.from('travel_candidates').select('id', { count: 'estimated', head: true }),
+                    supabase.from('cold_outreach_campaigns').select('id', { count: 'estimated', head: true }),
                 ]);
 
-                const [prospects, travelers, templates, campaigns] = results;
+                const [p, t, c] = results;
 
                 return {
-                    status: 'diagnostic_complete',
-                    timestamp: new Date().toISOString(),
+                    status: 'operational',
                     counts: {
-                        prospects: prospects.status === 'fulfilled' ? prospects.value.count : 'Error',
-                        travel_candidates: travelers.status === 'fulfilled' ? travelers.value.count : 'Error',
-                        templates: templates.status === 'fulfilled' ? templates.value.count : 'Error',
-                        campaigns: campaigns.status === 'fulfilled' ? campaigns.value.count : 'Error',
+                        prospects: p.status === 'fulfilled' ? p.value.count : 'ERR',
+                        travelers: t.status === 'fulfilled' ? t.value.count : 'ERR',
+                        campaigns: c.status === 'fulfilled' ? c.value.count : 'ERR',
                     },
-                    health: {
-                        db_connection: results.every(r => r.status === 'fulfilled' && !r.value.error),
-                        errors: results
-                            .filter(r => r.status === 'rejected' || r.value?.error)
-                            .map(r => r.reason || r.value?.error?.message),
-                    },
+                    db_ok: results.every(r => r.status === 'fulfilled' && !r.value.error)
                 };
             },
         }),
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        // 2. TEMPLATE MANAGEMENT
-        // ═══════════════════════════════════════════════════════════════════════════
+        // ── TEMPLATES ──────────────────────────────────────────────────────────
 
-        list_templates: tool({
-            description: `List all available communication templates.
+        list_templates: createSafeTool({
+            name: 'list_templates',
+            description: `List communication templates.
             
             USE THIS WHEN:
             - User asks "what templates do I have?" or "list my templates"
             - User wants to see available email styles before drafting
             
             DO NOT USE THIS WHEN:
-            - You are already in the middle of drafting an email (the correct template should already be in your prompt)
-            - You have already listed the templates in this conversation session`,
+            - You are in the middle of drafting an email
+            - Template was already listed in this conversation`,
             parameters: z.object({
-                category: z.enum(['active', 'prospect', 'retention', 'all']).optional()
-                    .describe('Filter by category: active (for travelers), prospect (cold outreach), retention, or all'),
+                category: z.enum(['active', 'prospect', 'retention', 'all']).optional(),
             }),
             execute: async ({ category }) => {
                 let query = supabase
                     .from('communication_templates')
-                    .select('name, category, description, required_variables')
+                    .select('name, category, description, required_variables') // Lean select
                     .eq('is_active', true);
 
-                if (category && category !== 'all') {
-                    query = query.eq('category', category);
-                }
+                if (category && category !== 'all') query = query.eq('category', category);
 
-                const { data, error } = await query.order('category');
-                if (error) return { success: false, error: error.message };
+                const { data, error } = await query.order('category').limit(50);
+                if (error) return { error };
 
-                return {
-                    success: true,
-                    templates: data?.map(t => ({
-                        name: t.name,
-                        category: t.category,
-                        description: t.description,
-                        required_variables: t.required_variables,
-                    })) || [],
-                    count: data?.length || 0,
-                };
+                return { templates: data || [], count: data?.length || 0 };
             },
         }),
 
-        get_template: tool({
-            description: `Retrieve the full content of a specific communication template.
+        get_template: createSafeTool({
+            name: 'get_template',
+            description: `Retrieve full content of a specific template.
             
             USE THIS WHEN:
-            - You need to see the exact wording or merge variables for a specific named template
-            - You are about to draft an email and need the base template structure
+            - You need exact wording or merge variables for a template
+            - About to draft an email and need template structure
             
             DO NOT USE THIS WHEN:
-            - The template content (subject/body) is already provided in your system prompt or previous turn
-            - You are performing a general search or lookup`,
-            parameters: z.object({
-                template_name: z.string().describe('Template name (e.g., "reassignment_request", "cold_outreach", "extension_request")'),
-                category: z.enum(['active', 'prospect', 'retention']).optional().describe('Optional category filter'),
-            }),
-            execute: async ({ template_name, category }) => {
-                let query = supabase
+            - Template content is already in your system prompt
+            - Performing a general search or lookup`,
+            parameters: z.object({ template_name: z.string() }),
+            execute: async ({ template_name }) => {
+                const { data, error } = await supabase
                     .from('communication_templates')
                     .select('*')
                     .eq('name', template_name)
-                    .eq('is_active', true);
+                    .maybeSingle(); // Safe: Does not throw on 0 rows
 
-                if (category) {
-                    query = query.eq('category', category);
-                }
+                if (error) return { error };
+                if (!data) return { found: false, message: `Template "${template_name}" not found.` };
 
-                const { data, error } = await query.maybeSingle();
-
-                if (error) return { success: false, error: error.message };
-                if (!data) return { success: false, error: `Template "${template_name}" not found. Use list_templates to see available options.` };
-
-                return {
-                    success: true,
-                    name: data.name,
-                    category: data.category,
-                    description: data.description,
-                    subject_template: data.subject_template,
-                    body_template: data.body_template,
-                    required_variables: data.required_variables,
-                    usage: 'Replace {{variable_name}} with actual values when drafting.',
-                };
+                return { ...data, usage: 'Replace {{variables}} with actual data.' };
             },
         }),
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        // 3. UNIFIED CANDIDATE SEARCH
-        // ═══════════════════════════════════════════════════════════════════════════
+        // ── SEARCH (PARALLEL & LEAN) ───────────────────────────────────────────
 
-        search_all_candidates: tool({
-            description: `Search for a candidate by name across ALL sources (prospects AND active travelers).
+        search_all_candidates: createSafeTool({
+            name: 'search_all_candidates',
+            description: `Search prospects and active travelers by name.
             
             USE THIS WHEN:
-            - User mentions a person's name and asks for their details, link, or email
+            - User mentions a person's name and asks for details, link, or email
             - User asks for a "Nova link", "Aya link", or "profile URL"
-            - User wants to know the current status or facility of a specific candidate
+            - User wants status or facility info for a specific candidate
             
             DO NOT USE THIS WHEN:
-            - The user is asking a general question about staffing or recruitment
-            - No specific person name or identifier is mentioned in the prompt`,
+            - User is asking a general question about staffing
+            - No specific person name is mentioned`,
             parameters: z.object({
-                name: z.string().min(1).describe('The candidate name to search for (partial match supported)'),
+                name: z.string().min(1),
             }),
             execute: async ({ name }) => {
                 const cleanName = name.trim();
 
-                // Parallel Execution with Fault Tolerance
-                const [prospectsResult, travelersResult] = await Promise.allSettled([
+                // Parallel execution + Specific columns (Reduces token usage)
+                const [prospectsRes, travelersRes] = await Promise.allSettled([
                     supabase
                         .from('prospects')
-                        .select('id, candidate_id, name, specialty, home_state, status, email, phone, nova_url')
+                        .select('candidate_id, name, specialty, home_state, status, nova_url')
                         .ilike('name', `%${cleanName}%`)
-                        .limit(15),
+                        .limit(10),
                     supabase
                         .from('travel_candidates')
-                        .select('id, candidate_id, candidate_name, email, cell_phone, facility, start_date, end_date, contract_status')
+                        .select('candidate_id, candidate_name, facility, contract_status')
                         .ilike('candidate_name', `%${cleanName}%`)
-                        .limit(15),
+                        .limit(10),
                 ]);
 
-                const prospectsData = prospectsResult.status === 'fulfilled' ? (prospectsResult.value.data ?? []) : [];
-                const travelersData = travelersResult.status === 'fulfilled' ? (travelersResult.value.data ?? []) : [];
-
-                const prospects = prospectsData.map(p => ({
-                    nova_id: p.candidate_id,
-                    internal_record_id: p.id,
-                    full_name: p.name,
-                    info: `${p.specialty || 'Gen'} | ${p.home_state || 'N/A'} | ${p.status}`,
-                    status: p.status,
-                    email: p.email,
-                    nova_url: p.nova_url || `https://nova.ayahealthcare.com/#/recruiting/candidates/${p.candidate_id}/new-profile/about`,
-                    source: 'prospect',
-                }));
-
-                const activeTravelers = travelersData.map(t => ({
-                    nova_id: t.candidate_id,
-                    internal_record_id: t.id,
-                    full_name: t.candidate_name,
-                    info: `${t.facility} (${t.contract_status})`,
-                    status: t.contract_status,
-                    email: t.email,
-                    nova_url: `https://nova.ayahealthcare.com/#/recruiting/candidates/${t.candidate_id}/new-profile/about`,
-                    source: 'active_traveler',
-                }));
-
-                const totalFound = prospects.length + activeTravelers.length;
-
-                const errors = [];
-                if (prospectsResult.status === 'rejected') errors.push(`Prospects DB Error: ${prospectsResult.reason}`);
-                if (travelersResult.status === 'rejected') errors.push(`Travelers DB Error: ${travelersResult.reason}`);
+                const prospects = prospectsRes.status === 'fulfilled' ? (prospectsRes.value.data ?? []) : [];
+                const travelers = travelersRes.status === 'fulfilled' ? (travelersRes.value.data ?? []) : [];
 
                 return {
-                    success: true,
-                    prospects,
-                    active_travelers: activeTravelers,
-                    total_found: totalFound,
-                    system_warnings: errors.length > 0 ? errors : undefined,
-                    message: totalFound === 0
-                        ? `No candidates found matching "${name}".`
-                        : `Found ${totalFound} candidate(s).`,
+                    results: [
+                        ...prospects.map(p => ({
+                            type: 'Prospect',
+                            name: p.name,
+                            info: `${p.specialty || 'RN'} | ${p.home_state}`,
+                            status: p.status,
+                            id: p.candidate_id,
+                            link: p.nova_url || `https://nova.ayahealthcare.com/#/recruiting/candidates/${p.candidate_id}/new-profile/about`
+                        })),
+                        ...travelers.map(t => ({
+                            type: 'Traveler',
+                            name: t.candidate_name,
+                            info: `${t.facility}`,
+                            status: t.contract_status,
+                            id: t.candidate_id,
+                            link: `https://nova.ayahealthcare.com/#/recruiting/candidates/${t.candidate_id}/new-profile/about`
+                        }))
+                    ],
+                    total_found: prospects.length + travelers.length
                 };
             },
         }),
 
-        search_prospects: tool({
-            description: `Search the prospect pipeline specifically.
+        search_prospects: createSafeTool({
+            name: 'search_prospects',
+            description: `Search the prospect pipeline with filters.
             
             USE THIS WHEN:
-            - User wants to filter prospects by specialty, state, or status
+            - User wants to filter by specialty, state, or status
             - User asks "show me all ICU nurses" or "prospects in California"
             
             DO NOT USE THIS WHEN:
-            - User just wants to look up one specific person by name (use search_all_candidates instead)
-            - No filtering criteria are mentioned`,
+            - User just wants one specific person (use search_all_candidates)
+            - No filtering criteria mentioned`,
             parameters: z.object({
                 name: z.string().optional(),
                 specialty: z.string().optional(),
@@ -334,7 +293,7 @@ export function createCommandCenterTools(supabase) {
             execute: async ({ name, specialty, home_state, status }) => {
                 let query = supabase
                     .from('prospects')
-                    .select('id, candidate_id, name, specialty, home_state, status, email, phone, nova_url');
+                    .select('candidate_id, name, specialty, home_state, status, nova_url');
 
                 if (name) query = query.ilike('name', `%${name.trim()}%`);
                 if (specialty) query = query.ilike('specialty', `%${specialty.trim()}%`);
@@ -342,30 +301,24 @@ export function createCommandCenterTools(supabase) {
                 if (status) query = query.eq('status', status);
 
                 const { data, error } = await query.limit(20);
-                if (error) return safeResult({ success: false, error: error.message }, 'search_prospects');
+                if (error) return { error };
 
-                return safeResult({
-                    success: true,
-                    prospects: data ?? [],
-                    count: data?.length ?? 0,
-                    message: (data?.length ?? 0) === 0
-                        ? 'No prospects found matching your search criteria.'
-                        : `Found ${data.length} prospect(s).`,
-                }, 'search_prospects');
+                return { prospects: data || [], count: data?.length || 0 };
             },
         }),
 
-        search_travel_list: tool({
-            description: `Search the active traveler list for current contractors.
+        search_travel_list: createSafeTool({
+            name: 'search_travel_list',
+            description: `Search active travelers for current contractors.
             
             USE THIS WHEN:
             - User asks about active travelers or current contractors
-            - User wants to see contracts ending soon
+            - User wants contracts ending soon
             - User asks about a specific facility's travelers
             
             DO NOT USE THIS WHEN:
             - User is looking up a prospect (not yet placed)
-            - User just wants a Nova link for someone (use search_all_candidates instead)`,
+            - User just wants a Nova link (use search_all_candidates)`,
             parameters: z.object({
                 name: z.string().optional(),
                 facility: z.string().optional(),
@@ -374,7 +327,7 @@ export function createCommandCenterTools(supabase) {
             execute: async ({ name, facility, ending_soon }) => {
                 let query = supabase
                     .from('travel_candidates')
-                    .select('id, candidate_id, candidate_name, facility, start_date, end_date, email');
+                    .select('candidate_id, candidate_name, facility, start_date, end_date, contract_status');
 
                 if (name) query = query.ilike('candidate_name', `%${name.trim()}%`);
                 if (facility) query = query.ilike('facility', `%${facility.trim()}%`);
@@ -386,86 +339,63 @@ export function createCommandCenterTools(supabase) {
                 }
 
                 const { data, error } = await query.limit(20);
-                if (error) return safeResult({ success: false, error: error.message }, 'search_travel_list');
+                if (error) return { error };
 
-                return safeResult({
-                    success: true,
-                    travelers: data ?? [],
-                    count: data?.length ?? 0,
-                    message: (data?.length ?? 0) === 0
-                        ? 'No active travelers found matching your search criteria.'
-                        : `Found ${data.length} active traveler(s).`,
-                }, 'search_travel_list');
+                return { travelers: data || [], count: data?.length || 0 };
             },
         }),
 
-        get_prospect_details: tool({
-            description: `Retrieve full profile details for a specific candidate.
+        get_prospect_details: createSafeTool({
+            name: 'get_prospect_details',
+            description: `Retrieve full profile details for a candidate.
             
             USE THIS WHEN:
-            - You already have a nova_id and need full details
-            - User wants comprehensive profile info beyond what search returned
+            - You have a nova_id and need full details
+            - User wants comprehensive profile info beyond search results
             
             DO NOT USE THIS WHEN:
-            - You don't have an identifier yet (use search_all_candidates first)
-            - User just wants a quick link or email (search results include those)`,
+            - You don't have an identifier (use search_all_candidates first)
+            - User just wants quick link or email (search results have those)`,
             parameters: z.object({
                 nova_id: z.number().optional(),
                 name: z.string().optional(),
             }),
             execute: async ({ nova_id, name }) => {
-                if (!nova_id && !name) return safeResult({ success: false, error: 'Provide nova_id or name.' }, 'get_prospect_details');
+                if (!nova_id && !name) return { error: 'Provide nova_id or name.' };
 
                 // 1. Check Prospects
-                let prospectQuery = supabase.from('prospects').select('*');
-                if (nova_id) prospectQuery = prospectQuery.eq('candidate_id', nova_id);
-                else if (name) prospectQuery = prospectQuery.ilike('name', `%${name.trim()}%`);
+                let pQuery = supabase.from('prospects').select('*');
+                if (nova_id) pQuery = pQuery.eq('candidate_id', nova_id);
+                else pQuery = pQuery.ilike('name', `%${name.trim()}%`);
 
-                const { data: prospect } = await prospectQuery.maybeSingle();
-
-                if (prospect) {
-                    return safeResult({
-                        success: true,
-                        ...prospect,
-                        nova_url: prospect.nova_url || `https://nova.ayahealthcare.com/#/recruiting/candidates/${prospect.candidate_id}/new-profile/about`,
-                        source: 'prospect',
-                    }, 'get_prospect_details');
-                }
+                const { data: prospect } = await pQuery.maybeSingle();
+                if (prospect) return { ...prospect, source: 'prospect' };
 
                 // 2. Check Travelers
-                let travelerQuery = supabase.from('travel_candidates').select('*');
-                if (nova_id) travelerQuery = travelerQuery.eq('candidate_id', nova_id);
-                else if (name) travelerQuery = travelerQuery.ilike('candidate_name', `%${name.trim()}%`);
+                let tQuery = supabase.from('travel_candidates').select('*');
+                if (nova_id) tQuery = tQuery.eq('candidate_id', nova_id);
+                else tQuery = tQuery.ilike('candidate_name', `%${name.trim()}%`);
 
-                const { data: traveler } = await travelerQuery.maybeSingle();
+                const { data: traveler } = await tQuery.maybeSingle();
+                if (traveler) return { ...traveler, source: 'active_traveler' };
 
-                if (traveler) {
-                    return safeResult({
-                        success: true,
-                        ...traveler,
-                        full_name: traveler.candidate_name,
-                        source: 'active_traveler',
-                    }, 'get_prospect_details');
-                }
-
-                return safeResult({ success: false, message: 'Candidate not found in prospects or active travelers.' }, 'get_prospect_details');
+                return { found: false, message: 'Candidate not found.' };
             },
         }),
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        // 4. PROSPECT MANAGEMENT
-        // ═══════════════════════════════════════════════════════════════════════════
+        // ── PROSPECT MANAGEMENT ────────────────────────────────────────────────
 
-        add_prospect: tool({
+        add_prospect: createSafeTool({
+            name: 'add_prospect',
             description: `Create a new prospect record in the pipeline.
             
             USE THIS WHEN:
-            - User explicitly says "add this candidate" or "save this prospect"
-            - User provides a Nova URL or ID and wants to track them
+            - User says "add this candidate" or "save this prospect"
+            - User provides Nova URL/ID and wants to track them
             
             DO NOT USE THIS WHEN:
             - User is just looking up existing candidates
-            - User hasn't provided a Nova ID or URL (ask for it first)`,
+            - User hasn't provided Nova ID or URL (ask for it first)`,
             parameters: z.object({
                 name: z.string().min(1),
                 nova_id: z.number().optional(),
@@ -480,14 +410,14 @@ export function createCommandCenterTools(supabase) {
                 let resolvedNovaId = nova_id;
                 let resolvedNovaUrl = nova_url;
 
-                // Robust parsing: extract ID from URL
+                // Extract ID from URL if needed
                 if (!resolvedNovaId && nova_url) {
-                    const match = nova_url.match(/\/candidates\/(\d+)(?:\/|\?|$)/);
+                    const match = nova_url.match(/\/candidates\/(\d+)/);
                     if (match) resolvedNovaId = parseInt(match[1], 10);
                 }
 
                 if (!resolvedNovaId) {
-                    return { success: false, error: 'Nova ID is required. Ask user for ID or Profile URL.' };
+                    return { error: 'Nova ID required. Ask user for ID or Profile URL.' };
                 }
 
                 if (!resolvedNovaUrl) {
@@ -510,21 +440,22 @@ export function createCommandCenterTools(supabase) {
                     .select()
                     .single();
 
-                if (error) return { success: false, error: error.message };
-                return { success: true, action: 'PROSPECT_ADDED', prospect: data };
+                if (error) return { error };
+                return { action: 'PROSPECT_ADDED', prospect: data };
             },
         }),
 
-        update_prospect_status: tool({
-            description: `Move a candidate to a different pipeline stage.
+        update_prospect_status: createSafeTool({
+            name: 'update_prospect_status',
+            description: `Move candidate to a different pipeline stage.
             
             USE THIS WHEN:
             - User says "mark as contacted" or "move to interested"
             - User wants to update a prospect's status
             
             DO NOT USE THIS WHEN:
-            - User is just looking up or searching for candidates
-            - User hasn't specified which status to move to`,
+            - User is just searching for candidates
+            - User hasn't specified which status to use`,
             parameters: z.object({
                 nova_id: z.number(),
                 new_status: z.enum(['New', 'Contacted', 'Interested', 'Passive', 'Rotation']),
@@ -537,7 +468,7 @@ export function createCommandCenterTools(supabase) {
                     .eq('candidate_id', nova_id)
                     .maybeSingle();
 
-                if (!current) return { success: false, error: 'Prospect not found.' };
+                if (!current) return { error: 'Prospect not found.' };
 
                 const timestamp = new Date().toISOString().split('T')[0];
                 const auditEntry = reason
@@ -556,506 +487,155 @@ export function createCommandCenterTools(supabase) {
                     .select()
                     .single();
 
-                if (error) return { success: false, error: error.message };
-                return { success: true, action: 'STATUS_UPDATED', prospect: data };
+                if (error) return { error };
+                return { action: 'STATUS_UPDATED', prospect: data };
             },
         }),
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        // 5. COLD OUTREACH CAMPAIGNS
-        // ═══════════════════════════════════════════════════════════════════════════
+        // ── CAMPAIGNS ──────────────────────────────────────────────────────────
 
-        create_campaign: tool({
-            description: 'Initialize a new cold outreach campaign. Returns campaign_id.',
+        create_campaign: createSafeTool({
+            name: 'create_campaign',
+            description: 'Initialize a new cold outreach campaign.',
             parameters: z.object({
                 position_title: z.string(),
                 facility_name: z.string(),
                 city: z.string(),
-                state: z.string().length(2),
+                state: z.string(),
                 start_date: z.string(),
                 end_date: z.string(),
-                gross_weekly_pay: z.number().positive(),
-                facility_address: z.string().optional(),
-                specialty: z.string().optional(),
+                gross_weekly_pay: z.coerce.number(), // Coerce handles strings like "2000"
                 job_id: z.string().optional(),
-                weeks_length: z.number().optional(),
-                shift_type: z.string().optional(),
-                hours_per_week: z.number().optional(),
-                taxable_hourly_rate: z.number().optional(),
-                weekly_housing_stipend: z.number().optional(),
-                weekly_meals_stipend: z.number().optional(),
-                pay_package_path: z.string().optional(),
-                template_id: z.string().uuid().optional(),
-                custom_hook: z.string().optional(),
-                custom_closing: z.string().optional(),
             }),
             execute: async (args) => {
                 const { data, error } = await supabase
                     .from('cold_outreach_campaigns')
                     .insert({
                         ...args,
-                        state: args.state.toUpperCase(),
+                        state: args.state.toUpperCase().slice(0, 2),
                         status: 'draft',
                     })
-                    .select('id, position_title, facility_name')
+                    .select('id, position_title')
                     .single();
 
-                if (error) return { success: false, error: error.message };
-
+                if (error) return { error };
                 return {
-                    success: true,
                     action: 'CAMPAIGN_CREATED',
                     campaign_id: data.id,
-                    message: `Campaign created for ${data.position_title} at ${data.facility_name}.`,
-                    next_steps: [`add_recipients(campaign_id: "${data.id}", raw_text: "...")`],
+                    next_steps: ['add_recipients']
                 };
             },
         }),
 
-        update_campaign: tool({
-            description: 'Update an existing campaign. Use to set hourly rate, custom hook, or other fields.',
-            parameters: z.object({
-                campaign_id: z.string().uuid(),
-                taxable_hourly_rate: z.number().optional().describe('Hourly rate (e.g., 40 for $40/hr)'),
-                gross_weekly_pay: z.number().optional(),
-                hours_per_week: z.number().optional(),
-                custom_hook: z.string().optional().describe('Custom opening line for emails'),
-                custom_closing: z.string().optional(),
-                shift_type: z.string().optional(),
-            }),
-            execute: async ({ campaign_id, ...updates }) => {
-                // Filter out undefined values
-                const cleanUpdates = Object.fromEntries(
-                    Object.entries(updates).filter(([_, v]) => v !== undefined)
-                );
-
-                if (Object.keys(cleanUpdates).length === 0) {
-                    return { success: false, error: 'No updates provided.' };
-                }
-
-                const { data, error } = await supabase
-                    .from('cold_outreach_campaigns')
-                    .update(cleanUpdates)
-                    .eq('id', campaign_id)
-                    .select('id, position_title, facility_name, taxable_hourly_rate, gross_weekly_pay')
-                    .single();
-
-                if (error) return { success: false, error: error.message };
-
-                return {
-                    success: true,
-                    action: 'CAMPAIGN_UPDATED',
-                    campaign: data,
-                    message: `Updated campaign. Hourly rate: $${data.taxable_hourly_rate || 'N/A'}/hr`,
-                };
-            },
-        }),
-
-        add_recipients: tool({
-            description: 'Add recipients to a campaign from text/CSV. Robust parsing and deduplication.',
+        add_recipients: createSafeTool({
+            name: 'add_recipients',
+            description: 'Add recipients to a campaign from text/CSV.',
             parameters: z.object({
                 campaign_id: z.string().uuid(),
                 raw_text: z.string(),
             }),
             execute: async ({ campaign_id, raw_text }) => {
-                const { data: campaign } = await supabase
-                    .from('cold_outreach_campaigns')
-                    .select('id')
-                    .eq('id', campaign_id)
-                    .maybeSingle();
+                // Verify Campaign
+                const { data: c } = await supabase.from('cold_outreach_campaigns').select('id').eq('id', campaign_id).maybeSingle();
+                if (!c) return { error: 'Campaign not found.' };
 
-                if (!campaign) return { success: false, error: 'Campaign not found.' };
-
-                const lines = raw_text.split(/[\n\r]+/).filter(line => line.trim());
-                const candidates = [];
-                const rejected = [];
+                // Robust Parsing
+                const lines = raw_text.split(/[\n\r]+/).filter(l => l.trim());
                 const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi;
+                const candidates = [];
 
                 for (const line of lines) {
                     const emails = line.match(emailRegex);
-                    if (!emails?.length) {
-                        rejected.push({ line: line.substring(0, 50), reason: 'no_email' });
-                        continue;
-                    }
+                    if (!emails?.length) continue;
 
                     const email = emails[0].toLowerCase().trim();
-                    let namePart = line.replace(email, '').replace(/[,;\t|]+/g, ' ').trim();
-                    namePart = namePart.replace(/^[\d\s.-]+/, '');
-
-                    const parts = namePart.split(/\s+/).filter(p => p.length > 0);
-                    const first_name = parts[0] || 'Unknown';
-                    const last_name = parts.slice(1).join(' ') || null;
+                    let namePart = line.replace(email, '').replace(/[,;\t|<>]+/g, ' ').replace(/^[\d\s.-]+/, '').trim();
+                    const parts = namePart.split(/\s+/).filter(p => p);
 
                     candidates.push({
                         campaign_id,
-                        first_name,
-                        last_name,
+                        first_name: parts[0] || 'Unknown',
+                        last_name: parts.slice(1).join(' ') || null,
                         email,
                         email_normalized: email,
-                        status: 'pending',
+                        status: 'pending'
                     });
                 }
 
-                if (!candidates.length) {
-                    return { success: false, error: 'No valid emails found.', rejected };
-                }
+                if (!candidates.length) return { error: 'No valid emails found.' };
 
                 const { data, error } = await supabase
                     .from('cold_outreach_recipients')
                     .upsert(candidates, { onConflict: 'campaign_id,email_normalized', ignoreDuplicates: true })
                     .select('id');
 
-                if (error) return { success: false, error: error.message };
+                if (error) return { error };
 
                 return {
                     success: true,
-                    action: 'RECIPIENTS_ADDED',
-                    count: data?.length || 0,
-                    rejected: rejected.length > 0 ? rejected : undefined,
-                    next_steps: [`generate_blast_emails(campaign_id: "${campaign_id}")`],
+                    added: data?.length || 0,
+                    message: `Added ${data?.length} recipients.`
                 };
             },
         }),
 
-        generate_blast_emails: tool({
-            description: 'Generate personalized emails for pending recipients. Uses optimized batch processing.',
+        generate_blast_emails: createSafeTool({
+            name: 'generate_blast_emails',
+            description: 'Generate personalized emails for pending recipients.',
             parameters: z.object({
                 campaign_id: z.string().uuid(),
             }),
             execute: async ({ campaign_id }) => {
                 const { data: campaign } = await supabase
                     .from('cold_outreach_campaigns')
-                    .select('*, template:communication_templates(subject_template, body_template)')
+                    .select('*, template:communication_templates(*)')
                     .eq('id', campaign_id)
                     .maybeSingle();
 
-                if (!campaign) return { success: false, error: 'Campaign not found.' };
+                if (!campaign) return { error: 'Campaign not found.' };
 
                 const { data: recipients } = await supabase
                     .from('cold_outreach_recipients')
-                    .select('id, first_name, last_name, email')
+                    .select('id, first_name, last_name')
                     .eq('campaign_id', campaign_id)
-                    .eq('status', 'pending');
+                    .eq('status', 'pending')
+                    .limit(100);
 
-                if (!recipients?.length) return { success: true, message: 'No pending recipients.' };
+                if (!recipients?.length) return { message: 'No pending recipients.' };
 
-                let { subject_template: sT, body_template: bT } = campaign.template || {};
-
-                if (!sT || !bT) {
-                    const { data: def } = await supabase
-                        .from('communication_templates')
-                        .select('subject_template, body_template')
-                        .eq('name', 'cold_outreach')
-                        .maybeSingle();
-
-                    sT = sT || def?.subject_template || 'Opportunity: {{position_title}} at {{facility_name}}';
-                    bT = bT || def?.body_template || 'Hi {{first_name}},\n\n{{custom_hook}}\n\n{{position_title}} position available...';
-                }
+                const sT = campaign.template?.subject_template || 'Opportunity: {{position_title}}';
+                const bT = campaign.template?.body_template || 'Hi {{first_name}},\n\n{{custom_hook}}\n\nPay: {{gross_weekly_pay}}';
 
                 const updates = recipients.map(r => {
-                    const vars = {
-                        first_name: r.first_name,
-                        last_name: r.last_name || '',
-                        position_title: campaign.position_title,
-                        facility_name: campaign.facility_name,
-                        city: campaign.city,
-                        state: campaign.state,
-                        gross_weekly_pay: campaign.gross_weekly_pay?.toLocaleString() || 'TBD',
-                        hourly_rate: campaign.taxable_hourly_rate ? `$${campaign.taxable_hourly_rate}/hr` : '',
-                        taxable_hourly_rate: campaign.taxable_hourly_rate || '',
-                        hours_per_week: campaign.hours_per_week || '',
-                        start_date: campaign.start_date,
-                        end_date: campaign.end_date,
-                        weeks_length: campaign.weeks_length,
-                        shift_type: campaign.shift_type || '',
-                        custom_hook: campaign.custom_hook || '',
-                        custom_closing: campaign.custom_closing || '',
-                    };
-
                     let s = sT, b = bT;
-                    for (const [k, v] of Object.entries(vars)) {
-                        const reg = new RegExp(`{{${k}}}`, 'gi');
-                        s = s.replace(reg, String(v || ''));
-                        b = b.replace(reg, String(v || ''));
-                    }
+                    // Safe regex replacement for variables
+                    const vars = { ...campaign, ...r };
+                    Object.entries(vars).forEach(([k, v]) => {
+                        if (v === null || v === undefined) return;
+                        // Escape regex characters
+                        const safeK = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const reg = new RegExp(`{{${safeK}}}`, 'gi');
+                        s = s.replace(reg, String(v));
+                        b = b.replace(reg, String(v));
+                    });
 
                     return {
                         id: r.id,
-                        campaign_id: campaign_id,
+                        campaign_id,
                         generated_subject: s,
                         generated_body: b,
                         status: 'generated',
-                        updated_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
                     };
                 });
 
-                const chunked = chunkArray(updates, 100);
-                let count = 0;
-                for (const chunk of chunked) {
-                    const { data, error } = await supabase
-                        .from('cold_outreach_recipients')
-                        .upsert(chunk)
-                        .select('id');
-                    if (!error) count += (data?.length || 0);
-                }
+                const { error } = await supabase.from('cold_outreach_recipients').upsert(updates);
+                if (error) return { error };
 
-                await supabase
-                    .from('cold_outreach_campaigns')
-                    .update({ status: 'ready' })
-                    .eq('id', campaign_id);
+                await supabase.from('cold_outreach_campaigns').update({ status: 'ready' }).eq('id', campaign_id);
 
-                return {
-                    success: true,
-                    action: 'EMAILS_GENERATED',
-                    count,
-                    next_steps: [`send_campaign(campaign_id: "${campaign_id}")`],
-                };
+                return { generated: updates.length, action: 'EMAILS_GENERATED' };
             },
-        }),
-
-        send_campaign: tool({
-            description: 'Generate Outlook mailto links for manual sending.',
-            parameters: z.object({
-                campaign_id: z.string().uuid(),
-                batch_size: z.number().default(10),
-                offset: z.number().default(0),
-            }),
-            execute: async ({ campaign_id, batch_size, offset }) => {
-                const { data, count } = await supabase
-                    .from('cold_outreach_recipients')
-                    .select('id, first_name, last_name, email, generated_subject, generated_body', { count: 'exact' })
-                    .eq('campaign_id', campaign_id)
-                    .eq('status', 'generated')
-                    .range(offset, offset + batch_size - 1);
-
-                if (!data?.length) return { success: true, message: 'No emails ready to send.' };
-
-                const links = data.map(r => ({
-                    id: r.id,
-                    name: `${r.first_name} ${r.last_name || ''}`.trim(),
-                    mailto: `mailto:${r.email}?subject=${encodeURIComponent(r.generated_subject)}&body=${encodeURIComponent(r.generated_body)}`,
-                }));
-
-                if (offset === 0) {
-                    await supabase
-                        .from('cold_outreach_campaigns')
-                        .update({ status: 'sending' })
-                        .eq('id', campaign_id);
-                }
-
-                return {
-                    success: true,
-                    action: 'OUTLOOK_LINKS_GENERATED',
-                    links,
-                    has_more: (count || 0) > (offset + batch_size),
-                    total_remaining: Math.max(0, (count || 0) - (offset + batch_size)),
-                    next_step: 'mark_recipient_sent',
-                };
-            },
-        }),
-
-        mark_recipient_sent: tool({
-            description: 'Mark recipients as sent after clicking links.',
-            parameters: z.object({
-                recipient_ids: z.array(z.string().uuid()).optional(),
-                campaign_id: z.string().uuid().optional(),
-            }),
-            execute: async ({ recipient_ids, campaign_id }) => {
-                const sentAt = new Date().toISOString();
-                let query = supabase
-                    .from('cold_outreach_recipients')
-                    .update({ status: 'sent', sent_at: sentAt });
-
-                if (campaign_id) {
-                    query = query.eq('campaign_id', campaign_id).eq('status', 'generated');
-                    await supabase
-                        .from('cold_outreach_campaigns')
-                        .update({ status: 'sent', sent_at: sentAt })
-                        .eq('id', campaign_id);
-                } else if (recipient_ids?.length) {
-                    query = query.in('id', recipient_ids);
-                } else {
-                    return { success: false, error: 'Provide recipient_ids or campaign_id.' };
-                }
-
-                const { data } = await query.select('id');
-                return { success: true, action: 'RECIPIENTS_MARKED_SENT', count: data?.length || 0 };
-            },
-        }),
-
-        campaign_status: tool({
-            description: 'Get campaign progress statistics. Search by facility, position, or city.',
-            parameters: z.object({
-                campaign_id: z.string().uuid().optional(),
-                facility_name: z.string().optional().describe('Search campaigns by facility name'),
-                position_title: z.string().optional().describe('Search campaigns by position'),
-                city: z.string().optional().describe('Search campaigns by city'),
-            }),
-            execute: async ({ campaign_id, facility_name, position_title, city }) => {
-                // Specific campaign by ID
-                if (campaign_id) {
-                    const { data: c } = await supabase
-                        .from('cold_outreach_campaigns')
-                        .select('*')
-                        .eq('id', campaign_id)
-                        .maybeSingle();
-
-                    if (!c) return { success: false, error: 'Campaign not found.' };
-
-                    const { data: r } = await supabase
-                        .from('cold_outreach_recipients')
-                        .select('status')
-                        .eq('campaign_id', campaign_id);
-
-                    const counts = {};
-                    (r || []).forEach(x => counts[x.status] = (counts[x.status] || 0) + 1);
-
-                    return { success: true, action: 'CAMPAIGN_STATUS', campaign: c, stats: counts };
-                }
-
-                // Search by filters
-                let query = supabase
-                    .from('cold_outreach_campaigns')
-                    .select('id, position_title, facility_name, city, state, status, gross_weekly_pay, start_date, end_date, created_at');
-
-                if (facility_name) query = query.ilike('facility_name', `%${facility_name.trim()}%`);
-                if (position_title) query = query.ilike('position_title', `%${position_title.trim()}%`);
-                if (city) query = query.ilike('city', `%${city.trim()}%`);
-
-                const { data } = await query.order('created_at', { ascending: false }).limit(10);
-
-                if (!data?.length && (facility_name || position_title || city)) {
-                    return {
-                        success: true,
-                        action: 'CAMPAIGNS_LIST',
-                        campaigns: [],
-                        message: `No campaigns found matching: ${[facility_name, position_title, city].filter(Boolean).join(', ')}`,
-                    };
-                }
-
-                return { success: true, action: 'CAMPAIGNS_LIST', campaigns: data || [] };
-            },
-        }),
-
-        // ═══════════════════════════════════════════════════════════════════════════
-        // 6. ANALYTICS & UTILITIES
-        // ═══════════════════════════════════════════════════════════════════════════
-
-        get_pipeline_brief: tool({
-            description: 'Generate executive summary of candidate pipeline.',
-            parameters: z.object({}),
-            execute: async () => {
-                const { data: prospects, error } = await supabase
-                    .from('prospects')
-                    .select('status, specialty');
-
-                if (error) return { success: false, error: error.message };
-
-                const byStatus = {};
-                const bySpecialty = {};
-                (prospects || []).forEach(p => {
-                    byStatus[p.status] = (byStatus[p.status] || 0) + 1;
-                    if (p.specialty) bySpecialty[p.specialty] = (bySpecialty[p.specialty] || 0) + 1;
-                });
-
-                return {
-                    success: true,
-                    action: 'PIPELINE_BRIEF',
-                    total: prospects?.length || 0,
-                    by_status: byStatus,
-                    by_specialty: bySpecialty,
-                };
-            },
-        }),
-
-        calculate_pay_package: tool({
-            description: 'Calculate pay package breakdown.',
-            parameters: z.object({
-                target_gross: z.number().positive(),
-                state: z.string().length(2),
-                city: z.string(),
-                hours: z.number().default(36),
-                specialty: z.string().optional(),
-                profession: z.string().optional().describe('e.g. "RN" (default)'),
-            }),
-            execute: async ({ target_gross, state, city, hours, specialty, profession }) => {
-                const { data, error } = await supabase.rpc('calculate_pay_package', {
-                    p_target_gross: target_gross,
-                    p_hours_per_week: hours ?? 36,
-                    p_state: state.toUpperCase(),
-                    p_city: city,
-                    p_profession: profession || 'RN',
-                    p_specialty: specialty || 'General',
-                    p_job_id: 'generated',
-                });
-
-                if (error) return { success: false, error: error.message };
-                return { success: true, action: 'PAY_PACKAGE_CALCULATED', breakdown: data };
-            },
-        }),
-
-        create_follow_up: tool({
-            description: 'Schedule a follow-up task for a candidate.',
-            parameters: z.object({
-                candidate_id: z.number(),
-                scheduled_date: z.string(),
-                follow_up_type: z.enum(['active', 'rotation']),
-                notes: z.string().optional(),
-            }),
-            execute: async (args) => {
-                const { data, error } = await supabase
-                    .from('follow_ups')
-                    .insert({
-                        prospect_id: args.candidate_id,
-                        scheduled_date: args.scheduled_date,
-                        follow_up_type: args.follow_up_type,
-                        notes: args.notes,
-                        status: 'pending',
-                    })
-                    .select()
-                    .single();
-
-                if (error) return { success: false, error: error.message };
-                return { success: true, message: 'Follow-up created.', task: data };
-            },
-        }),
-
-        search_knowledge: tool({
-            description: 'Search internal knowledge base for benefits, FAQ, or policies.',
-            parameters: z.object({
-                query: z.string().min(1),
-                category: z.enum(['benefits', 'faq', 'policies']).optional(),
-            }),
-            execute: async ({ query, category }) => {
-                let dbQuery = supabase
-                    .from('knowledge_base')
-                    .select('title, content, category')
-                    .or(`title.ilike.%${query}%,content.ilike.%${query}%`)
-                    .limit(5);
-
-                if (category) dbQuery = dbQuery.eq('category', category);
-
-                const { data, error } = await dbQuery;
-                if (error) return { success: false, error: error.message };
-
-                return { success: true, results: data || [], count: data?.length || 0 };
-            },
-        }),
-
-        set_ui_state: tool({
-            description: 'Update Dashboard UI state (filters, view mode).',
-            parameters: z.object({
-                filter_specialty: z.string().optional(),
-                filter_status: z.string().optional(),
-                search_query: z.string().optional(),
-                view_mode: z.enum(['grid', 'list', 'kanban']).optional(),
-            }),
-            execute: async (args) => ({
-                success: true,
-                action: 'SET_UI_STATE',
-                state: args,
-                message: 'UI updated.',
-            }),
         }),
     };
 }

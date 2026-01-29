@@ -50,6 +50,13 @@ const MODEL_CONFIG = Object.freeze({
     temperature: 0.7,
     maxSteps: 10,
     maxRetries: 2,
+    // REQUIRED FOR COLD OUTREACH - Prevents safety filter false positives
+    safetySettings: [
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+    ],
 });
 
 const TIMEOUT_CONFIG = Object.freeze({
@@ -570,7 +577,7 @@ export async function POST(request) {
 
                 // PASS 1: Extract data as structured JSON (Pure Vision)
                 const extractionResult = await generateText({
-                    model: google(MODEL_CONFIG.primary),
+                    model: google(MODEL_CONFIG.primary, { safetySettings: MODEL_CONFIG.safetySettings }),
                     system: EXTRACT_DATA_PROMPT,
                     messages: normalizedMessages,
                     maxRetries: MODEL_CONFIG.maxRetries,
@@ -598,7 +605,7 @@ export async function POST(request) {
                     const draftPrompt = getPass2DraftPrompt(extractedData);
 
                     const draftResult = await generateText({
-                        model: google(MODEL_CONFIG.primary),
+                        model: google(MODEL_CONFIG.primary, { safetySettings: MODEL_CONFIG.safetySettings }),
                         system: draftPrompt,
                         messages: [{ role: 'user', content: 'Draft the outreach email using the provided data.' }],
                         maxRetries: MODEL_CONFIG.maxRetries,
@@ -632,7 +639,7 @@ export async function POST(request) {
         if (isBuffered) {
             try {
                 const result = await generateText({
-                    model: google(MODEL_CONFIG.primary),
+                    model: google(MODEL_CONFIG.primary, { safetySettings: MODEL_CONFIG.safetySettings }),
                     system: activeSystemPrompt,
                     messages: normalizedMessages,
                     tools,
@@ -663,7 +670,7 @@ export async function POST(request) {
                 if (isRetryableError(error)) {
                     logger.warn('fallback_triggered_buffered', { error: error.message });
                     const fallback = await generateText({
-                        model: google(MODEL_CONFIG.fallback),
+                        model: google(MODEL_CONFIG.fallback, { safetySettings: MODEL_CONFIG.safetySettings }),
                         system: activeSystemPrompt,
                         messages: normalizedMessages,
                         maxRetries: 1,
@@ -687,7 +694,7 @@ export async function POST(request) {
         // 8. STREAMING EXECUTION (Chat / Tools)
         try {
             const result = streamText({
-                model: google(MODEL_CONFIG.primary),
+                model: google(MODEL_CONFIG.primary, { safetySettings: MODEL_CONFIG.safetySettings }),
                 system: activeSystemPrompt,
                 messages: normalizedMessages,
                 tools,
@@ -713,7 +720,7 @@ export async function POST(request) {
             if (isRetryableError(error)) {
                 logger.warn('fallback_triggered_stream', { error: error.message });
                 const fallback = await generateText({
-                    model: google(MODEL_CONFIG.fallback),
+                    model: google(MODEL_CONFIG.fallback, { safetySettings: MODEL_CONFIG.safetySettings }),
                     system: activeSystemPrompt,
                     messages: normalizedMessages,
                     maxRetries: 1,
