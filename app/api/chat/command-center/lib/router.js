@@ -72,6 +72,10 @@ const INTENT_PATTERNS = [
       /\b(add|create|insert|save|store)\b.*\b(contact|lead|candidate|record)\b/i,
       /\b(update|modify|change)\b.*\b(contact|lead|candidate|record|status)\b/i,
       /\b(delete|remove)\b.*\b(contact|lead|candidate|record)\b/i,
+      // Nova/CRM specific lookups
+      /\bnova\s*(link|url|profile)\b/i,
+      /\b(link|url|profile)\b.*\b(for|to)\b.*\b[A-Z][a-z]+\b/i,
+      /\bcan\s+i\s+(have|get)\b.*\b(link|url|profile)\b/i,
     ],
     requiresTools: true,
   },
@@ -117,17 +121,7 @@ export function classify({ message, history = [] }) {
     };
   }
 
-  // QUESTION GUARD: Questions about content should route to SEARCH_QUERY, not DRAFT_OUTREACH
-  if (QUESTION_INDICATORS.test(normalizedMessage)) {
-    return {
-      intent: Intent.SEARCH_QUERY,
-      requiresTools: false,
-      confidence: 0.85,
-      matchedPattern: 'QUESTION_INDICATOR',
-    };
-  }
-
-  // Check each intent pattern
+  // Check specific intent patterns FIRST (before question guard)
   for (const { intent, patterns, requiresTools } of INTENT_PATTERNS) {
     for (const pattern of patterns) {
       if (pattern.test(normalizedMessage)) {
@@ -139,6 +133,17 @@ export function classify({ message, history = [] }) {
         };
       }
     }
+  }
+
+  // QUESTION GUARD: Only applies if no specific pattern matched
+  // Routes question-like messages to SEARCH_QUERY instead of GENERAL_CHAT
+  if (QUESTION_INDICATORS.test(normalizedMessage)) {
+    return {
+      intent: Intent.SEARCH_QUERY,
+      requiresTools: false,
+      confidence: 0.75,
+      matchedPattern: 'QUESTION_INDICATOR',
+    };
   }
 
   // Context-aware classification from history
