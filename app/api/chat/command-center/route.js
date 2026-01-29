@@ -3,18 +3,16 @@
  * COMMAND CENTER CHAT — ELITE PRODUCTION SERVICE
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * STATUS: PRODUCTION HARDENED v3.2.0
+ * STATUS: PRODUCTION MASTER v3.4.1
  * PLATFORM: Vercel / Next.js (Serverless Optimized)
  *
  * CHANGELOG:
- * - CORE: Integrated @vercel/functions `waitUntil` for non-blocking audits
- * - PERF: Added In-Memory LRU TemplateCache (Sub-ms retrieval on warm paths)
- * - PERF: Restored "Fast Path" rendering (Bypasses LLM if template vars complete)
- * - OPTIMIZATION: Restored "Previous Turn Image" pruning to save tokens
- * - RESILIENCE: Class-based Circuit Breaker with Half-Open recovery
- * - PROTOCOL: Enforced UI Message Stream (Prevents raw 0:/2: artifacts)
- * - SAFETY: Split Sanitization (Quotes for Env, Control Chars for Input)
- * - TEMPLATE: Improved contract with example output format
+ * - CORE: "Omni-Parser" merges experimental_attachments, parts, and content arrays
+ * - FIX: "Deep Search" joins all text inputs (Prevents "Input Length 0" errors)
+ * - ARCHITECTURE: Nested Try/Catch blocks prevent ReferenceErrors during fallback
+ * - RESILIENCE: Restored Fallback Model (Gemini 2.0 Flash) for 429/503 errors
+ * - CONTRACTS: Enhanced Template Logic with Example Output (from v3.3.1)
+ * - ROUTING: Smart Fallback ("Draft email using image") for image-only requests
  */
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -44,7 +42,7 @@ import { validate } from './lib/validator.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // 5 minutes (Vercel Pro/Enterprise Max)
+export const maxDuration = 300;
 
 const MODEL_CONFIG = Object.freeze({
     primary: 'gemini-3-flash-preview',
@@ -55,8 +53,8 @@ const MODEL_CONFIG = Object.freeze({
 });
 
 const TIMEOUT_CONFIG = Object.freeze({
-    soft: 55_000, // 55s soft timeout
-    cacheTTL: 1000 * 60 * 5, // 5 minute template cache
+    soft: 55_000,
+    cacheTTL: 1000 * 60 * 5,
 });
 
 const HEADERS = Object.freeze({
@@ -76,12 +74,9 @@ const TEMPLATE_BY_INTENT = Object.freeze({
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 2: INFRASTRUCTURE CLASSES (SINGLETONS)
+// SECTION 2: INFRASTRUCTURE CLASSES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Structured Logger (JSON)
- */
 class Logger {
     constructor(traceId) {
         this.traceId = traceId;
@@ -97,15 +92,13 @@ class Logger {
             event,
             ...data,
         };
-
         if (error) {
             payload.err = {
                 msg: error.message || String(error),
                 name: error.name,
-                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+                stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
             };
         }
-
         const msg = JSON.stringify(payload);
         if (level === 'ERROR') console.error(msg);
         else console.log(msg);
@@ -116,10 +109,6 @@ class Logger {
     error(event, error, data) { this._log('ERROR', event, data, error); }
 }
 
-/**
- * Stateful Circuit Breaker (Singleton)
- * Protects downstream APIs with "Half-Open" recovery logic.
- */
 class CircuitBreaker {
     constructor(threshold = 5, resetTimeout = 30_000) {
         this.failures = 0;
@@ -158,9 +147,6 @@ class CircuitBreaker {
 }
 const globalBreaker = new CircuitBreaker();
 
-/**
- * LRU-ish Template Cache
- */
 class TemplateCache {
     constructor(ttl = TIMEOUT_CONFIG.cacheTTL) {
         this.cache = new Map();
@@ -185,14 +171,11 @@ class TemplateCache {
 const templateCache = new TemplateCache();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 3: BUSINESS LOGIC UTILITIES
+// SECTION 3: UTILITIES & NORMALIZATION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Validates and sanitizes environment variables.
- * NOTE: Strips quotes (common .env paste issue)
- */
 const sanitizeEnv = (val) => String(val ?? '').trim().replace(/^["']|["']$/g, '');
+
 const EnvSchema = z.object({
     SUPABASE_URL: z.string().transform(sanitizeEnv).pipe(z.string().url()),
     SUPABASE_SERVICE_ROLE_KEY: z.string().transform(sanitizeEnv).pipe(z.string().min(1)),
@@ -204,9 +187,6 @@ const RequestSchema = z.object({
     context: z.record(z.any()).optional(),
 });
 
-/**
- * Fetches templates via Cache -> DB Strategy
- */
 async function fetchTemplate(supabase, name, logger) {
     if (!name) return null;
 
@@ -240,10 +220,6 @@ async function fetchTemplate(supabase, name, logger) {
     return template;
 }
 
-/**
- * Renders template variables.
- * Missing variables become [[MISSING:name]]
- */
 function renderTemplate(templateStr, vars = {}) {
     return templateStr.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key) => {
         const val = vars[key];
@@ -252,7 +228,7 @@ function renderTemplate(templateStr, vars = {}) {
 }
 
 /**
- * Enforces strict output format for the LLM
+ * Enhanced Template Contract (v3.3.1 merged)
  * Includes example output for few-shot guidance
  */
 function buildTemplateContract(template) {
@@ -309,16 +285,12 @@ Thank you!
 `;
 }
 
-/**
- * Protocol Adapter: Forces UI Message Stream
- */
 function asChatResponse(result, init = {}) {
     const headers = { ...init.headers, ...HEADERS.DEFAULT };
 
     if (result && typeof result.toUIMessageStreamResponse === 'function') {
         return result.toUIMessageStreamResponse({ ...init, headers });
     }
-
     if (result && typeof result.toUIMessageStream === 'function') {
         return createUIMessageStreamResponse({
             status: init.status ?? 200,
@@ -327,15 +299,12 @@ function asChatResponse(result, init = {}) {
             stream: result.toUIMessageStream(),
         });
     }
-
     if (result && typeof result.toDataStreamResponse === 'function') {
         return result.toDataStreamResponse({ ...init, headers });
     }
-
     if (result && typeof result.toTextStreamResponse === 'function') {
         return result.toTextStreamResponse({ ...init, headers });
     }
-
     if (result instanceof ReadableStream) {
         return new Response(result, { ...init, headers });
     }
@@ -343,9 +312,6 @@ function asChatResponse(result, init = {}) {
     throw new Error('Unsupported stream result type');
 }
 
-/**
- * Creates a synthetic UI stream for buffered content
- */
 function createBufferedUIResponse(text, { traceId, status, issues } = {}) {
     const blockId = `buffered-${randomUUID()}`;
 
@@ -374,8 +340,8 @@ function createBufferedUIResponse(text, { traceId, status, issues } = {}) {
 }
 
 /**
- * Deep normalizer for multimodal messages
- * Includes "Previous Turn Image" optimization to save tokens
+ * Omni-Parser: Universal Message Normalizer
+ * Merges Vercel `experimental_attachments` + Google `parts`.
  */
 function normalizeMessages(messages) {
     if (!Array.isArray(messages)) return [];
@@ -383,65 +349,79 @@ function normalizeMessages(messages) {
     const lastIndex = messages.length - 1;
 
     return messages.map((msg, index) => {
-        if (!msg.content && typeof msg.content !== 'object') {
-            return { role: msg.role, content: msg.content ?? '' };
+        let parts = [];
+
+        // 1. Consolidate all inputs into a single parts array
+        if (typeof msg.content === 'string') {
+            parts.push({ type: 'text', text: msg.content });
+        } else if (Array.isArray(msg.content)) {
+            parts.push(...msg.content);
+        } else if (Array.isArray(msg.parts)) {
+            parts.push(...msg.parts);
         }
 
-        const potentialContent = Array.isArray(msg.content)
-            ? msg.content
-            : Array.isArray(msg.parts)
-                ? msg.parts
-                : null;
-
-        if (!potentialContent && typeof msg.content === 'string') {
-            return { role: msg.role, content: msg.content };
+        // 2. Merge Attachments (Crucial for Vercel AI SDK Multimodal)
+        if (Array.isArray(msg.experimental_attachments)) {
+            parts.push(...msg.experimental_attachments.map(a => ({
+                type: a.contentType?.startsWith('image/') ? 'image' : 'file',
+                ...a,
+                mimeType: a.contentType
+            })));
+        }
+        if (Array.isArray(msg.attachments)) {
+            parts.push(...msg.attachments.map(a => ({
+                type: a.contentType?.startsWith('image/') ? 'image' : 'file',
+                ...a,
+                mimeType: a.contentType
+            })));
         }
 
-        if (potentialContent) {
-            const content = potentialContent
-                .map((part) => {
-                    if (part.type === 'text') {
-                        return { type: 'text', text: part.text ?? '' };
-                    }
+        // 3. Process & Validate Parts
+        const content = parts.map((part) => {
+            if (!part) return null;
 
-                    const isImage = part.type === 'image' || (part.type === 'file' && part.mimeType?.startsWith('image/'));
+            // TEXT: Accept if type is 'text' OR if type is missing but text property exists
+            if (part.type === 'text' || (!part.type && typeof part.text === 'string')) {
+                return { type: 'text', text: part.text ?? '' };
+            }
 
-                    if (isImage) {
-                        // TOKEN OPTIMIZATION: Replace images from previous turns with placeholder
-                        if (index !== lastIndex) return { type: 'text', text: '[Image from previous turn]' };
+            // IMAGE: Check all possible flags
+            const isImage = part.type === 'image' ||
+                (part.type === 'file' && part.mimeType?.startsWith('image/')) ||
+                part.contentType?.startsWith('image/');
 
-                        if (part.image && typeof part.image === 'string') {
-                            if (part.image.startsWith('http')) {
-                                return { type: 'image', image: new URL(part.image) };
-                            }
-                            return { type: 'image', image: part.image };
-                        }
+            if (isImage) {
+                // Optimization: Prune images from previous turns to save tokens
+                if (index !== lastIndex) return { type: 'text', text: '[Image from previous turn]' };
 
-                        if (part.data) {
-                            const mime = part.mimeType ?? 'image/jpeg';
-                            const dataPrefix = `data:${mime};base64,`;
-                            const data = part.data.startsWith('data:') ? part.data : `${dataPrefix}${part.data}`;
-                            return { type: 'image', image: data };
-                        }
+                // Handle URL (OpenAI style vs Google style)
+                if (typeof part.url === 'string') return { type: 'image', image: new URL(part.url) };
+                if (typeof part.image === 'string') {
+                    if (part.image.startsWith('http')) return { type: 'image', image: new URL(part.image) };
+                    return { type: 'image', image: part.image };
+                }
 
-                        return { type: 'text', text: '[Image]' };
-                    }
+                // Handle Base64
+                if (part.data) {
+                    const mime = part.mimeType ?? part.contentType ?? 'image/jpeg';
+                    const prefix = part.data.startsWith('data:') ? '' : `data:${mime};base64,`;
+                    return { type: 'image', image: `${prefix}${part.data}` };
+                }
 
-                    return null;
-                })
-                .filter(Boolean);
+                // Handle image_url object (OpenAI compat)
+                if (part.image_url?.url) return { type: 'image', image: new URL(part.image_url.url) };
 
-            if (content.length === 0) return { role: msg.role, content: '' };
-            return { role: msg.role, content };
-        }
+                return { type: 'text', text: '[Image]' };
+            }
 
-        return msg;
+            return null;
+        }).filter(Boolean);
+
+        if (content.length === 0) return { role: msg.role, content: '' };
+        return { role: msg.role, content };
     });
 }
 
-/**
- * Async Audit Logger (Non-blocking via waitUntil)
- */
 async function performAuditLog(supabase, traceId, intent, input, validation) {
     try {
         const { error } = await supabase.from('ai_audit_logs').insert({
@@ -483,93 +463,83 @@ export async function POST(request) {
     const traceId = request.headers.get('x-trace-id') || randomUUID();
     const logger = new Logger(traceId);
 
-    // 1. CONFIGURATION CHECK
-    const envResult = EnvSchema.safeParse(process.env);
+    // 1. CONFIGURATION
+    const rawEnv = {
+        ...process.env,
+        GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY
+    };
+
+    const envResult = EnvSchema.safeParse(rawEnv);
     if (!envResult.success) {
-        logger.error('env_validation_failed', envResult.error);
-        return new Response(JSON.stringify({ error: 'System Configuration Error', traceId }), {
-            status: 500, headers: HEADERS.DEFAULT
-        });
+        const missingKeys = envResult.error.issues.map(i => i.path.join('.'));
+        logger.error('env_validation_failed', { missing: missingKeys });
+        return new Response(JSON.stringify({
+            error: 'System Configuration Error',
+            details: `Missing: ${missingKeys.join(', ')}`,
+            traceId
+        }), { status: 500, headers: HEADERS.DEFAULT });
     }
     const env = envResult.data;
 
     // 2. CIRCUIT BREAKER
     if (!globalBreaker.check()) {
         logger.warn('circuit_breaker_active');
-        return new Response(JSON.stringify({
-            error: 'Service temporarily unavailable. Please retry later.',
-            retryAfter: 60, traceId
-        }), {
-            status: 503,
-            headers: { ...HEADERS.DEFAULT, 'Retry-After': '60', 'Content-Type': 'application/json' }
+        return new Response(JSON.stringify({ error: 'Service Unavailable', retryAfter: 60, traceId }), {
+            status: 503, headers: { ...HEADERS.DEFAULT, 'Retry-After': '60' }
         });
     }
 
-    // 3. INPUT PARSING
+    // 3. PARSE INPUT
     let body;
-    try {
-        body = await request.json();
-    } catch {
+    try { body = await request.json(); } catch {
         return new Response(JSON.stringify({ error: 'Invalid JSON', traceId }), { status: 400, headers: HEADERS.DEFAULT });
     }
-
     const parsed = RequestSchema.safeParse(body);
     if (!parsed.success) {
-        logger.warn('invalid_payload', parsed.error);
-        return new Response(JSON.stringify({ error: 'Invalid Request Schema', traceId }), {
-            status: 400, headers: { ...HEADERS.DEFAULT, 'Content-Type': 'application/json' }
-        });
+        return new Response(JSON.stringify({ error: 'Invalid Schema', traceId }), { status: 400, headers: HEADERS.DEFAULT });
     }
-
     const { messages, context } = parsed.data;
 
-    // 4. INITIALIZE CLIENTS
+    // 4. CLIENTS
     const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
         auth: { persistSession: false },
         global: { headers: { 'x-trace-id': traceId } },
     });
-
-    const google = createGoogleGenerativeAI({
-        apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
-    });
-
+    const google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY });
     const abortController = new AbortController();
-    const softTimeout = setTimeout(() => {
-        logger.warn('soft_timeout_triggered');
-        abortController.abort();
-    }, TIMEOUT_CONFIG.soft);
-
-    // Declare variables needed in catch block
-    let normalizedMessages = [];
-    let inputText = '';
-    let systemPrompt = '';
+    const softTimeout = setTimeout(() => abortController.abort(), TIMEOUT_CONFIG.soft);
 
     try {
-        // 5. INTENT & STRATEGY
-        normalizedMessages = normalizeMessages(messages);
+        // 5. INTENT CLASSIFICATION (Deep Extraction)
+        const normalizedMessages = normalizeMessages(messages);
         const lastUserMsg = normalizedMessages.findLast(m => m.role === 'user');
 
-        // Extract and sanitize input text (strip control chars for security)
+        // FIX: Combine ALL text parts to ensure we don't miss the prompt
         const rawInputText = Array.isArray(lastUserMsg?.content)
-            ? lastUserMsg.content.find(p => p.type === 'text')?.text ?? ''
+            ? lastUserMsg.content
+                .filter(p => p.type === 'text')
+                .map(p => p.text)
+                .join('\n')
             : lastUserMsg?.content ?? '';
-        inputText = String(rawInputText).replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 
-        const classification = classify({
-            message: inputText || 'Start interaction',
-            history: normalizedMessages
+        const inputText = String(rawInputText).replace(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, "");
+        const hasImage = Array.isArray(lastUserMsg?.content) && lastUserMsg.content.some(p => p.type === 'image');
+
+        logger.info('classification_input', {
+            inputText: inputText.slice(0, 100),
+            inputLength: inputText.length,
+            hasImage
         });
 
-        // DEBUG: Log the actual input text for troubleshooting classification
-        logger.info('classification_input', {
-            inputText: inputText.slice(0, 200),
-            inputLength: inputText.length,
-            hasImage: Array.isArray(lastUserMsg?.content) && lastUserMsg.content.some(p => p.type === 'image')
+        // SMART ROUTING: Use template-specific prompt if image but no text
+        const classification = classify({
+            message: inputText || (hasImage ? 'Draft a pay package outreach email using this image' : 'Start interaction'),
+            history: normalizedMessages
         });
 
         logger.info('intent_classified', { intent: classification.intent, tools: classification.requiresTools });
 
-        systemPrompt = [
+        const systemPrompt = [
             getPromptForIntent(classification.intent),
             context ? `\n\nCONTEXT:\n${JSON.stringify(context, null, 2)}` : '',
             `\nCurrent Time: ${new Date().toISOString()}`
@@ -579,49 +549,79 @@ export async function POST(request) {
         const tools = shouldProvideTools ? createCommandCenterTools(supabase) : undefined;
         const isBuffered = classification.intent === Intent.EDIT_CONTENT;
         const needsTemplate = classification.intent === Intent.DRAFT_OUTREACH;
-
         let activeSystemPrompt = systemPrompt;
 
-        // 6. TEMPLATE HANDLING & FAST PATH
+        // 6. TEMPLATE PROCESSING
         if (needsTemplate) {
             const templateName = TEMPLATE_BY_INTENT[classification.intent];
             const template = await fetchTemplate(supabase, templateName, logger);
-
             if (template) {
                 const vars = context || {};
                 const missingVars = template.variables.filter(v => !vars[v]);
 
-                // FAST PATH: Skip LLM if we have all variables
+                // FAST PATH: Direct Render (skip LLM if all vars present)
                 if (missingVars.length === 0 && isBuffered) {
-                    const subject = renderTemplate(template.subject, vars);
-                    const body = renderTemplate(template.body, vars);
-                    const preRenderedOutput = `Subject: ${subject}\n\n${body}`;
-
-                    logger.info('template_fast_path', { templateName });
+                    const output = `Subject: ${renderTemplate(template.subject, vars)}\n\n${renderTemplate(template.body, vars)}`;
                     clearTimeout(softTimeout);
-
-                    const validation = validate(preRenderedOutput, { autoFix: true });
+                    const validation = validate(output, { autoFix: true });
                     waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
-
-                    return createBufferedUIResponse(validation.text, {
-                        traceId,
-                        status: 'template_direct',
-                        issues: validation.issues ?? []
-                    });
+                    return createBufferedUIResponse(validation.text, { traceId, status: 'template_direct' });
                 }
 
-                // LLM PATH: Inject Contract
-                const templateContract = buildTemplateContract(template);
-                activeSystemPrompt += '\n\n' + templateContract;
+                // LLM PATH: Inject template contract
+                activeSystemPrompt += '\n\n' + buildTemplateContract(template);
                 logger.info('template_contract_applied', { templateName, missingVars: missingVars.slice(0, 5) });
             }
         }
 
-        // ═══════════════════════════════════════════════════════════════
-        // STRATEGY A: BUFFERED RESPONSE (Edit / Template)
-        // ═══════════════════════════════════════════════════════════════
+        // 7. BUFFERED EXECUTION (Edit / Template)
         if (isBuffered) {
-            const result = await generateText({
+            try {
+                const result = await generateText({
+                    model: google(MODEL_CONFIG.primary),
+                    system: activeSystemPrompt,
+                    messages: normalizedMessages,
+                    tools,
+                    toolChoice: shouldProvideTools ? 'auto' : undefined,
+                    stopWhen: stepCountIs(MODEL_CONFIG.maxSteps),
+                    maxRetries: MODEL_CONFIG.maxRetries,
+                    temperature: MODEL_CONFIG.temperature,
+                    abortSignal: abortController.signal,
+                });
+
+                clearTimeout(softTimeout);
+                globalBreaker.recordSuccess();
+
+                const text = result.text || (result.toolCalls?.length ? 'Tools used.' : 'No output.');
+                const validation = validate(text, { autoFix: true });
+                waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
+
+                return createBufferedUIResponse(validation.text, { traceId, status: 'valid', issues: validation.issues });
+
+            } catch (error) {
+                // NESTED FALLBACK: activeSystemPrompt stays in scope!
+                if (isRetryableError(error)) {
+                    logger.warn('fallback_triggered_buffered', { error: error.message });
+                    const fallback = await generateText({
+                        model: google(MODEL_CONFIG.fallback),
+                        system: activeSystemPrompt,
+                        messages: normalizedMessages,
+                        maxRetries: 1,
+                    });
+
+                    clearTimeout(softTimeout);
+                    const text = fallback.text || 'Fallback response.';
+                    waitUntil(performAuditLog(supabase, traceId, 'FALLBACK', inputText, { text, valid: true }));
+
+                    return createBufferedUIResponse(text, { traceId, status: 'fallback' });
+                }
+                throw error;
+            }
+        }
+
+        // 8. STREAMING EXECUTION (Chat / Tools)
+        try {
+            const result = streamText({
                 model: google(MODEL_CONFIG.primary),
                 system: activeSystemPrompt,
                 messages: normalizedMessages,
@@ -631,100 +631,46 @@ export async function POST(request) {
                 maxRetries: MODEL_CONFIG.maxRetries,
                 temperature: MODEL_CONFIG.temperature,
                 abortSignal: abortController.signal,
+                onError: ({ error }) => { logger.error('stream_fail', error); globalBreaker.recordFailure(); },
+                onFinish: ({ text, finishReason, usage }) => {
+                    clearTimeout(softTimeout);
+                    globalBreaker.recordSuccess();
+                    const validation = validate(text);
+                    logger.info('stream_completed', { finishReason, tokens: usage?.totalTokens, valid: validation.valid });
+                    waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
+                }
             });
 
-            clearTimeout(softTimeout);
-            globalBreaker.recordSuccess();
+            return asChatResponse(result, { headers: { 'x-trace-id': traceId } });
 
-            const outputText =
-                result.text ||
-                (result.toolCalls?.length > 0
-                    ? `Processed using ${result.toolCalls.length} tool(s).`
-                    : 'No response text generated.');
-
-            const validation = validate(outputText, { autoFix: true });
-
-            waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
-
-            return createBufferedUIResponse(validation.text, {
-                traceId,
-                status: validation.valid ? 'valid' : 'warning',
-                issues: validation.issues
-            });
-        }
-
-        // ═══════════════════════════════════════════════════════════════
-        // STRATEGY B: STREAMING RESPONSE (Chat / Tools)
-        // ═══════════════════════════════════════════════════════════════
-        const result = streamText({
-            model: google(MODEL_CONFIG.primary),
-            system: activeSystemPrompt,
-            messages: normalizedMessages,
-            tools,
-            toolChoice: shouldProvideTools ? 'auto' : undefined,
-            stopWhen: stepCountIs(MODEL_CONFIG.maxSteps),
-            maxRetries: MODEL_CONFIG.maxRetries,
-            temperature: MODEL_CONFIG.temperature,
-            abortSignal: abortController.signal,
-            onError: ({ error }) => {
-                logger.error('stream_failure', error);
-                globalBreaker.recordFailure();
-            },
-            onFinish: ({ text, finishReason, usage }) => {
-                clearTimeout(softTimeout);
-                globalBreaker.recordSuccess();
-
-                const validation = validate(text);
-                logger.info('stream_completed', {
-                    finishReason,
-                    tokens: usage?.totalTokens,
-                    valid: validation.valid
-                });
-
-                waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
-            },
-        });
-
-        return asChatResponse(result, {
-            headers: { 'x-trace-id': traceId }
-        });
-
-    } catch (error) {
-        clearTimeout(softTimeout);
-
-        // FALLBACK LOGIC
-        if (isRetryableError(error)) {
-            logger.warn('triggering_fallback', { originalError: error.message });
-            globalBreaker.recordFailure();
-
-            try {
-                const fallbackResult = await generateText({
+        } catch (error) {
+            // NESTED FALLBACK: activeSystemPrompt stays in scope!
+            if (isRetryableError(error)) {
+                logger.warn('fallback_triggered_stream', { error: error.message });
+                const fallback = await generateText({
                     model: google(MODEL_CONFIG.fallback),
-                    system: systemPrompt,
+                    system: activeSystemPrompt,
                     messages: normalizedMessages,
                     maxRetries: 1,
                 });
 
-                const outputText =
-                    fallbackResult.text ||
-                    (fallbackResult.toolCalls?.length > 0
-                        ? `Processed using ${fallbackResult.toolCalls.length} tool(s).`
-                        : 'No response text generated.');
+                clearTimeout(softTimeout);
+                const text = fallback.text || 'Fallback response.';
+                waitUntil(performAuditLog(supabase, traceId, 'FALLBACK', inputText, { text, valid: true }));
 
-                waitUntil(performAuditLog(supabase, traceId, 'FALLBACK', inputText, { text: outputText, valid: true }));
-
-                return createBufferedUIResponse(outputText, { traceId, status: 'fallback' });
-            } catch (fallbackErr) {
-                logger.error('fallback_failed', fallbackErr);
+                return createBufferedUIResponse(text, { traceId, status: 'fallback' });
             }
-        } else {
-            logger.error('fatal_error', error);
+            throw error;
         }
 
-        const isTimeout = error.name === 'AbortError' || error.message?.includes('timeout');
-        return new Response(JSON.stringify({ error: isTimeout ? 'Request timed out' : 'Internal Service Error', traceId }), {
-            status: isTimeout ? 504 : 500,
-            headers: { ...HEADERS.DEFAULT, 'Content-Type': 'application/json' }
-        });
+    } catch (error) {
+        clearTimeout(softTimeout);
+        logger.error('handler_error', error);
+
+        const isTimeout = error.name === 'AbortError';
+        return new Response(JSON.stringify({
+            error: isTimeout ? 'Request timed out' : 'Processing Error',
+            traceId
+        }), { status: isTimeout ? 504 : 500, headers: HEADERS.DEFAULT });
     }
 }
