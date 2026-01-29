@@ -560,6 +560,13 @@ export async function POST(request) {
             history: normalizedMessages
         });
 
+        // DEBUG: Log the actual input text for troubleshooting classification
+        logger.info('classification_input', {
+            inputText: inputText.slice(0, 200),
+            inputLength: inputText.length,
+            hasImage: Array.isArray(lastUserMsg?.content) && lastUserMsg.content.some(p => p.type === 'image')
+        });
+
         logger.info('intent_classified', { intent: classification.intent, tools: classification.requiresTools });
 
         systemPrompt = [
