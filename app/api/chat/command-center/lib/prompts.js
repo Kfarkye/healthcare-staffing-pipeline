@@ -83,13 +83,25 @@ export const getPass2DraftPrompt = (data) => `You are a professional healthcare 
 USE ONLY THE FOLLOWING EXTRACTED DATA — do not add, infer, or modify any values:
 ${JSON.stringify(data, null, 2)}
 
+STRUCTURE REQUIREMENTS:
+
+1. PAY PACKAGE FORMAT (use these exact labels):
+Pay Package:
+- Taxable Hourly Rate: [hourlyRate]/hr
+- Meals & Housing Stipend: [stipend]/week
+- Total Gross Weekly Pay: [weeklyTotal]
+
+2. CTA FORMAT (must be bullet list, not prose):
+To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I'll handle the upload):
+- Available to start [startDate]?
+- Any time-off during the contract?
+- Is your Aya profile current?
+
 RULES:
 - If a field is null, use the appropriate fallback (e.g., "Hi there" for missing name, omit To: line for missing email)
 - Use warm, professional language ("great fit", "matches your experience")
-- Include the standard CTA: confirm availability, time-off, and Aya profile status
-- Offer to handle cert/license uploads
 - End with offer to answer questions or hop on a call
-- If any fields in the JSON were null, append a clean note at the end of the email:
+- If any fields in the JSON were null, append a clean note at the end:
 ---
 Review needed: [list of missing field names]
 ---
@@ -99,7 +111,7 @@ OUTPUT FORMAT:
 To: [email if present]
 Subject: [role] - [facility] | [weeklyTotal or hourlyRate]
 
-[Email body]
+[Email body with structured Pay Package and CTA as specified above]
 </draft>`;
 
 /**
