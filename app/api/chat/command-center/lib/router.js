@@ -74,8 +74,8 @@ const INTENT_PATTERNS = [
       /\b(delete|remove)\b.*\b(contact|lead|candidate|record)\b/i,
       // Nova/CRM specific lookups
       /\bnova\s*(link|url|profile)\b/i,
-      /\b(link|url|profile)\b.*\b(for|to)\b.*\b[A-Z][a-z]+\b/i,
-      /\bcan\s+i\s+(have|get)\b.*\b(link|url|profile)\b/i,
+      /\b(link|url|profile)\b.*\b(for|to)\b.*[a-z]{2,}/i,
+      /\bcan\s+i\s+(have|get)\b.*\b(link|url|profile|nova)\b/i,
     ],
     requiresTools: true,
   },
