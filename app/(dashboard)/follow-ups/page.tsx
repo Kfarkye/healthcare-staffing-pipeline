@@ -5,7 +5,7 @@ import LoadingFallback from '../../../src/components/LoadingFallback';
 
 const FollowUpDashboard = dynamic(
     () => import('../../../src/components/NewFollowUpDashboard'),
-    { loading: () => <LoadingFallback /> }
+    { loading: () => <LoadingFallback />, ssr: false }
 );
 
 export default function FollowUpsPage() {

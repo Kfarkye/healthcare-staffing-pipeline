@@ -5,7 +5,7 @@ import LoadingFallback from '../../../src/components/LoadingFallback';
 
 const PriorityDashboard = dynamic(
     () => import('../../../src/components/PriorityDashboard'),
-    { loading: () => <LoadingFallback /> }
+    { loading: () => <LoadingFallback />, ssr: false }
 );
 
 export default function TravelPage() {

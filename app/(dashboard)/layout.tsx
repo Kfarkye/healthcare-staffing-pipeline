@@ -7,6 +7,9 @@ import { CommandCenterV2 } from '../../src/components/CommandCenterV2';
 import { useLayout } from '../../src/context/LayoutContext';
 import { motion, AnimatePresence } from 'framer-motion';
 
+// Force all dashboard routes to be dynamic - skip static generation
+export const dynamic = 'force-dynamic';
+
 export default function DashboardLayout({ children }: { children: ReactNode }) {
     const { workspaceMode } = useLayout();
     const pathname = usePathname();

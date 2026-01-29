@@ -5,7 +5,7 @@ import LoadingFallback from '../../../src/components/LoadingFallback';
 
 const ActiveAssignmentsDashboard = dynamic(
     () => import('../../../src/components/ActiveAssignmentsDashboard'),
-    { loading: () => <LoadingFallback /> }
+    { loading: () => <LoadingFallback />, ssr: false }
 );
 
 export default function ActivePage() {

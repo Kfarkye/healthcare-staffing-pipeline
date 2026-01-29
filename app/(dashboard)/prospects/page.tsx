@@ -5,7 +5,7 @@ import LoadingFallback from '../../../src/components/LoadingFallback';
 
 const ProspectsDashboard = dynamic(
     () => import('../../../src/components/ProspectsDashboard'),
-    { loading: () => <LoadingFallback /> }
+    { loading: () => <LoadingFallback />, ssr: false }
 );
 
 export default function ProspectsPage() {

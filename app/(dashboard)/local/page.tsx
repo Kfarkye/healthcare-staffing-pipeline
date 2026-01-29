@@ -5,7 +5,7 @@ import LoadingFallback from '../../../src/components/LoadingFallback';
 
 const LocalJobsDashboard = dynamic(
     () => import('../../../src/components/placeholders/LocalJobsDashboard'),
-    { loading: () => <LoadingFallback /> }
+    { loading: () => <LoadingFallback />, ssr: false }
 );
 
 export default function LocalPage() {
