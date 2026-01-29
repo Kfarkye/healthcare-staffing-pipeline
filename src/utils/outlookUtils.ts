@@ -11,6 +11,21 @@ export const buildOutlookLink = (to: string, cc: string | undefined, subject: st
 };
 
 /**
+ * Builds a deep link for composing an email in Gmail Web.
+ */
+export const buildGmailLink = (to: string, cc: string | undefined, subject: string, body: string): string => {
+    const encodeParam = (s: string): string => encodeURIComponent(s ?? '');
+    const cleanSubject = stripMarkdown(subject);
+    const cleanBody = stripMarkdown(body);
+
+    let url = `https://mail.google.com/mail/?view=cm&fs=1`;
+    if (to) url += `&to=${encodeParam(to)}`;
+    if (cc) url += `&cc=${encodeParam(cc)}`;
+    url += `&su=${encodeParam(cleanSubject)}&body=${encodeParam(cleanBody)}`;
+    return url;
+};
+
+/**
  * Strips basic markdown artifacts (asterisks, etc.) for clean copy-pasting.
  */
 export const stripMarkdown = (text: string): string => {

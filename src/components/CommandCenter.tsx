@@ -27,7 +27,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCommandCenterChat } from '../features/command-center-chat/hooks/useCommandCenterChat';
-import { buildOutlookLink, extractEmailFields, stripMarkdown, isLikelyEmail } from '../utils/outlookUtils';
+import { buildOutlookLink, buildGmailLink, extractEmailFields, stripMarkdown, isLikelyEmail } from '../utils/outlookUtils';
 import { PrecisionCard } from './shared/PrecisionCard';
 import { useLayout } from '../context/LayoutContext';
 import { cn } from '../lib/utils';
@@ -466,7 +466,18 @@ export const CommandCenter: React.FC = () => {
                                                                                     title="Open in Outlook"
                                                                                 >
                                                                                     <Mail size={12} />
-                                                                                    <span>Open in Outlook</span>
+                                                                                    <span>Outlook</span>
+                                                                                </a>
+                                                                                {/* Open in Gmail Button */}
+                                                                                <a
+                                                                                    href={buildGmailLink(recipientEmail, undefined, subject, stripMarkdown(body))}
+                                                                                    target="_blank"
+                                                                                    rel="noopener noreferrer"
+                                                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-300 hover:text-rose-200 transition-all text-[11px] font-semibold"
+                                                                                    title="Open in Gmail"
+                                                                                >
+                                                                                    <Mail size={12} />
+                                                                                    <span>Gmail</span>
                                                                                 </a>
                                                                             </div>
                                                                         </div>

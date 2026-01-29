@@ -292,7 +292,25 @@ const EmailCard: FC<{ to?: string; subject: string; body: string }> = memo(({ to
             {/* Command Bar Footer */}
             <div className="px-4 py-3 border-t border-white/[0.06] bg-white/[0.02] flex items-center gap-2">
                 <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleOpenOutlook} className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20 hover:text-indigo-300 transition-all text-[12px] font-medium group">
-                    <Mail size={14} /> Open in Outlook
+                    <Mail size={14} /> Outlook
+                </motion.button>
+                <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                        triggerHaptic();
+                        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1${to ? `&to=${encodeURIComponent(to)}` : ''}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(formattedBody)}`;
+                        if (gmailUrl.length > 2000) {
+                            handleCopy(formattedBody, 'all');
+                            showToast("Draft too long for link. Content copied to clipboard.");
+                            window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(subject)}`, '_blank');
+                        } else {
+                            window.open(gmailUrl, '_blank');
+                        }
+                    }}
+                    className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 transition-all text-[12px] font-medium group"
+                >
+                    <Mail size={14} /> Gmail
                 </motion.button>
                 <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => handleCopy(formattedBody, 'body')} className={cn('px-4 py-2 rounded-xl border transition-all text-[12px] font-medium', copiedField === 'body' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-white/[0.04] border-white/[0.06] text-zinc-400 hover:text-white')}>
                     {copiedField === 'body' ? <span className="flex items-center gap-1.5"><Check size={14} /> Copied</span> : 'Copy Body'}
