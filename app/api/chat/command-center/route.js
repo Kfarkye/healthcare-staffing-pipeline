@@ -498,10 +498,13 @@ export async function POST(request) {
             context ? `\n\nCONTEXT:\n${JSON.stringify(context, null, 2)}` : '',
         ].join('');
 
-        const tools = classification.requiresTools ? createCommandCenterTools(supabase) : undefined;
+        // DRAFT_OUTREACH uses template contract injection, so no tools needed
+        // (prevents model from calling tools instead of generating templated text)
+        const shouldProvideTools = classification.requiresTools &&
+            classification.intent !== Intent.DRAFT_OUTREACH;
 
-        // CRITICAL: Keep auto
-        const toolChoice = 'auto';
+        const tools = shouldProvideTools ? createCommandCenterTools(supabase) : undefined;
+        const toolChoice = shouldProvideTools ? 'auto' : undefined;
 
         // PHASE 6: SOFT TIMEOUT
         const abortController = new AbortController();
