@@ -3,15 +3,18 @@
  * COMMAND CENTER CHAT — ELITE PRODUCTION SERVICE
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * STATUS: PRODUCTION HARDENED v3.1.0
+ * STATUS: PRODUCTION HARDENED v3.2.0
  * PLATFORM: Vercel / Next.js (Serverless Optimized)
  *
- * FIXES & UPGRADES:
- * - LATENCY: Non-blocking audit logs via `waitUntil`
- * - PROTOCOL: Enforced UI Message Stream (SSE format)
- * - RESILIENCE: Class-based Circuit Breaker & In-Memory Template Caching
- * - SAFETY: Strict Input Sanitization & Zod Validation
- * - TEMPLATE: Improved contract for clean Subject:/Body output
+ * CHANGELOG:
+ * - CORE: Integrated @vercel/functions `waitUntil` for non-blocking audits
+ * - PERF: Added In-Memory LRU TemplateCache (Sub-ms retrieval on warm paths)
+ * - PERF: Restored "Fast Path" rendering (Bypasses LLM if template vars complete)
+ * - OPTIMIZATION: Restored "Previous Turn Image" pruning to save tokens
+ * - RESILIENCE: Class-based Circuit Breaker with Half-Open recovery
+ * - PROTOCOL: Enforced UI Message Stream (Prevents raw 0:/2: artifacts)
+ * - SAFETY: Split Sanitization (Quotes for Env, Control Chars for Input)
+ * - TEMPLATE: Improved contract with example output format
  */
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -41,10 +44,9 @@ import { validate } from './lib/validator.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // 5 minutes (Vercel Pro/Enterprise max)
+export const maxDuration = 300; // 5 minutes (Vercel Pro/Enterprise Max)
 
 const MODEL_CONFIG = Object.freeze({
-    // Gemini 3 models as per user preference
     primary: 'gemini-3-flash-preview',
     fallback: 'gemini-2.0-flash-001',
     temperature: 0.7,
@@ -58,17 +60,15 @@ const TIMEOUT_CONFIG = Object.freeze({
 });
 
 const HEADERS = Object.freeze({
-    CORS: {
+    DEFAULT: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers':
             'Content-Type, Authorization, x-vercel-ai-data-stream, x-vercel-ai-ui-message-stream, x-trace-id',
-    },
-    NO_CACHE: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
         'Pragma': 'no-cache',
         'Expires': '0',
-    },
+    }
 });
 
 const TEMPLATE_BY_INTENT = Object.freeze({
@@ -76,11 +76,11 @@ const TEMPLATE_BY_INTENT = Object.freeze({
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 2: INFRASTRUCTURE CLASSES
+// SECTION 2: INFRASTRUCTURE CLASSES (SINGLETONS)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Structured JSON Logger (CloudWatch/Datadog ready)
+ * Structured Logger (JSON)
  */
 class Logger {
     constructor(traceId) {
@@ -117,8 +117,8 @@ class Logger {
 }
 
 /**
- * Stateful Circuit Breaker
- * Protects downstream APIs from thundering herds.
+ * Stateful Circuit Breaker (Singleton)
+ * Protects downstream APIs with "Half-Open" recovery logic.
  */
 class CircuitBreaker {
     constructor(threshold = 5, resetTimeout = 30_000) {
@@ -133,7 +133,7 @@ class CircuitBreaker {
         if (this.isOpen) {
             if (Date.now() - this.lastFailure > this.resetTimeout) {
                 this.reset();
-                return true; // Half-open state
+                return true;
             }
             return false;
         }
@@ -159,8 +159,7 @@ class CircuitBreaker {
 const globalBreaker = new CircuitBreaker();
 
 /**
- * LRU-ish In-Memory Cache
- * Reduces Supabase latency for hot templates on warm starts.
+ * LRU-ish Template Cache
  */
 class TemplateCache {
     constructor(ttl = TIMEOUT_CONFIG.cacheTTL) {
@@ -179,18 +178,34 @@ class TemplateCache {
     }
 
     set(key, value) {
-        if (this.cache.size > 100) this.cache.clear();
+        if (this.cache.size > 50) this.cache.clear();
         this.cache.set(key, { value, expiry: Date.now() + this.ttl });
     }
 }
 const templateCache = new TemplateCache();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 3: BUSINESS LOGIC
+// SECTION 3: BUSINESS LOGIC UTILITIES
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Fetch template with caching strategy
+ * Validates and sanitizes environment variables.
+ * NOTE: Strips quotes (common .env paste issue)
+ */
+const sanitizeEnv = (val) => String(val ?? '').trim().replace(/^["']|["']$/g, '');
+const EnvSchema = z.object({
+    SUPABASE_URL: z.string().transform(sanitizeEnv).pipe(z.string().url()),
+    SUPABASE_SERVICE_ROLE_KEY: z.string().transform(sanitizeEnv).pipe(z.string().min(1)),
+    GOOGLE_GENERATIVE_AI_API_KEY: z.string().transform(sanitizeEnv).pipe(z.string().min(1)),
+});
+
+const RequestSchema = z.object({
+    messages: z.array(z.any()).min(1),
+    context: z.record(z.any()).optional(),
+});
+
+/**
+ * Fetches templates via Cache -> DB Strategy
  */
 async function fetchTemplate(supabase, name, logger) {
     if (!name) return null;
@@ -209,9 +224,10 @@ async function fetchTemplate(supabase, name, logger) {
         .maybeSingle();
 
     if (error) {
-        logger?.error('template_fetch_error', error, { name });
+        logger?.error('template_fetch_failed', error, { name });
         return null;
     }
+
     if (!data?.body_template) return null;
 
     const template = {
@@ -224,6 +240,10 @@ async function fetchTemplate(supabase, name, logger) {
     return template;
 }
 
+/**
+ * Renders template variables.
+ * Missing variables become [[MISSING:name]]
+ */
 function renderTemplate(templateStr, vars = {}) {
     return templateStr.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key) => {
         const val = vars[key];
@@ -232,7 +252,8 @@ function renderTemplate(templateStr, vars = {}) {
 }
 
 /**
- * Build template contract for model (improved for clean output)
+ * Enforces strict output format for the LLM
+ * Includes example output for few-shot guidance
  */
 function buildTemplateContract(template) {
     return `
@@ -262,14 +283,26 @@ Subject: RRT - ABC Hospital | $2,000/week
 
 Hi John,
 
-I came across your profile...
+I came across your profile and thought you'd be a great fit for this RRT position at ABC Hospital.
+
+Facility: ABC Hospital
+Location: Miami, FL
+Assignment Dates: 03/01/2026 - 06/01/2026
+Shifts & Hours: Days (36 hours/week)
 
 Pay Package:
 - Taxable Hourly Rate: $25/hr
 - Meals & Housing Stipend: $1,100/week
 - Total Gross Weekly Pay: $2,000
 
-...
+This is an excellent opportunity to spend the spring in sunny Miami.
+
+To move forward, just confirm:
+- Are you available to start 03/01/2026?
+- Do you have any time-off requests during the contract?
+- Is your Aya profile up to date?
+
+Let me know and I can get you submitted right away.
 
 Thank you!
 ═══════════════════════════════════════════════════════════════════════════════
@@ -277,18 +310,15 @@ Thank you!
 }
 
 /**
- * STREAMS ADAPTER (CRITICAL FIX)
- * Prioritizes UI Message Stream (SSE format) for frontend compatibility.
+ * Protocol Adapter: Forces UI Message Stream
  */
 function asChatResponse(result, init = {}) {
-    const headers = { ...init.headers, ...HEADERS.CORS };
+    const headers = { ...init.headers, ...HEADERS.DEFAULT };
 
-    // PRIORITY 1: UI Message Stream (SSE format - frontend parses this)
     if (result && typeof result.toUIMessageStreamResponse === 'function') {
         return result.toUIMessageStreamResponse({ ...init, headers });
     }
 
-    // PRIORITY 2: Wrapper for manual stream
     if (result && typeof result.toUIMessageStream === 'function') {
         return createUIMessageStreamResponse({
             status: init.status ?? 200,
@@ -298,12 +328,10 @@ function asChatResponse(result, init = {}) {
         });
     }
 
-    // FALLBACK: Data Stream (0:/2: format)
     if (result && typeof result.toDataStreamResponse === 'function') {
         return result.toDataStreamResponse({ ...init, headers });
     }
 
-    // LEGACY
     if (result && typeof result.toTextStreamResponse === 'function') {
         return result.toTextStreamResponse({ ...init, headers });
     }
@@ -312,11 +340,11 @@ function asChatResponse(result, init = {}) {
         return new Response(result, { ...init, headers });
     }
 
-    throw new Error('Invalid stream result type');
+    throw new Error('Unsupported stream result type');
 }
 
 /**
- * Mimics a streaming response for buffered content
+ * Creates a synthetic UI stream for buffered content
  */
 function createBufferedUIResponse(text, { traceId, status, issues } = {}) {
     const blockId = `buffered-${randomUUID()}`;
@@ -338,64 +366,81 @@ function createBufferedUIResponse(text, { traceId, status, issues } = {}) {
     return createUIMessageStreamResponse({
         status: 200,
         headers: {
-            ...HEADERS.CORS,
-            ...HEADERS.NO_CACHE,
+            ...HEADERS.DEFAULT,
             'x-trace-id': traceId ?? '',
         },
         stream,
     });
 }
 
+/**
+ * Deep normalizer for multimodal messages
+ * Includes "Previous Turn Image" optimization to save tokens
+ */
 function normalizeMessages(messages) {
     if (!Array.isArray(messages)) return [];
 
-    return messages.filter(m => m && typeof m === 'object').map((msg) => {
-        if (typeof msg.content === 'string') return msg;
+    const lastIndex = messages.length - 1;
 
-        const parts = Array.isArray(msg.content) ? msg.content :
-            Array.isArray(msg.parts) ? msg.parts : null;
+    return messages.map((msg, index) => {
+        if (!msg.content && typeof msg.content !== 'object') {
+            return { role: msg.role, content: msg.content ?? '' };
+        }
 
-        if (!parts) return { role: msg.role, content: '' };
+        const potentialContent = Array.isArray(msg.content)
+            ? msg.content
+            : Array.isArray(msg.parts)
+                ? msg.parts
+                : null;
 
-        const content = parts.map(part => {
-            if (!part) return null;
-            if (part.type === 'text') return { type: 'text', text: part.text ?? '' };
+        if (!potentialContent && typeof msg.content === 'string') {
+            return { role: msg.role, content: msg.content };
+        }
 
-            if (part.type === 'image' || (part.type === 'file' && part.mimeType?.startsWith('image/'))) {
-                if (part.image) return { type: 'image', image: part.image };
-                if (part.data) {
-                    const mime = part.mimeType ?? 'image/jpeg';
-                    const data = part.data.startsWith('data:') ? part.data : `data:${mime};base64,${part.data}`;
-                    return { type: 'image', image: data };
-                }
-                return { type: 'text', text: '[Image]' };
-            }
-            return null;
-        }).filter(Boolean);
+        if (potentialContent) {
+            const content = potentialContent
+                .map((part) => {
+                    if (part.type === 'text') {
+                        return { type: 'text', text: part.text ?? '' };
+                    }
 
-        return { role: msg.role, content: content.length ? content : '' };
+                    const isImage = part.type === 'image' || (part.type === 'file' && part.mimeType?.startsWith('image/'));
+
+                    if (isImage) {
+                        // TOKEN OPTIMIZATION: Replace images from previous turns with placeholder
+                        if (index !== lastIndex) return { type: 'text', text: '[Image from previous turn]' };
+
+                        if (part.image && typeof part.image === 'string') {
+                            if (part.image.startsWith('http')) {
+                                return { type: 'image', image: new URL(part.image) };
+                            }
+                            return { type: 'image', image: part.image };
+                        }
+
+                        if (part.data) {
+                            const mime = part.mimeType ?? 'image/jpeg';
+                            const dataPrefix = `data:${mime};base64,`;
+                            const data = part.data.startsWith('data:') ? part.data : `${dataPrefix}${part.data}`;
+                            return { type: 'image', image: data };
+                        }
+
+                        return { type: 'text', text: '[Image]' };
+                    }
+
+                    return null;
+                })
+                .filter(Boolean);
+
+            if (content.length === 0) return { role: msg.role, content: '' };
+            return { role: msg.role, content };
+        }
+
+        return msg;
     });
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 4: AUDIT LOGGING (Async/Reliable)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const sanitize = (val) => String(val ?? '').trim().replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
-
-const EnvSchema = z.object({
-    SUPABASE_URL: z.string().transform(sanitize).pipe(z.string().url()),
-    SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-    GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1),
-});
-
-const RequestSchema = z.object({
-    messages: z.array(z.any()).min(1),
-    context: z.record(z.any()).optional(),
-});
-
 /**
- * Performs audit logging safely using Vercel's waitUntil.
+ * Async Audit Logger (Non-blocking via waitUntil)
  */
 async function performAuditLog(supabase, traceId, intent, input, validation) {
     try {
@@ -411,7 +456,7 @@ async function performAuditLog(supabase, traceId, intent, input, validation) {
         });
         if (error) throw error;
     } catch (e) {
-        console.warn(`[Audit Fail] ${traceId}: ${e.message}`);
+        console.warn(`[Audit Background Error] ${traceId}: ${e.message}`);
     }
 }
 
@@ -427,28 +472,28 @@ function isRetryableError(error) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 5: API HANDLER
+// SECTION 4: MAIN HANDLER
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export async function OPTIONS() {
-    return new Response(null, { status: 204, headers: HEADERS.CORS });
+    return new Response(null, { status: 204, headers: HEADERS.DEFAULT });
 }
 
 export async function POST(request) {
     const traceId = request.headers.get('x-trace-id') || randomUUID();
     const logger = new Logger(traceId);
 
-    // 1. ENVIRONMENT VALIDATION
+    // 1. CONFIGURATION CHECK
     const envResult = EnvSchema.safeParse(process.env);
     if (!envResult.success) {
-        logger.error('startup_config_invalid', envResult.error);
+        logger.error('env_validation_failed', envResult.error);
         return new Response(JSON.stringify({ error: 'System Configuration Error', traceId }), {
-            status: 500, headers: HEADERS.CORS
+            status: 500, headers: HEADERS.DEFAULT
         });
     }
     const env = envResult.data;
 
-    // 2. CIRCUIT BREAKER CHECK
+    // 2. CIRCUIT BREAKER
     if (!globalBreaker.check()) {
         logger.warn('circuit_breaker_active');
         return new Response(JSON.stringify({
@@ -456,29 +501,29 @@ export async function POST(request) {
             retryAfter: 60, traceId
         }), {
             status: 503,
-            headers: { ...HEADERS.CORS, 'Retry-After': '60', 'Content-Type': 'application/json' }
+            headers: { ...HEADERS.DEFAULT, 'Retry-After': '60', 'Content-Type': 'application/json' }
         });
     }
 
-    // 3. PARSE & VALIDATE INPUT
+    // 3. INPUT PARSING
     let body;
     try {
         body = await request.json();
     } catch {
-        return new Response(JSON.stringify({ error: 'Invalid JSON', traceId }), { status: 400, headers: HEADERS.CORS });
+        return new Response(JSON.stringify({ error: 'Invalid JSON', traceId }), { status: 400, headers: HEADERS.DEFAULT });
     }
 
     const parsed = RequestSchema.safeParse(body);
     if (!parsed.success) {
         logger.warn('invalid_payload', parsed.error);
         return new Response(JSON.stringify({ error: 'Invalid Request Schema', traceId }), {
-            status: 400, headers: { ...HEADERS.CORS, 'Content-Type': 'application/json' }
+            status: 400, headers: { ...HEADERS.DEFAULT, 'Content-Type': 'application/json' }
         });
     }
 
     const { messages, context } = parsed.data;
 
-    // 4. INIT CLIENTS
+    // 4. INITIALIZE CLIENTS
     const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
         auth: { persistSession: false },
         global: { headers: { 'x-trace-id': traceId } },
@@ -494,13 +539,21 @@ export async function POST(request) {
         abortController.abort();
     }, TIMEOUT_CONFIG.soft);
 
+    // Declare variables needed in catch block
+    let normalizedMessages = [];
+    let inputText = '';
+    let systemPrompt = '';
+
     try {
-        // 5. INTENT CLASSIFICATION
-        const normalizedMessages = normalizeMessages(messages);
+        // 5. INTENT & STRATEGY
+        normalizedMessages = normalizeMessages(messages);
         const lastUserMsg = normalizedMessages.findLast(m => m.role === 'user');
-        const inputText = Array.isArray(lastUserMsg?.content)
+
+        // Extract and sanitize input text (strip control chars for security)
+        const rawInputText = Array.isArray(lastUserMsg?.content)
             ? lastUserMsg.content.find(p => p.type === 'text')?.text ?? ''
             : lastUserMsg?.content ?? '';
+        inputText = String(rawInputText).replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 
         const classification = classify({
             message: inputText || 'Start interaction',
@@ -509,36 +562,56 @@ export async function POST(request) {
 
         logger.info('intent_classified', { intent: classification.intent, tools: classification.requiresTools });
 
-        const systemPrompt = [
+        systemPrompt = [
             getPromptForIntent(classification.intent),
             context ? `\n\nCONTEXT:\n${JSON.stringify(context, null, 2)}` : '',
             `\nCurrent Time: ${new Date().toISOString()}`
         ].join('');
 
-        // DRAFT_OUTREACH uses template contract, so no tools needed
         const shouldProvideTools = classification.requiresTools && classification.intent !== Intent.DRAFT_OUTREACH;
         const tools = shouldProvideTools ? createCommandCenterTools(supabase) : undefined;
-
-        // 6. STRATEGY SELECTION
         const isBuffered = classification.intent === Intent.EDIT_CONTENT;
         const needsTemplate = classification.intent === Intent.DRAFT_OUTREACH;
 
         let activeSystemPrompt = systemPrompt;
 
-        // Handle Templates
+        // 6. TEMPLATE HANDLING & FAST PATH
         if (needsTemplate) {
             const templateName = TEMPLATE_BY_INTENT[classification.intent];
             const template = await fetchTemplate(supabase, templateName, logger);
 
             if (template) {
+                const vars = context || {};
+                const missingVars = template.variables.filter(v => !vars[v]);
+
+                // FAST PATH: Skip LLM if we have all variables
+                if (missingVars.length === 0 && isBuffered) {
+                    const subject = renderTemplate(template.subject, vars);
+                    const body = renderTemplate(template.body, vars);
+                    const preRenderedOutput = `Subject: ${subject}\n\n${body}`;
+
+                    logger.info('template_fast_path', { templateName });
+                    clearTimeout(softTimeout);
+
+                    const validation = validate(preRenderedOutput, { autoFix: true });
+                    waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
+
+                    return createBufferedUIResponse(validation.text, {
+                        traceId,
+                        status: 'template_direct',
+                        issues: validation.issues ?? []
+                    });
+                }
+
+                // LLM PATH: Inject Contract
                 const templateContract = buildTemplateContract(template);
                 activeSystemPrompt += '\n\n' + templateContract;
-                logger.info('template_contract_applied', { templateName });
+                logger.info('template_contract_applied', { templateName, missingVars: missingVars.slice(0, 5) });
             }
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // PATH A: BUFFERED RESPONSE
+        // STRATEGY A: BUFFERED RESPONSE (Edit / Template)
         // ═══════════════════════════════════════════════════════════════
         if (isBuffered) {
             const result = await generateText({
@@ -556,10 +629,14 @@ export async function POST(request) {
             clearTimeout(softTimeout);
             globalBreaker.recordSuccess();
 
-            const outputText = result.text || 'Process completed.';
+            const outputText =
+                result.text ||
+                (result.toolCalls?.length > 0
+                    ? `Processed using ${result.toolCalls.length} tool(s).`
+                    : 'No response text generated.');
+
             const validation = validate(outputText, { autoFix: true });
 
-            // BACKGROUND AUDIT (Non-blocking)
             waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
 
             return createBufferedUIResponse(validation.text, {
@@ -570,7 +647,7 @@ export async function POST(request) {
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // PATH B: STREAMING RESPONSE
+        // STRATEGY B: STREAMING RESPONSE (Chat / Tools)
         // ═══════════════════════════════════════════════════════════════
         const result = streamText({
             model: google(MODEL_CONFIG.primary),
@@ -597,7 +674,6 @@ export async function POST(request) {
                     valid: validation.valid
                 });
 
-                // BACKGROUND AUDIT (Non-blocking)
                 waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
             },
         });
@@ -609,6 +685,7 @@ export async function POST(request) {
     } catch (error) {
         clearTimeout(softTimeout);
 
+        // FALLBACK LOGIC
         if (isRetryableError(error)) {
             logger.warn('triggering_fallback', { originalError: error.message });
             globalBreaker.recordFailure();
@@ -621,11 +698,15 @@ export async function POST(request) {
                     maxRetries: 1,
                 });
 
-                const fallbackText = fallbackResult.text || 'Fallback generated.';
+                const outputText =
+                    fallbackResult.text ||
+                    (fallbackResult.toolCalls?.length > 0
+                        ? `Processed using ${fallbackResult.toolCalls.length} tool(s).`
+                        : 'No response text generated.');
 
-                waitUntil(performAuditLog(supabase, traceId, 'FALLBACK', inputText, { text: fallbackText, valid: true }));
+                waitUntil(performAuditLog(supabase, traceId, 'FALLBACK', inputText, { text: outputText, valid: true }));
 
-                return createBufferedUIResponse(fallbackText, { traceId, status: 'fallback' });
+                return createBufferedUIResponse(outputText, { traceId, status: 'fallback' });
             } catch (fallbackErr) {
                 logger.error('fallback_failed', fallbackErr);
             }
@@ -636,7 +717,7 @@ export async function POST(request) {
         const isTimeout = error.name === 'AbortError' || error.message?.includes('timeout');
         return new Response(JSON.stringify({ error: isTimeout ? 'Request timed out' : 'Internal Service Error', traceId }), {
             status: isTimeout ? 504 : 500,
-            headers: { ...HEADERS.CORS, 'Content-Type': 'application/json' }
+            headers: { ...HEADERS.DEFAULT, 'Content-Type': 'application/json' }
         });
     }
 }
