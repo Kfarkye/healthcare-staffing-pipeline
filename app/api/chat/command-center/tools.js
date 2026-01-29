@@ -154,7 +154,15 @@ export function createCommandCenterTools(supabase) {
         // ═══════════════════════════════════════════════════════════════════════════
 
         list_templates: tool({
-            description: 'List all available communication templates. Use this to see what templates exist before drafting.',
+            description: `List all available communication templates.
+            
+            USE THIS WHEN:
+            - User asks "what templates do I have?" or "list my templates"
+            - User wants to see available email styles before drafting
+            
+            DO NOT USE THIS WHEN:
+            - You are already in the middle of drafting an email (the correct template should already be in your prompt)
+            - You have already listed the templates in this conversation session`,
             parameters: z.object({
                 category: z.enum(['active', 'prospect', 'retention', 'all']).optional()
                     .describe('Filter by category: active (for travelers), prospect (cold outreach), retention, or all'),
@@ -186,7 +194,15 @@ export function createCommandCenterTools(supabase) {
         }),
 
         get_template: tool({
-            description: 'Get a specific email template by name. Returns subject and body with variable placeholders.',
+            description: `Retrieve the full content of a specific communication template.
+            
+            USE THIS WHEN:
+            - You need to see the exact wording or merge variables for a specific named template
+            - You are about to draft an email and need the base template structure
+            
+            DO NOT USE THIS WHEN:
+            - The template content (subject/body) is already provided in your system prompt or previous turn
+            - You are performing a general search or lookup`,
             parameters: z.object({
                 template_name: z.string().describe('Template name (e.g., "reassignment_request", "cold_outreach", "extension_request")'),
                 category: z.enum(['active', 'prospect', 'retention']).optional().describe('Optional category filter'),
@@ -225,7 +241,16 @@ export function createCommandCenterTools(supabase) {
         // ═══════════════════════════════════════════════════════════════════════════
 
         search_all_candidates: tool({
-            description: 'Search for a candidate by name across ALL sources (prospects AND active travelers). This is the PRIMARY search tool.',
+            description: `Search for a candidate by name across ALL sources (prospects AND active travelers).
+            
+            USE THIS WHEN:
+            - User mentions a person's name and asks for their details, link, or email
+            - User asks for a "Nova link", "Aya link", or "profile URL"
+            - User wants to know the current status or facility of a specific candidate
+            
+            DO NOT USE THIS WHEN:
+            - The user is asking a general question about staffing or recruitment
+            - No specific person name or identifier is mentioned in the prompt`,
             parameters: z.object({
                 name: z.string().min(1).describe('The candidate name to search for (partial match supported)'),
             }),
@@ -291,7 +316,15 @@ export function createCommandCenterTools(supabase) {
         }),
 
         search_prospects: tool({
-            description: 'Search the prospect pipeline specifically. Use for filtering by specialty, state, or status.',
+            description: `Search the prospect pipeline specifically.
+            
+            USE THIS WHEN:
+            - User wants to filter prospects by specialty, state, or status
+            - User asks "show me all ICU nurses" or "prospects in California"
+            
+            DO NOT USE THIS WHEN:
+            - User just wants to look up one specific person by name (use search_all_candidates instead)
+            - No filtering criteria are mentioned`,
             parameters: z.object({
                 name: z.string().optional(),
                 specialty: z.string().optional(),
@@ -323,7 +356,16 @@ export function createCommandCenterTools(supabase) {
         }),
 
         search_travel_list: tool({
-            description: 'Search the active traveler list. Use for finding current contractors or upcoming ends.',
+            description: `Search the active traveler list for current contractors.
+            
+            USE THIS WHEN:
+            - User asks about active travelers or current contractors
+            - User wants to see contracts ending soon
+            - User asks about a specific facility's travelers
+            
+            DO NOT USE THIS WHEN:
+            - User is looking up a prospect (not yet placed)
+            - User just wants a Nova link for someone (use search_all_candidates instead)`,
             parameters: z.object({
                 name: z.string().optional(),
                 facility: z.string().optional(),
@@ -358,7 +400,15 @@ export function createCommandCenterTools(supabase) {
         }),
 
         get_prospect_details: tool({
-            description: 'Retrieve full profile details for a specific candidate by nova_id (preferred) or name.',
+            description: `Retrieve full profile details for a specific candidate.
+            
+            USE THIS WHEN:
+            - You already have a nova_id and need full details
+            - User wants comprehensive profile info beyond what search returned
+            
+            DO NOT USE THIS WHEN:
+            - You don't have an identifier yet (use search_all_candidates first)
+            - User just wants a quick link or email (search results include those)`,
             parameters: z.object({
                 nova_id: z.number().optional(),
                 name: z.string().optional(),
@@ -407,7 +457,15 @@ export function createCommandCenterTools(supabase) {
         // ═══════════════════════════════════════════════════════════════════════════
 
         add_prospect: tool({
-            description: 'Create a new prospect record. REQUIRES nova_id.',
+            description: `Create a new prospect record in the pipeline.
+            
+            USE THIS WHEN:
+            - User explicitly says "add this candidate" or "save this prospect"
+            - User provides a Nova URL or ID and wants to track them
+            
+            DO NOT USE THIS WHEN:
+            - User is just looking up existing candidates
+            - User hasn't provided a Nova ID or URL (ask for it first)`,
             parameters: z.object({
                 name: z.string().min(1),
                 nova_id: z.number().optional(),
@@ -458,7 +516,15 @@ export function createCommandCenterTools(supabase) {
         }),
 
         update_prospect_status: tool({
-            description: 'Move a candidate to a different pipeline stage.',
+            description: `Move a candidate to a different pipeline stage.
+            
+            USE THIS WHEN:
+            - User says "mark as contacted" or "move to interested"
+            - User wants to update a prospect's status
+            
+            DO NOT USE THIS WHEN:
+            - User is just looking up or searching for candidates
+            - User hasn't specified which status to move to`,
             parameters: z.object({
                 nova_id: z.number(),
                 new_status: z.enum(['New', 'Contacted', 'Interested', 'Passive', 'Rotation']),

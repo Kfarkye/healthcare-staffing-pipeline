@@ -121,13 +121,13 @@ export function classify({ message, history = [] }) {
     };
   }
 
-  // Check specific intent patterns FIRST (before question guard)
-  for (const { intent, patterns, requiresTools } of INTENT_PATTERNS) {
+  // 1. Check specific intent patterns
+  for (const { intent, patterns } of INTENT_PATTERNS) {
     for (const pattern of patterns) {
       if (pattern.test(normalizedMessage)) {
         return {
           intent,
-          requiresTools,
+          requiresTools: true,
           confidence: 0.85,
           matchedPattern: pattern.source,
         };
@@ -135,18 +135,16 @@ export function classify({ message, history = [] }) {
     }
   }
 
-  // QUESTION GUARD: Only applies if no specific pattern matched
-  // Routes question-like messages to SEARCH_QUERY instead of GENERAL_CHAT
-  if (QUESTION_INDICATORS.test(normalizedMessage)) {
+  // 2. Fallback: If it's a question or requests a "link/profile", treat as potential DATABASE_ACTION
+  if (QUESTION_INDICATORS.test(normalizedMessage) || /\b(link|profile|nova)\b/i.test(normalizedMessage)) {
     return {
-      intent: Intent.SEARCH_QUERY,
-      requiresTools: false,
-      confidence: 0.75,
-      matchedPattern: 'QUESTION_INDICATOR',
+      intent: Intent.DATABASE_ACTION,
+      requiresTools: true,
+      confidence: 0.8,
     };
   }
 
-  // Context-aware classification from history
+  // 3. Context-aware classification from history
   const historyContext = analyzeHistoryContext(history);
   if (historyContext.intent !== Intent.UNKNOWN) {
     return {
@@ -156,7 +154,7 @@ export function classify({ message, history = [] }) {
     };
   }
 
-  // Default to general chat
+  // 4. Default to general chat
   return {
     intent: Intent.GENERAL_CHAT,
     requiresTools: false,

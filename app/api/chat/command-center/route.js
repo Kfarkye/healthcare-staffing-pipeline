@@ -530,7 +530,7 @@ export async function POST(request) {
             `\nCurrent Time: ${new Date().toISOString()}`
         ].join('');
 
-        const shouldProvideTools = classification.requiresTools && classification.intent !== Intent.DRAFT_OUTREACH;
+        const shouldProvideTools = classification.intent !== Intent.DRAFT_OUTREACH;
         const tools = shouldProvideTools ? createCommandCenterTools(supabase) : undefined;
 
         // BUFFERING STRATEGY: DRAFT_OUTREACH is buffered to enable deep link injection
