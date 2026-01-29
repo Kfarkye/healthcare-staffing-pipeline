@@ -234,7 +234,15 @@ export function useCommandCenterChat(
 
         try {
             // 5. Build API request with multimodal support
-            const requestMessages = newHistory.slice(0, -1).map(m => {
+            // TRUNCATE: Keep only the last N messages to prevent 413 errors
+            // Keep ~20 back-and-forth exchanges (40 messages) max
+            const MAX_HISTORY_MESSAGES = 40;
+            const historyForApi = newHistory.slice(0, -1); // Exclude placeholder assistant message
+            const truncatedHistory = historyForApi.length > MAX_HISTORY_MESSAGES
+                ? historyForApi.slice(-MAX_HISTORY_MESSAGES)
+                : historyForApi;
+
+            const requestMessages = truncatedHistory.map(m => {
                 // If message has parts (multimodal), send parts
                 if (m.parts && m.parts.length > 0) {
                     return {
