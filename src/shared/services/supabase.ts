@@ -4,8 +4,11 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Next.js environment pattern - provide fallbacks for static generation
-// Next.js environment pattern - provide fallbacks for static generation
+/**
+ * Environment Variable Sanitization
+ * - Strips surrounding quotes (handles Vercel copy-paste errors)
+ * - Returns empty string for undefined/null (fallback for SSG)
+ */
 const rawSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseUrl = rawSupabaseUrl.trim().replace(/^["']|["']$/g, '');
 

@@ -1,3 +1,13 @@
+/**
+ * Environment Variable Utilities
+ * 
+ * Centralized validation for required environment variables.
+ * Includes sanitization to handle common Vercel configuration errors.
+ * 
+ * @module src/lib/env
+ */
+
+/** Supported environment variable keys */
 type EnvKey =
     | "NEXT_PUBLIC_SUPABASE_URL"
     | "NEXT_PUBLIC_SUPABASE_ANON_KEY"

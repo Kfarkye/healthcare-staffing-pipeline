@@ -1,3 +1,16 @@
+/**
+ * Server Supabase Client (Next.js 15 Compatible)
+ * 
+ * Use this in Server Components, Route Handlers, and Server Actions.
+ * Handles cookies for session management with async Next.js 15 API.
+ * 
+ * @example
+ * const supabase = await createServerSupabaseClient();
+ * const { data } = await supabase.from('table').select('*');
+ * 
+ * @module src/lib/supabase/server
+ */
+
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { requireEnv, requireHttpUrl } from "@/lib/env";
