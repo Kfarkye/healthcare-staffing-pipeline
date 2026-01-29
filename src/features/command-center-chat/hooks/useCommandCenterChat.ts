@@ -364,17 +364,21 @@ export function useCommandCenterChat(
                     // Channel 2 = Metadata, Channel 9 = Error — ignore for display
                 }
 
-                // Throttle React state updates
+                // Throttle React state updates (optimized to minimize allocations)
                 if (Date.now() - lastRenderTime > RENDER_THROTTLE_MS) {
                     setMessages(prev => {
+                        const lastIdx = prev.length - 1;
+                        if (lastIdx < 0 || prev[lastIdx].role !== 'assistant') return prev;
+
+                        // Skip update if content hasn't changed
+                        if (prev[lastIdx].content === accumulatedText) return prev;
+
+                        // Only create new array when content changed
                         const updated = [...prev];
-                        const lastIdx = updated.length - 1;
-                        if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
-                            updated[lastIdx] = {
-                                ...updated[lastIdx],
-                                content: accumulatedText,
-                            };
-                        }
+                        updated[lastIdx] = {
+                            ...updated[lastIdx],
+                            content: accumulatedText,
+                        };
                         return updated;
                     });
                     lastRenderTime = Date.now();

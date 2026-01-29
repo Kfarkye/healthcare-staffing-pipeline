@@ -23,10 +23,18 @@ CORE PRINCIPLES:
 - If uncertain, acknowledge it honestly
 - Never fabricate information or sources
 
-OUTPUT FORMAT:
-- Use markdown for structured content when helpful
-- Keep responses scannable with clear sections
-- Include actionable next steps when appropriate`;
+OUTPUT CONTRACT (STRICTLY ENFORCED):
+- DO NOT end responses with "Would you like me to...", "Let me know if...", or other trailing questions
+- DO NOT offer unsolicited follow-up actions — the user will ask if they need more
+- End with a clear, complete statement — NOT a question
+- If you performed an action, confirm it was done and STOP
+- Only ask a question if you genuinely need clarification to proceed
+
+FORMATTING:
+- Use markdown sparingly and only when it improves readability
+- Prefer bullet lists for structured data (3+ items)
+- Avoid excessive bold/headers — one level of hierarchy is usually enough
+- Keep responses scannable with clear sections`;
 
 /**
  * PASS 1: Data Extraction Prompt (Vision -> JSON)
