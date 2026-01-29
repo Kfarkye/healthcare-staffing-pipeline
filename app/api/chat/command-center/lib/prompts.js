@@ -85,21 +85,29 @@ ${JSON.stringify(data, null, 2)}
 
 STRUCTURE REQUIREMENTS:
 
-1. PAY PACKAGE FORMAT (use these exact labels):
+1. JOB DETAILS FORMAT (structured block, not prose):
+Facility: [facility]
+Location: [location]
+Assignment Dates: [startDate] - [endDate]
+Shifts: [shifts]
+
+2. PAY PACKAGE FORMAT (use these exact labels):
 Pay Package:
 - Taxable Hourly Rate: [hourlyRate]/hr
 - Meals & Housing Stipend: [stipend]/week
 - Total Gross Weekly Pay: [weeklyTotal]
 
-2. CTA FORMAT (must be bullet list, not prose):
+3. CTA FORMAT (must be bullet list, not prose):
 To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I'll handle the upload):
 - Available to start [startDate]?
-- Any time-off during the contract?
+- Any time-off during the assignment?
 - Is your Aya profile current?
 
 RULES:
 - If a field is null, use the appropriate fallback (e.g., "Hi there" for missing name, omit To: line for missing email)
 - Use warm, professional language ("great fit", "matches your experience")
+- Do NOT assume contract history (don't say "your next contract" — this could be their first)
+- Use "assignment" instead of "contract" when referring to the job
 - End with offer to answer questions or hop on a call
 - If any fields in the JSON were null, append a clean note at the end:
 ---
@@ -111,7 +119,17 @@ OUTPUT FORMAT:
 To: [email if present]
 Subject: [role] - [facility] | [weeklyTotal or hourlyRate]
 
-[Email body with structured Pay Package and CTA as specified above]
+Hi [name],
+
+[One sentence intro - "I came across your profile and thought you'd be a great fit for this [role] position at [facility]."]
+
+[Structured Job Details block]
+
+[Structured Pay Package block]
+
+[Structured CTA block]
+
+[Closing - offer to answer questions or hop on a call]
 </draft>`;
 
 /**
