@@ -32,6 +32,11 @@ export const Intent = Object.freeze({
 });
 
 /**
+ * Questions about content should NOT trigger drafting
+ */
+const QUESTION_INDICATORS = /^(what|how|why|show|describe|tell|explain|analyze|summarize|can you|could you|please)\b/i;
+
+/**
  * Intent patterns for classification
  * Ordered by specificity (most specific first)
  */
@@ -109,6 +114,16 @@ export function classify({ message, history = [] }) {
       intent: Intent.GENERAL_CHAT,
       requiresTools: false,
       confidence: 0.9,
+    };
+  }
+
+  // QUESTION GUARD: Questions about content should route to SEARCH_QUERY, not DRAFT_OUTREACH
+  if (QUESTION_INDICATORS.test(normalizedMessage)) {
+    return {
+      intent: Intent.SEARCH_QUERY,
+      requiresTools: false,
+      confidence: 0.85,
+      matchedPattern: 'QUESTION_INDICATOR',
     };
   }
 
