@@ -1,13 +1,11 @@
-'use client';
+import ActiveAssignmentsDashboard from '../../../src/components/ActiveAssignmentsDashboard';
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
-import dynamic from 'next/dynamic';
-import LoadingFallback from '../../../src/components/LoadingFallback';
+export const dynamic = "force-dynamic";
 
-const ActiveAssignmentsDashboard = dynamic(
-    () => import('../../../src/components/ActiveAssignmentsDashboard'),
-    { loading: () => <LoadingFallback />, ssr: false }
-);
+export default async function ActivePage() {
+    // Validate env vars on the server to fail fast if missing
+    await createServerSupabaseClient();
 
-export default function ActivePage() {
     return <ActiveAssignmentsDashboard />;
 }

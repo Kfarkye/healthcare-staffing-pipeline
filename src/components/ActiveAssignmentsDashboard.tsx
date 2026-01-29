@@ -1,3 +1,5 @@
+'use client';
+
 // ============================================================================
 // src/components/ActiveAssignmentsDashboard.tsx
 // JONY IVE CLARITY: Every element earns its place
