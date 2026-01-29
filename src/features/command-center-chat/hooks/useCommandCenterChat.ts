@@ -85,6 +85,19 @@ function generateId(): string {
 }
 
 /**
+ * FNV-1a hash for payload deduplication (prevents double-send)
+ */
+function hashPayload(content: string, attachmentCount: number): string {
+    const s = `${content}|${attachmentCount}`;
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return String(h >>> 0);
+}
+
+/**
  * Custom hook to memoize context objects using deep equality.
  * Prevents infinite loops when consumers pass inline objects.
  */
@@ -116,6 +129,8 @@ export function useCommandCenterChat(
     // Refs ensure we always access the latest state inside async closures
     const abortControllerRef = useRef<AbortController | null>(null);
     const messagesRef = useRef<CommandCenterMessage[]>([]);
+    const inFlightRef = useRef(false);        // Hard gate for in-flight requests
+    const lastPayloadHashRef = useRef<string | null>(null);  // Duplicate payload detection
 
     // Sync ref with state automatically
     useEffect(() => {
@@ -136,12 +151,25 @@ export function useCommandCenterChat(
         if (!content.trim() && (!attachments || attachments.length === 0)) return;
 
         // ═══════════════════════════════════════════════════════════════════
-        // IN-FLIGHT GUARD: Prevents double-fetch (ghost error fix)
+        // DOUBLE-SEND PREVENTION (3 Guards)
         // ═══════════════════════════════════════════════════════════════════
-        if (abortControllerRef.current && !abortControllerRef.current.signal.aborted) {
-            console.warn('[CommandCenterChat] Blocking duplicate request - previous request still in flight');
+
+        // Guard 1: Hard in-flight gate (survives React state transitions)
+        if (inFlightRef.current) {
+            console.warn('[CommandCenterChat] BLOCKED: Request already in flight');
             return;
         }
+
+        // Guard 2: Duplicate payload detection (prevents double-click/double-effect)
+        const payloadHash = hashPayload(content, attachments?.length ?? 0);
+        if (lastPayloadHashRef.current === payloadHash) {
+            console.warn('[CommandCenterChat] BLOCKED: Duplicate payload detected');
+            return;
+        }
+
+        // Lock immediately before any async work
+        inFlightRef.current = true;
+        lastPayloadHashRef.current = payloadHash;
 
         // Create new abort controller for this request
         abortControllerRef.current = new AbortController();
@@ -149,6 +177,7 @@ export function useCommandCenterChat(
 
         // Generate request ID for tracing
         const requestId = generateId();
+        console.log(`[CommandCenterChat] Request ${requestId} starting (hash: ${payloadHash})`);
 
         // 2. Build multimodal parts for API
         const parts: MessagePart[] = [];
@@ -287,9 +316,18 @@ export function useCommandCenterChat(
                             if (event.type === 'text-delta' && typeof event.delta === 'string') {
                                 accumulatedText += event.delta;
                             }
+                            // CRITICAL: Detect error finish reason from server
+                            if (event.type === 'finish' && event.finishReason === 'error') {
+                                console.error(`[CommandCenterChat] Server returned finishReason: error`);
+                                throw new Error('Server stream failed with error');
+                            }
                             // text-start, text-end, start-step, finish-step, etc. are ignored
                             continue;
-                        } catch {
+                        } catch (parseErr) {
+                            // Re-throw if it's our intentional error
+                            if (parseErr instanceof Error && parseErr.message.includes('finishReason')) {
+                                throw parseErr;
+                            }
                             // Not valid JSON, try data-stream protocol
                         }
                     }
@@ -364,14 +402,25 @@ export function useCommandCenterChat(
                 return prev;
             });
         } finally {
-            // Reset abort controller to allow new requests
+            // ═══════════════════════════════════════════════════════════════════
+            // RELEASE ALL GUARDS
+            // ═══════════════════════════════════════════════════════════════════
+            inFlightRef.current = false;
             abortControllerRef.current = null;
+
+            // Allow resending same payload after short delay (for legitimate retries)
+            const currentHash = lastPayloadHashRef.current;
+            setTimeout(() => {
+                if (lastPayloadHashRef.current === currentHash) {
+                    lastPayloadHashRef.current = null;
+                }
+            }, 300);
 
             if (!signal.aborted) {
                 setIsLoading(false);
                 setIsStreaming(false);
             }
-            console.debug(`[CommandCenterChat] Request ${requestId} completed`);
+            console.log(`[CommandCenterChat] Request ${requestId} completed`);
         }
     }, [stableContext, onError]);
 
