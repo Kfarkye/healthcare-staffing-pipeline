@@ -170,6 +170,55 @@ function createBufferedResponse(text, metadata = {}) {
 }
 
 /**
+ * Safe streaming response converter
+ * Handles AI SDK version differences between local and Vercel environments
+ * 
+ * @param {Object} result - The streamText result object
+ * @param {Object} init - Response init options (headers, etc.)
+ * @returns {Response} - HTTP streaming response
+ */
+function asStreamResponse(result, init = {}) {
+    // AI SDK v6+ data stream protocol (what useChat expects)
+    if (result && typeof result.toDataStreamResponse === 'function') {
+        return result.toDataStreamResponse(init);
+    }
+
+    // Fallback: plain text streaming response
+    if (result && typeof result.toTextStreamResponse === 'function') {
+        return result.toTextStreamResponse(init);
+    }
+
+    // Lower-level: if toDataStream exists, wrap it manually
+    if (result && typeof result.toDataStream === 'function') {
+        return new Response(result.toDataStream(), {
+            ...init,
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'x-vercel-ai-data-stream': 'v1',
+                ...(init.headers || {}),
+            },
+        });
+    }
+
+    // Last resort: direct ReadableStream
+    if (result instanceof ReadableStream) {
+        return new Response(result, {
+            ...init,
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                ...(init.headers || {}),
+            },
+        });
+    }
+
+    // Debug: log available methods for troubleshooting
+    const methods = Object.keys(result || {}).filter(k => typeof result[k] === 'function');
+    throw new TypeError(
+        `Unsupported streaming result. Available methods: ${methods.join(', ') || 'none'}`
+    );
+}
+
+/**
  * Normalizes message content for model consumption
  * - Handles both msg.content AND msg.parts (critical for client compatibility)
  * - Extracts text from complex content structures
@@ -632,15 +681,9 @@ export async function POST(request) {
                 },
             });
 
-            // AI SDK v6.0 Native Streaming (explicit Response pattern for compatibility)
-            return new Response(result.toDataStream(), {
-                status: 200,
-                headers: {
-                    ...CORS_HEADERS,
-                    'Content-Type': 'text/plain; charset=utf-8',
-                    'x-vercel-ai-data-stream': 'v1',
-                    'x-trace-id': traceId,
-                },
+            // AI SDK streaming response (version-tolerant)
+            return asStreamResponse(result, {
+                headers: { ...CORS_HEADERS, 'x-trace-id': traceId },
             });
 
         } catch (execError) {
