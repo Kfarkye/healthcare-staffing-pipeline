@@ -66,6 +66,83 @@ const CORS_HEADERS = Object.freeze({
         'Content-Type, Authorization, x-vercel-ai-data-stream, x-vercel-ai-ui-message-stream, x-trace-id',
 });
 
+/**
+ * Intent-to-Template Mapping
+ * Server decides which template to use — model cannot override
+ */
+const TEMPLATE_BY_INTENT = Object.freeze({
+    DRAFT_OUTREACH: 'pay_package_outreach',
+    // Add more mappings as needed:
+    // EXTENSION_REQUEST: 'extension_request',
+    // REASSIGNMENT: 'reassignment_request',
+});
+
+/**
+ * Fetch template from database (server-side, deterministic)
+ * @param {SupabaseClient} supabase
+ * @param {string} name - Template name
+ * @returns {Promise<{subject: string, body: string, variables: string[]} | null>}
+ */
+async function fetchTemplate(supabase, name) {
+    const { data, error } = await supabase
+        .from('communication_templates')
+        .select('subject_template, body_template, required_variables')
+        .eq('name', name)
+        .eq('is_active', true)
+        .maybeSingle();
+
+    if (error || !data?.body_template) return null;
+
+    return {
+        subject: data.subject_template ?? '',
+        body: data.body_template,
+        variables: Array.isArray(data.required_variables) ? data.required_variables : [],
+    };
+}
+
+/**
+ * Render template with variables (deterministic, no LLM needed)
+ * Missing variables become [[MISSING:varname]] for visibility
+ * @param {string} templateStr - Template with {{varname}} placeholders
+ * @param {Record<string, any>} vars - Variable values from context
+ * @returns {string}
+ */
+function renderTemplate(templateStr, vars = {}) {
+    return templateStr.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key) => {
+        const val = vars[key];
+        if (val === undefined || val === null || val === '') {
+            return `[[MISSING:${key}]]`;
+        }
+        return String(val);
+    });
+}
+
+/**
+ * Build template contract for model (hard structure enforcement)
+ * @param {{subject: string, body: string}} template
+ * @returns {string}
+ */
+function buildTemplateContract(template) {
+    return `
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY OUTPUT CONTRACT — TEMPLATE-FIRST ENFORCEMENT
+═══════════════════════════════════════════════════════════════════════════════
+
+You MUST use EXACTLY this template structure. Do not invent headings, reorder sections, or improvise.
+Fill placeholders only. If data is missing, leave placeholder as [[MISSING:field_name]].
+
+TEMPLATE SUBJECT:
+${template.subject}
+
+TEMPLATE BODY:
+${template.body}
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT: Return the filled template exactly as structured above.
+═══════════════════════════════════════════════════════════════════════════════
+`;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 2: INPUT VALIDATION & SANITIZATION
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -441,9 +518,64 @@ export async function POST(request) {
             if (isBufferedIntent) {
                 logger.info('strategy_buffered');
 
+                // ═══════════════════════════════════════════════════════════════
+                // SERVER-ENFORCED TEMPLATE (Best Practice)
+                // The server fetches the template — model cannot bypass this
+                // ═══════════════════════════════════════════════════════════════
+                const templateName = TEMPLATE_BY_INTENT[classification.intent];
+                let templateContract = '';
+                let preRenderedOutput = null;
+
+                if (templateName && classification.intent === Intent.DRAFT_OUTREACH) {
+                    const template = await fetchTemplate(supabase, templateName);
+
+                    if (template) {
+                        logger.info('template_fetched', { name: templateName });
+
+                        // Check if we have enough context to render directly (skip LLM)
+                        const vars = context || {};
+                        const missingVars = template.variables.filter(v => !vars[v]);
+
+                        if (missingVars.length === 0) {
+                            // FAST PATH: All variables present — render without LLM
+                            const subject = renderTemplate(template.subject, vars);
+                            const body = renderTemplate(template.body, vars);
+                            preRenderedOutput = `Subject: ${subject}\n\n${body}`;
+                            logger.info('template_rendered_direct', { templateName });
+                        } else {
+                            // LLM PATH: Inject template as hard contract
+                            templateContract = buildTemplateContract(template);
+                            logger.info('template_contract_injected', {
+                                templateName,
+                                missingVars: missingVars.slice(0, 5)
+                            });
+                        }
+                    } else {
+                        logger.warn('template_not_found', { name: templateName });
+                    }
+                }
+
+                // If pre-rendered, skip LLM entirely
+                if (preRenderedOutput) {
+                    clearTimeout(timeoutId);
+                    const validation = validate(preRenderedOutput, { autoFix: true });
+                    logAudit(supabase, traceId, classification.intent, inputText, validation);
+
+                    return createBufferedUIResponse(validation.text, {
+                        traceId,
+                        status: 'template_direct',
+                        issues: validation.issues ?? [],
+                    });
+                }
+
+                // Build final system prompt with template contract (if present)
+                const finalSystemPrompt = templateContract
+                    ? systemPrompt + '\n\n' + templateContract
+                    : systemPrompt;
+
                 const result = await generateText({
                     model: google(MODEL_CONFIG.primary),
-                    system: systemPrompt,
+                    system: finalSystemPrompt,
                     messages: normalizedMessages,
                     tools,
                     toolChoice,
