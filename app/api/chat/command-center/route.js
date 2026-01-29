@@ -632,9 +632,15 @@ export async function POST(request) {
                 },
             });
 
-            // AI SDK v6.0 Native Streaming
-            return result.toDataStreamResponse({
-                headers: { ...CORS_HEADERS, 'x-trace-id': traceId },
+            // AI SDK v6.0 Native Streaming (explicit Response pattern for compatibility)
+            return new Response(result.toDataStream(), {
+                status: 200,
+                headers: {
+                    ...CORS_HEADERS,
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'x-vercel-ai-data-stream': 'v1',
+                    'x-trace-id': traceId,
+                },
             });
 
         } catch (execError) {
