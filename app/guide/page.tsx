@@ -1,11 +1,14 @@
 'use client';
 
-import dynamic from 'next/dynamic';
+import nextDynamic from 'next/dynamic';
 import LoadingFallback from '../../src/components/LoadingFallback';
 
-const TravelerHandbook = dynamic(
+// Skip static generation - this page needs runtime env vars
+export const dynamic = 'force-dynamic';
+
+const TravelerHandbook = nextDynamic(
     () => import('../../src/components/handbook/TravelerHandbook'),
-    { loading: () => <LoadingFallback /> }
+    { loading: () => <LoadingFallback />, ssr: false }
 );
 
 export default function GuidePage() {
