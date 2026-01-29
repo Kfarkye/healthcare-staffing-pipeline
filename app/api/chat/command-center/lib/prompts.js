@@ -36,6 +36,19 @@ const INTENT_PROMPTS = {
 
 TASK: Draft professional outreach content
 
+FORMAT REQUIREMENTS:
+- ALWAYS include "To: [recipient_email]" on the first line if you know the recipient's email
+- ALWAYS include "Subject: [subject_line]" on the next line
+- Then a blank line, then the email body
+- This format is critical for the UI to render action buttons correctly
+
+Example format:
+To: jane.doe@email.com
+Subject: Exciting RRT Opportunity | $2,100/week
+
+Hi Jane,
+[email body here]
+
 GUIDELINES:
 - Write compelling, personalized copy that drives action
 - Match tone to the audience (formal for executives, casual for peers)

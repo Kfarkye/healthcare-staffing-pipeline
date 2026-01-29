@@ -264,17 +264,14 @@ const EmailCard: FC<{ to?: string; subject: string; body: string }> = memo(({ to
 
     return (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={SYSTEM.anim.fluid} className={cn('rounded-[20px] overflow-hidden bg-white/[0.02] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_-8px_rgba(0,0,0,0.4)]')}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] bg-white/[0.02]">
+            {/* Header - Clean, minimal */}
+            <div className="flex items-center px-5 py-3 border-b border-white/[0.06] bg-white/[0.02]">
                 <div className="flex items-center gap-2.5">
                     <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center border border-indigo-500/20">
                         <FileText size={14} className="text-indigo-400" />
                     </div>
                     <span className={cn(SYSTEM.type.mono, 'text-indigo-400')}>Email Draft</span>
                 </div>
-                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => handleCopy(`${to ? `To: ${to}\n` : ''}Subject: ${subject}\n\n${formattedBody}`, 'all')} className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-[11px] font-medium border', copiedField === 'all' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-zinc-400 bg-white/[0.04] border-white/[0.06] hover:bg-white/[0.08] hover:text-zinc-200')}>
-                    {copiedField === 'all' ? <Check size={12} /> : <Copy size={12} />} {copiedField === 'all' ? 'Copied' : 'Copy All'}
-                </motion.button>
             </div>
 
             {/* Content */}
@@ -402,10 +399,18 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                     body = afterSubject.trim();
                 }
             }
+
+            // If no explicit To: line, try to extract first email from content
+            let recipientEmail = to;
+            if (!recipientEmail) {
+                const emailInContent = content.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                if (emailInContent) recipientEmail = emailInContent[1];
+            }
+
             const rem = content.split('---').slice(1).join('---')?.replace(/^IMPORTANT[\s\S]*/, '').trim() || '';
 
             // Render card if we have at least a subject or 'to' field
-            if (sub || to) return <><EmailCard to={to} subject={sub || '(No Subject)'} body={body} />{rem && <div className="mt-4"><ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{rem}</ReactMarkdown></div>}</>;
+            if (sub || recipientEmail) return <><EmailCard to={recipientEmail} subject={sub || '(No Subject)'} body={body} />{rem && <div className="mt-4"><ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{rem}</ReactMarkdown></div>}</>;
         }
 
         const verdictMatch = content.match(REGEX_VERDICT); if (verdictMatch) return <CandidateVerdict verdict={verdictMatch[1].toUpperCase() as any} details={content.replace(verdictMatch[0], '').trim()} />;
