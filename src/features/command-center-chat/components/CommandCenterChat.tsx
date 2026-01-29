@@ -83,14 +83,24 @@ export const CommandCenterChat: React.FC = () => {
                             const msgText = msg.parts?.find((p: any) => p.type === 'text')?.text || msg.content || '';
                             const parsed = parseEmailFromResponse(msgText);
                             if (parsed.hasEmail && parsed.subject && parsed.body) {
+                                const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(parsed.subject)}&body=${encodeURIComponent(parsed.body)}`;
                                 return (
-                                    <div className="flex gap-2 mt-2">
+                                    <div className="flex gap-2 mt-2 flex-wrap">
                                         <a
                                             href={buildMailtoLink('', parsed.subject, parsed.body)}
                                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-300 text-[11px] font-medium hover:bg-blue-600/30 transition-colors"
                                         >
                                             <Mail size={12} />
                                             Open in Outlook
+                                        </a>
+                                        <a
+                                            href={gmailUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600/20 border border-rose-500/30 text-rose-300 text-[11px] font-medium hover:bg-rose-600/30 transition-colors"
+                                        >
+                                            <Mail size={12} />
+                                            Open in Gmail
                                         </a>
                                     </div>
                                 );

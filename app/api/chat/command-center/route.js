@@ -227,29 +227,8 @@ function renderTemplate(templateStr, vars = {}) {
     });
 }
 
-/**
- * One-Click Outreach: Parses email draft and appends deep links (Mailto/Gmail)
- */
-function appendOutreachLinks(text) {
-    const subjectMatch = text.match(/^Subject:\s*(.+)$/m);
-    if (!subjectMatch) return text;
-
-    const subject = subjectMatch[1].trim();
-    const body = text.replace(/^Subject:.*$/m, '').trim();
-
-    const encSub = encodeURIComponent(subject);
-    const encBody = encodeURIComponent(body);
-
-    const gmail = `https://mail.google.com/mail/?view=cm&fs=1&su=${encSub}&body=${encBody}`;
-    const mailto = `mailto:?subject=${encSub}&body=${encBody}`;
-
-    return `${text}
-
----
-🚀 **ONE-CLICK OUTREACH**
-
-[✉️ Open Mail App](${mailto})  •  [📧 Open Gmail](${gmail})`;
-}
+// NOTE: Email action buttons (Mailto/Gmail) are rendered by the frontend
+// See: src/features/command-center-chat/components/CommandCenterChat.tsx
 
 /**
  * Enhanced Template Contract (with example output for few-shot guidance)
@@ -570,7 +549,7 @@ export async function POST(request) {
                 // FAST PATH: Direct Render + Deep Link Injection (0ms LLM latency)
                 if (missingVars.length === 0) {
                     const output = `Subject: ${renderTemplate(template.subject, vars)}\n\n${renderTemplate(template.body, vars)}`;
-                    const finalOutput = appendOutreachLinks(output);
+                    const finalOutput = output; // Frontend handles action buttons
 
                     clearTimeout(softTimeout);
                     const validation = validate(output, { autoFix: true });
@@ -606,7 +585,7 @@ export async function POST(request) {
 
                 // One-Click Outreach: Append deep links
                 if (classification.intent === Intent.DRAFT_OUTREACH) {
-                    text = appendOutreachLinks(text);
+                    // Frontend handles action buttons for DRAFT_OUTREACH
                 }
 
                 const validation = validate(text, { autoFix: true });
@@ -629,7 +608,7 @@ export async function POST(request) {
                     let text = fallback.text || 'Fallback response.';
 
                     if (classification.intent === Intent.DRAFT_OUTREACH) {
-                        text = appendOutreachLinks(text);
+                        // Frontend handles action buttons for DRAFT_OUTREACH
                     }
 
                     waitUntil(performAuditLog(supabase, traceId, 'FALLBACK', inputText, { text, valid: true }));
