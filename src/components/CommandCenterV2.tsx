@@ -383,14 +383,26 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
         // Enhanced Email Parsing (Permissive)
         // If header is present OR if we see To/Subject lines, we render the card.
         const emailMatch = content.match(REGEX_EMAIL_HEADER);
-        const hasEmailFields = REGEX_EMAIL_TO.test(content) && REGEX_EMAIL_SUBJECT.test(content);
+        const hasEmailFields = REGEX_EMAIL_TO.test(content) || REGEX_EMAIL_SUBJECT.test(content);
 
         if (emailMatch || hasEmailFields) {
             const to = content.match(REGEX_EMAIL_TO)?.[1].trim();
             const sub = content.match(REGEX_EMAIL_SUBJECT)?.[1].trim();
+
+            // Body extraction: Try --- delimiters first, fallback to everything after Subject line
+            let body = '';
             const bodyMatch = content.match(REGEX_EMAIL_BODY);
-            const body = bodyMatch ? bodyMatch[1].trim() : '';
-            const rem = content.split('---').pop()?.replace(/^IMPORTANT[\s\S]*/, '').trim();
+            if (bodyMatch) {
+                body = bodyMatch[1].trim();
+            } else {
+                // Fallback: everything after Subject: line
+                const subjectIdx = content.search(/Subject:[^\n]*/i);
+                if (subjectIdx !== -1) {
+                    const afterSubject = content.slice(subjectIdx).replace(/Subject:[^\n]*\n?/i, '');
+                    body = afterSubject.trim();
+                }
+            }
+            const rem = content.split('---').slice(1).join('---')?.replace(/^IMPORTANT[\s\S]*/, '').trim() || '';
 
             // Render card if we have at least a subject or 'to' field
             if (sub || to) return <><EmailCard to={to} subject={sub || '(No Subject)'} body={body} />{rem && <div className="mt-4"><ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{rem}</ReactMarkdown></div>}</>;
