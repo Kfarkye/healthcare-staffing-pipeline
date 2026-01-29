@@ -254,6 +254,9 @@ export function useCommandCenterChat(
                 for (const line of lines) {
                     if (!line.trim()) continue;
 
+                    // DEBUG: Log raw line for troubleshooting
+                    console.debug('[Stream Parser] Line:', line.slice(0, 100));
+
                     // Try UI Message Stream protocol first (JSON objects)
                     if (line.startsWith('{')) {
                         try {
