@@ -202,15 +202,20 @@ function createBufferedUIResponse(text, { traceId, status, issues } = {}) {
 
 /**
  * Version-tolerant response adapter:
- * Prefer UI Message Stream (AI SDK UI v6+), then legacy data stream, then text stream.
+ * Prefer Data Stream (0:/2: protocol) for frontend compatibility, then UI Message Stream.
  */
 function asChatResponse(result, init = {}) {
-    // Best: AI SDK UI message stream response
+    // PREFERRED: AI SDK data stream response (frontend parser handles 0:/2: protocol)
+    if (result && typeof result.toDataStreamResponse === 'function') {
+        return result.toDataStreamResponse(init);
+    }
+
+    // Fallback: AI SDK UI message stream response
     if (result && typeof result.toUIMessageStreamResponse === 'function') {
         return result.toUIMessageStreamResponse(init);
     }
 
-    // Next best: wrap UI message stream explicitly
+    // Wrap UI message stream explicitly
     if (result && typeof result.toUIMessageStream === 'function') {
         return createUIMessageStreamResponse({
             status: init.status ?? 200,
@@ -218,11 +223,6 @@ function asChatResponse(result, init = {}) {
             headers: init.headers ?? {},
             stream: result.toUIMessageStream(),
         });
-    }
-
-    // Legacy: AI SDK data stream response (older useChat transports)
-    if (result && typeof result.toDataStreamResponse === 'function') {
-        return result.toDataStreamResponse(init);
     }
 
     // Legacy: text stream response
