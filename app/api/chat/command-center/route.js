@@ -2,30 +2,22 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  * COMMAND CENTER CHAT — ELITE PRODUCTION SERVICE
  * ═══════════════════════════════════════════════════════════════════════════════
- * 
- * Architecture: Next.js 15 App Router | AI SDK 6.0 | Node.js Runtime
- * 
- * CAPABILITIES:
- * ┌─────────────────────────────────────────────────────────────────────────────┐
- * │ • Hybrid Processing     — Buffered drafts (quality) + Streaming chat (UX)  │
- * │ • Circuit Breaker       — Automatic fallback with exponential backoff      │
- * │ • Soft Timeout Safety   — 55s abort prevents Vercel 504 hard-kills         │
- * │ • Auto-Validation       — Content validation with self-healing fixes       │
- * │ • Intent Classification — Smart routing based on user intent detection     │
- * │ • Production Telemetry  — Structured logging + audit trails                │
- * └─────────────────────────────────────────────────────────────────────────────┘
- * 
- * PROTOCOL:
- * - Streaming: AI SDK UI Message Stream Protocol v1 (x-vercel-ai-ui-message-stream)
- * - Buffered:  Synthetic stream for frontend compatibility
- * 
- * @module app/api/chat/command-center/route
- * @version 2.0.0
- * @license MIT
+ *
+ * FIX v2.0.1 (Paste-and-go):
+ * - Always return UI Message Stream responses (prevents raw "0:/2:" rendering)
+ * - Version-tolerant stream response adapter (UI stream first, then legacy)
+ * - Correct multi-step tool calling loop control via stopWhen(stepCountIs(N))
+ * - Buffered path uses text-start/text-delta/text-end (AI SDK UI protocol)
  */
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { streamText, generateText } from 'ai';
+import {
+    streamText,
+    generateText,
+    stepCountIs,
+    createUIMessageStream,
+    createUIMessageStreamResponse,
+} from 'ai';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
@@ -38,25 +30,14 @@ import { classify, Intent } from './lib/router.js';
 import { getPromptForIntent } from './lib/prompts.js';
 import { validate } from './lib/validator.js';
 
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 1: RUNTIME CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Runtime: Node.js required for 5-minute timeout support (Edge caps at 30s)
- * Dynamic: Force-dynamic prevents caching of API responses
- * MaxDuration: 300s (Pro) / 60s (Hobby) — we handle soft timeout in code
- */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-/**
- * Model Configuration
- * Primary: Flash for speed-critical paths (chat, quick responses)
- * Fallback: Pro for complex reasoning (drafts, analysis)
- */
 const MODEL_CONFIG = Object.freeze({
     primary: 'gemini-3-flash-preview',
     fallback: 'gemini-3-pro-preview',
@@ -65,19 +46,11 @@ const MODEL_CONFIG = Object.freeze({
     maxRetries: 2,
 });
 
-/**
- * Timeout Configuration (milliseconds)
- * Soft timeout triggers graceful abort before Vercel hard-kills the function
- */
 const TIMEOUT_CONFIG = Object.freeze({
-    soft: 55_000,       // Abort at 55s (before 60s Hobby limit)
-    chunk: 30_000,      // Abort if no chunk received for 30s (stall detection)
+    soft: 55_000,
+    chunk: 30_000,
 });
 
-/**
- * Circuit Breaker State
- * Prevents cascade failures when model is overloaded
- */
 const circuitBreaker = {
     failures: 0,
     lastFailure: 0,
@@ -86,133 +59,106 @@ const circuitBreaker = {
     resetTimeout: 60_000,
 };
 
-/**
- * CORS Headers
- * Permissive for development — tighten origins in production
- */
 const CORS_HEADERS = Object.freeze({
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-vercel-ai-data-stream, x-vercel-ai-ui-message-stream, x-trace-id',
+    'Access-Control-Allow-Headers':
+        'Content-Type, Authorization, x-vercel-ai-data-stream, x-vercel-ai-ui-message-stream, x-trace-id',
 });
-
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 2: INPUT VALIDATION & SANITIZATION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Sanitizes environment variable strings
- * Strips quotes and whitespace that can corrupt URLs
- */
 const sanitize = (val) => (val ?? '').trim().replace(/^["']|["']$/g, '');
 
-/**
- * Environment Schema
- * Validates required configuration at startup
- */
 const EnvSchema = z.object({
     SUPABASE_URL: z.string().transform(sanitize).pipe(z.string().url()),
     SUPABASE_SERVICE_ROLE_KEY: z.string().transform(sanitize).pipe(z.string().min(1)),
     GOOGLE_GENERATIVE_AI_API_KEY: z.string().transform(sanitize).pipe(z.string().min(1)),
 });
 
-/**
- * Request Body Schema
- * Validates incoming chat requests
- */
 const RequestSchema = z.object({
     messages: z.array(z.any()).min(1),
     context: z.record(z.any()).optional(),
 });
-
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 3: UTILITY FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Creates a synthetic stream response for buffered content
- * Ensures frontend always receives consistent UI Message Stream Protocol
- * 
- * @param {string} text - The generated text content
- * @param {Object} metadata - Optional metadata to include
- * @returns {Response} - HTTP Response with streaming body
+ * Buffered UI stream response (correct for AI SDK UI / useChat)
+ * Writes the assistant text using start/delta/end events.
+ * Also writes optional custom data as `data-<name>` events (safe, ignored if unused).
  */
-function createBufferedResponse(text, metadata = {}) {
-    const encoder = new TextEncoder();
+function createBufferedUIResponse(text, { traceId, status, issues } = {}) {
+    const blockId = `buffered-${randomUUID()}`;
 
-    const stream = new ReadableStream({
-        start(controller) {
-            // Protocol Channel 0: Text Content
-            controller.enqueue(encoder.encode(`0:${JSON.stringify(text)}\n`));
+    const stream = createUIMessageStream({
+        async execute({ writer }) {
+            // Optional debug metadata for the client (safe to ignore)
+            if (traceId) {
+                writer.write({
+                    type: 'data-trace',
+                    data: { traceId, status: status ?? 'ok', issues: issues ?? [] },
+                });
+            }
 
-            // Protocol Channel 2: Metadata (finish reason, validation status)
-            const finishMetadata = {
-                finishReason: 'stop',
-                ...metadata,
-            };
-            controller.enqueue(encoder.encode(`2:${JSON.stringify([finishMetadata])}\n`));
-
-            controller.close();
+            writer.write({ type: 'text-start', id: blockId });
+            writer.write({ type: 'text-delta', id: blockId, delta: text ?? '' });
+            writer.write({ type: 'text-end', id: blockId });
         },
     });
 
-    return new Response(stream, {
+    return createUIMessageStreamResponse({
         status: 200,
+        statusText: 'OK',
         headers: {
             ...CORS_HEADERS,
-            'Content-Type': 'text/plain; charset=utf-8',
-            'x-vercel-ai-data-stream': 'v1',
+            'x-trace-id': traceId ?? '',
             'Cache-Control': 'no-store, no-cache, must-revalidate',
         },
+        stream,
     });
 }
 
 /**
- * Safe streaming response converter
- * Handles AI SDK version differences between local and Vercel environments
- * 
- * @param {Object} result - The streamText result object
- * @param {Object} init - Response init options (headers, etc.)
- * @returns {Response} - HTTP streaming response
+ * Version-tolerant response adapter:
+ * Prefer UI Message Stream (AI SDK UI v6+), then legacy data stream, then text stream.
  */
-function asStreamResponse(result, init = {}) {
-    // AI SDK v6+ data stream protocol (what useChat expects)
+function asChatResponse(result, init = {}) {
+    // Best: AI SDK UI message stream response
+    if (result && typeof result.toUIMessageStreamResponse === 'function') {
+        return result.toUIMessageStreamResponse(init);
+    }
+
+    // Next best: wrap UI message stream explicitly
+    if (result && typeof result.toUIMessageStream === 'function') {
+        return createUIMessageStreamResponse({
+            status: init.status ?? 200,
+            statusText: init.statusText ?? 'OK',
+            headers: init.headers ?? {},
+            stream: result.toUIMessageStream(),
+        });
+    }
+
+    // Legacy: AI SDK data stream response (older useChat transports)
     if (result && typeof result.toDataStreamResponse === 'function') {
         return result.toDataStreamResponse(init);
     }
 
-    // Fallback: plain text streaming response
+    // Legacy: text stream response
     if (result && typeof result.toTextStreamResponse === 'function') {
         return result.toTextStreamResponse(init);
     }
 
-    // Lower-level: if toDataStream exists, wrap it manually
-    if (result && typeof result.toDataStream === 'function') {
-        return new Response(result.toDataStream(), {
-            ...init,
-            headers: {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'x-vercel-ai-data-stream': 'v1',
-                ...(init.headers || {}),
-            },
-        });
-    }
-
-    // Last resort: direct ReadableStream
+    // Last resort: ReadableStream
     if (result instanceof ReadableStream) {
-        return new Response(result, {
-            ...init,
-            headers: {
-                'Content-Type': 'text/plain; charset=utf-8',
-                ...(init.headers || {}),
-            },
-        });
+        return new Response(result, init);
     }
 
-    // Debug: log available methods for troubleshooting
-    const methods = Object.keys(result || {}).filter(k => typeof result[k] === 'function');
+    const methods = Object.keys(result || {}).filter((k) => typeof result[k] === 'function');
     throw new TypeError(
         `Unsupported streaming result. Available methods: ${methods.join(', ') || 'none'}`
     );
@@ -220,14 +166,9 @@ function asStreamResponse(result, init = {}) {
 
 /**
  * Normalizes message content for model consumption
- * - Handles both msg.content AND msg.parts (critical for client compatibility)
+ * - Handles both msg.content AND msg.parts
  * - Extracts text from complex content structures
- * - Optimizes context by replacing old images with placeholders (saves tokens)
- * - Normalizes base64 image data URLs
- * - Creates URL objects for http/https images
- * 
- * @param {Array} messages - Raw messages from request
- * @returns {Array} - Normalized messages for model
+ * - Replaces old images with placeholders
  */
 function normalizeMessages(messages) {
     if (!Array.isArray(messages)) return [];
@@ -235,137 +176,89 @@ function normalizeMessages(messages) {
     const lastIndex = messages.length - 1;
 
     return messages.map((msg, index) => {
-        // Check for content array OR parts array (client sends parts, not content)
         const potentialContent = Array.isArray(msg.content)
             ? msg.content
-            : (Array.isArray(msg.parts) ? msg.parts : null);
+            : Array.isArray(msg.parts)
+                ? msg.parts
+                : null;
 
-        // Simple string content — pass through
         if (!potentialContent && typeof msg.content === 'string') {
             return { role: msg.role, content: msg.content };
         }
 
-        // Complex content array — normalize each part
         if (potentialContent) {
             const content = potentialContent
                 .map((part) => {
-                    // Text part
                     if (part.type === 'text') {
                         return { type: 'text', text: part.text ?? '' };
                     }
 
-                    // Image part (direct or file-wrapped)
-                    const isImage = part.type === 'image' ||
-                        (part.type === 'file' && part.mimeType?.startsWith('image/'));
+                    const isImage =
+                        part.type === 'image' || (part.type === 'file' && part.mimeType?.startsWith('image/'));
 
                     if (isImage) {
-                        // Optimization: Replace images from previous turns with placeholder
-                        if (index !== lastIndex) {
-                            return { type: 'text', text: '[Image from previous turn]' };
-                        }
+                        if (index !== lastIndex) return { type: 'text', text: '[Image from previous turn]' };
 
-                        // Handle image URL or base64
                         if (part.image && typeof part.image === 'string') {
-                            // HTTP/HTTPS URLs need URL object
                             if (part.image.startsWith('http://') || part.image.startsWith('https://')) {
                                 return { type: 'image', image: new URL(part.image) };
                             }
-                            // Already a data URL or base64
                             return { type: 'image', image: part.image };
                         }
 
-                        // Handle data field (base64)
                         if (part.data) {
                             const mime = part.mimeType ?? 'image/jpeg';
-                            if (part.data.startsWith('data:')) {
-                                return { type: 'image', image: part.data };
-                            }
+                            if (part.data.startsWith('data:')) return { type: 'image', image: part.data };
                             return { type: 'image', image: `data:${mime};base64,${part.data}` };
                         }
 
-                        // Fallback for malformed image parts
-                        if (part.image || part.data) {
-                            return { type: 'text', text: '[Image]' };
-                        }
-
+                        if (part.image || part.data) return { type: 'text', text: '[Image]' };
                         return null;
                     }
 
-                    // Unknown part type — skip
                     return null;
                 })
                 .filter(Boolean);
 
-            // Handle empty content array
-            if (content.length === 0) {
-                return { role: msg.role, content: '' };
-            }
-
+            if (content.length === 0) return { role: msg.role, content: '' };
             return { role: msg.role, content };
         }
 
-        // Fallback — return as-is
         return msg;
     });
 }
 
-/**
- * Circuit breaker check
- * Prevents cascade failures during model outages
- * 
- * @returns {boolean} - True if circuit is closed (requests allowed)
- */
 function checkCircuitBreaker() {
     const now = Date.now();
-
-    // Reset circuit if enough time has passed
     if (circuitBreaker.isOpen && now - circuitBreaker.lastFailure > circuitBreaker.resetTimeout) {
         circuitBreaker.isOpen = false;
         circuitBreaker.failures = 0;
     }
-
     return !circuitBreaker.isOpen;
 }
 
-/**
- * Records a failure for circuit breaker
- */
 function recordFailure() {
     circuitBreaker.failures += 1;
     circuitBreaker.lastFailure = Date.now();
-
-    if (circuitBreaker.failures >= circuitBreaker.threshold) {
-        circuitBreaker.isOpen = true;
-    }
+    if (circuitBreaker.failures >= circuitBreaker.threshold) circuitBreaker.isOpen = true;
 }
 
-/**
- * Records a success — resets circuit breaker
- */
 function recordSuccess() {
     circuitBreaker.failures = 0;
     circuitBreaker.isOpen = false;
 }
 
-/**
- * Determines if an error is retryable
- * 
- * @param {Error} error - The error to check
- * @returns {boolean} - True if error is retryable
- */
 function isRetryableError(error) {
-    const msg = (error.message ?? '').toLowerCase();
-    return msg.includes('429') ||
+    const msg = (error?.message ?? '').toLowerCase();
+    return (
+        msg.includes('429') ||
         msg.includes('503') ||
         msg.includes('overloaded') ||
         msg.includes('rate limit') ||
-        msg.includes('quota');
+        msg.includes('quota')
+    );
 }
 
-/**
- * Structured Logger Class
- * Outputs JSON with timing metrics for production log aggregation
- */
 class Logger {
     constructor(traceId) {
         this.traceId = traceId;
@@ -373,54 +266,48 @@ class Logger {
     }
 
     info(event, data = {}) {
-        console.log(JSON.stringify({
-            lvl: 'INFO',
-            trace: this.traceId,
-            ms: Date.now() - this.startTime,
-            event,
-            ...data,
-        }));
+        console.log(
+            JSON.stringify({
+                lvl: 'INFO',
+                trace: this.traceId,
+                ms: Date.now() - this.startTime,
+                event,
+                ...data,
+            })
+        );
     }
 
     warn(event, data = {}) {
-        console.warn(JSON.stringify({
-            lvl: 'WARN',
-            trace: this.traceId,
-            ms: Date.now() - this.startTime,
-            event,
-            ...data,
-        }));
+        console.warn(
+            JSON.stringify({
+                lvl: 'WARN',
+                trace: this.traceId,
+                ms: Date.now() - this.startTime,
+                event,
+                ...data,
+            })
+        );
     }
 
     error(event, err, data = {}) {
-        console.error(JSON.stringify({
-            lvl: 'ERROR',
-            trace: this.traceId,
-            ms: Date.now() - this.startTime,
-            event,
-            err: err?.message || String(err),
-            stack: err?.stack,
-            ...data,
-        }));
+        console.error(
+            JSON.stringify({
+                lvl: 'ERROR',
+                trace: this.traceId,
+                ms: Date.now() - this.startTime,
+                event,
+                err: err?.message || String(err),
+                stack: err?.stack,
+                ...data,
+            })
+        );
     }
 }
-
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 4: AUDIT LOGGING
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Logs interaction to audit table with retry logic
- * Non-blocking to prevent latency impact on user response
- * 
- * @param {SupabaseClient} supabase - Supabase client
- * @param {string} traceId - Request trace ID
- * @param {string} intent - Classified intent
- * @param {string} input - User input (truncated)
- * @param {Object} validation - Validation result
- * @param {number} attempt - Retry attempt number
- */
 function logAudit(supabase, traceId, intent, input, validation, attempt = 1) {
     const payload = {
         function_name: 'command-center',
@@ -432,7 +319,9 @@ function logAudit(supabase, traceId, intent, input, validation, attempt = 1) {
         created_at: new Date().toISOString(),
     };
 
-    supabase.from('ai_audit_logs').insert(payload)
+    supabase
+        .from('ai_audit_logs')
+        .insert(payload)
         .then(() => { })
         .catch((e) => {
             if (attempt < 2) {
@@ -443,26 +332,14 @@ function logAudit(supabase, traceId, intent, input, validation, attempt = 1) {
         });
 }
 
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 5: MAIN HANDLER
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * OPTIONS Handler
- * CORS preflight support
- */
 export async function OPTIONS() {
-    return new Response(null, {
-        status: 204,
-        headers: CORS_HEADERS,
-    });
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
-/**
- * POST Handler
- * Main chat endpoint with hybrid buffered/streaming architecture
- */
 export async function POST(request) {
     const traceId = randomUUID();
     const logger = new Logger(traceId);
@@ -472,64 +349,45 @@ export async function POST(request) {
     }
 
     try {
-        // ─────────────────────────────────────────────────────────────────────────
         // PHASE 1: VALIDATION
-        // ─────────────────────────────────────────────────────────────────────────
-
-        // Validate environment
         const env = EnvSchema.safeParse(process.env);
         if (!env.success) {
             logger.error('env_validation_failed', env.error);
-            return new Response(JSON.stringify({
-                error: 'Service misconfigured',
-                traceId,
-            }), {
+            return new Response(JSON.stringify({ error: 'Service misconfigured', traceId }), {
                 status: 500,
                 headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
             });
         }
 
-        // Validate request body
         const body = await request.json();
         const parsed = RequestSchema.safeParse(body);
         if (!parsed.success) {
             logger.warn('invalid_request', { errors: parsed.error.errors });
-            return new Response(JSON.stringify({
-                error: 'Invalid request format',
-                details: parsed.error.errors,
-                traceId,
-            }), {
-                status: 400,
-                headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-            });
+            return new Response(
+                JSON.stringify({ error: 'Invalid request format', details: parsed.error.errors, traceId }),
+                { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+            );
         }
 
         const { messages, context } = parsed.data;
 
-        // ─────────────────────────────────────────────────────────────────────────
-        // PHASE 2: CIRCUIT BREAKER CHECK
-        // ─────────────────────────────────────────────────────────────────────────
-
+        // PHASE 2: CIRCUIT BREAKER
         if (!checkCircuitBreaker()) {
             logger.warn('circuit_breaker_open');
-            return new Response(JSON.stringify({
-                error: 'Service temporarily unavailable. Please retry in 60 seconds.',
-                retryAfter: 60,
-                traceId,
-            }), {
-                status: 503,
-                headers: {
-                    ...CORS_HEADERS,
-                    'Content-Type': 'application/json',
-                    'Retry-After': '60',
-                },
-            });
+            return new Response(
+                JSON.stringify({
+                    error: 'Service temporarily unavailable. Please retry in 60 seconds.',
+                    retryAfter: 60,
+                    traceId,
+                }),
+                {
+                    status: 503,
+                    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', 'Retry-After': '60' },
+                }
+            );
         }
 
-        // ─────────────────────────────────────────────────────────────────────────
-        // PHASE 3: CLIENT INITIALIZATION
-        // ─────────────────────────────────────────────────────────────────────────
-
+        // PHASE 3: CLIENT INIT
         const supabase = createClient(env.data.SUPABASE_URL, env.data.SUPABASE_SERVICE_ROLE_KEY, {
             auth: { persistSession: false },
             global: { headers: { 'x-trace-id': traceId } },
@@ -539,10 +397,7 @@ export async function POST(request) {
             apiKey: env.data.GOOGLE_GENERATIVE_AI_API_KEY,
         });
 
-        // ─────────────────────────────────────────────────────────────────────────
-        // PHASE 4: INTENT CLASSIFICATION
-        // ─────────────────────────────────────────────────────────────────────────
-
+        // PHASE 4: INTENT
         const normalizedMessages = normalizeMessages(messages);
         const lastMessage = normalizedMessages.findLast((m) => m.role === 'user');
         const inputText = Array.isArray(lastMessage?.content)
@@ -560,26 +415,18 @@ export async function POST(request) {
             inputLength: inputText.length,
         });
 
-        // ─────────────────────────────────────────────────────────────────────────
-        // PHASE 5: CONTEXT PREPARATION
-        // ─────────────────────────────────────────────────────────────────────────
-
+        // PHASE 5: PROMPT + TOOLS
         const systemPrompt = [
             getPromptForIntent(classification.intent),
             context ? `\n\nCONTEXT:\n${JSON.stringify(context, null, 2)}` : '',
         ].join('');
 
-        const tools = classification.requiresTools
-            ? createCommandCenterTools(supabase)
-            : undefined;
+        const tools = classification.requiresTools ? createCommandCenterTools(supabase) : undefined;
 
-        // CRITICAL: Always use 'auto' - 'required' causes empty responses
+        // CRITICAL: Keep auto
         const toolChoice = 'auto';
 
-        // ─────────────────────────────────────────────────────────────────────────
-        // PHASE 6: SOFT TIMEOUT SETUP
-        // ─────────────────────────────────────────────────────────────────────────
-
+        // PHASE 6: SOFT TIMEOUT
         const abortController = new AbortController();
         const timeoutId = setTimeout(() => {
             logger.warn('soft_timeout_triggered');
@@ -587,14 +434,9 @@ export async function POST(request) {
         }, TIMEOUT_CONFIG.soft);
 
         try {
-            // ═════════════════════════════════════════════════════════════════════════
-            // PATH A: BUFFERED GENERATION (High Quality for Drafts/Edits)
-            // ═════════════════════════════════════════════════════════════════════════
-
-            const isBufferedIntent = [
-                Intent.DRAFT_OUTREACH,
-                Intent.EDIT_CONTENT,
-            ].includes(classification.intent);
+            const isBufferedIntent = [Intent.DRAFT_OUTREACH, Intent.EDIT_CONTENT].includes(
+                classification.intent
+            );
 
             if (isBufferedIntent) {
                 logger.info('strategy_buffered');
@@ -605,7 +447,8 @@ export async function POST(request) {
                     messages: normalizedMessages,
                     tools,
                     toolChoice,
-                    maxSteps: MODEL_CONFIG.maxSteps,
+                    // v6 loop control:
+                    stopWhen: stepCountIs(MODEL_CONFIG.maxSteps),
                     maxRetries: MODEL_CONFIG.maxRetries,
                     temperature: MODEL_CONFIG.temperature,
                     abortSignal: abortController.signal,
@@ -614,20 +457,18 @@ export async function POST(request) {
                 clearTimeout(timeoutId);
                 recordSuccess();
 
-                // CRITICAL: Empty text fallback per audit
-                const outputText = result.text ||
+                const outputText =
+                    result.text ||
                     (result.toolCalls?.length > 0
-                        ? `I processed your request using ${result.toolCalls.length} tool(s). Please let me know if you need anything else.`
-                        : 'I was unable to generate a response. Please try rephrasing your request.');
+                        ? `Processed using ${result.toolCalls.length} tool(s).`
+                        : 'No response text generated.');
 
-                // Auto-validation with self-healing
                 const validation = validate(outputText, { autoFix: true });
 
                 if (validation.text !== outputText) {
                     logger.info('auto_fixed', { issues: validation.issues.map((i) => i.id) });
                 }
 
-                // Non-blocking audit log
                 logAudit(supabase, traceId, classification.intent, inputText, validation);
 
                 logger.info('buffered_complete', {
@@ -636,18 +477,15 @@ export async function POST(request) {
                     textLength: validation.text.length,
                 });
 
-                // Return synthetic stream for frontend compatibility
-                return createBufferedResponse(validation.text, {
-                    status: validation.valid ? 'clean' : 'flagged',
-                    issues: validation.issues,
+                // IMPORTANT: return a UI message stream response (prevents raw 0:/2: rendering)
+                return createBufferedUIResponse(validation.text, {
                     traceId,
+                    status: validation.valid ? 'clean' : 'flagged',
+                    issues: validation.issues ?? [],
                 });
             }
 
-            // ═════════════════════════════════════════════════════════════════════════
-            // PATH B: STREAMING GENERATION (Low Latency for Chat/Search)
-            // ═════════════════════════════════════════════════════════════════════════
-
+            // STREAMING PATH
             logger.info('strategy_streaming');
 
             const result = streamText({
@@ -656,7 +494,8 @@ export async function POST(request) {
                 messages: normalizedMessages,
                 tools,
                 toolChoice,
-                maxSteps: MODEL_CONFIG.maxSteps,
+                // v6 loop control:
+                stopWhen: stepCountIs(MODEL_CONFIG.maxSteps),
                 maxRetries: MODEL_CONFIG.maxRetries,
                 temperature: MODEL_CONFIG.temperature,
                 abortSignal: abortController.signal,
@@ -668,7 +507,6 @@ export async function POST(request) {
                     clearTimeout(timeoutId);
                     recordSuccess();
 
-                    // Post-stream validation (non-blocking)
                     const validation = validate(text);
                     logAudit(supabase, traceId, classification.intent, inputText, validation);
 
@@ -681,27 +519,24 @@ export async function POST(request) {
                 },
             });
 
-            // AI SDK streaming response (version-tolerant)
-            return asStreamResponse(result, {
-                headers: { ...CORS_HEADERS, 'x-trace-id': traceId },
+            return asChatResponse(result, {
+                headers: {
+                    ...CORS_HEADERS,
+                    'x-trace-id': traceId,
+                    'Cache-Control': 'no-store, no-cache, must-revalidate',
+                },
             });
-
         } catch (execError) {
             clearTimeout(timeoutId);
 
-            // Handle soft timeout cleanly
-            if (execError.name === 'AbortError') {
+            if (execError?.name === 'AbortError') {
                 logger.warn('request_aborted_timeout');
-                return new Response(JSON.stringify({
-                    error: 'Request timed out (55s limit). Try a simpler query.',
-                    traceId,
-                }), {
+                return new Response(JSON.stringify({ error: 'Request timed out (55s limit).', traceId }), {
                     status: 504,
                     headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
                 });
             }
 
-            // Handle retryable errors with fallback model
             if (isRetryableError(execError)) {
                 recordFailure();
                 logger.warn('retryable_error_fallback', { error: execError.message });
@@ -713,28 +548,29 @@ export async function POST(request) {
                         messages: normalizedMessages,
                         tools,
                         toolChoice: 'auto',
-                        maxSteps: MODEL_CONFIG.maxSteps,
+                        stopWhen: stepCountIs(MODEL_CONFIG.maxSteps),
                         maxRetries: 1,
                         temperature: MODEL_CONFIG.temperature,
                         abortSignal: abortController.signal,
                     });
 
-                    clearTimeout(timeoutId);
                     recordSuccess();
 
-                    const outputText = fallbackResult.text ||
+                    const outputText =
+                        fallbackResult.text ||
                         (fallbackResult.toolCalls?.length > 0
-                            ? `I processed your request using ${fallbackResult.toolCalls.length} tool(s).`
-                            : 'I was unable to generate a response.');
+                            ? `Processed using ${fallbackResult.toolCalls.length} tool(s).`
+                            : 'No response text generated.');
 
                     const validation = validate(outputText, { autoFix: true });
                     logAudit(supabase, traceId, classification.intent, inputText, validation);
 
                     logger.info('fallback_complete', { model: MODEL_CONFIG.fallback });
 
-                    return createBufferedResponse(validation.text, {
-                        status: 'fallback',
+                    return createBufferedUIResponse(validation.text, {
                         traceId,
+                        status: 'fallback',
+                        issues: validation.issues ?? [],
                     });
                 } catch (fallbackError) {
                     logger.error('fallback_failed', fallbackError);
@@ -745,12 +581,15 @@ export async function POST(request) {
 
             throw execError;
         }
-
     } catch (error) {
-        logger.error('handler_failed', error);
+        // logger exists in this scope? It does, but keep safe:
+        try {
+            // eslint-disable-next-line no-undef
+            logger.error('handler_failed', error);
+        } catch { }
+
         console.error('[FULL ERROR]', error);
 
-        // Determine appropriate status code
         let status = 500;
         let message = 'System Unavailable';
         let details;
@@ -763,11 +602,7 @@ export async function POST(request) {
             details = { message: error.message, type: error?.constructor?.name };
         }
 
-        return new Response(JSON.stringify({
-            error: message,
-            details,
-            traceId,
-        }), {
+        return new Response(JSON.stringify({ error: message, details, traceId }), {
             status,
             headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
         });
