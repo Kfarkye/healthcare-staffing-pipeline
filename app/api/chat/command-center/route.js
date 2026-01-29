@@ -33,7 +33,7 @@ import { waitUntil } from '@vercel/functions';
 // ─────────────────────────────────────────────────────────────────────────────
 import { createCommandCenterTools } from './tools.js';
 import { classify, Intent } from './lib/router.js';
-import { getPromptForIntent } from './lib/prompts.js';
+import { getPromptForIntent, EXTRACT_DATA_PROMPT, getPass2DraftPrompt } from './lib/prompts.js';
 import { validate } from './lib/validator.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -45,7 +45,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const MODEL_CONFIG = Object.freeze({
-    primary: 'gemini-3-flash-preview',
+    primary: 'gemini-3-flash-latest',
     fallback: 'gemini-2.0-flash-001',
     temperature: 0.7,
     maxSteps: 10,
@@ -563,7 +563,72 @@ export async function POST(request) {
             }
         }
 
-        // 7. BUFFERED EXECUTION (Edit / Template / Outreach)
+        // 7. TWO-PASS EXTRACTION FOR DRAFT_OUTREACH (Separates "seeing" from "writing")
+        if (classification.intent === Intent.DRAFT_OUTREACH && hasImage) {
+            try {
+                logger.info('two_pass_extraction_start');
+
+                // PASS 1: Extract data as structured JSON (Pure Vision)
+                const extractionResult = await generateText({
+                    model: google(MODEL_CONFIG.primary),
+                    system: EXTRACT_DATA_PROMPT,
+                    messages: normalizedMessages,
+                    maxRetries: MODEL_CONFIG.maxRetries,
+                    temperature: 0.1, // Low temp for precise extraction
+                    abortSignal: abortController.signal,
+                });
+
+                let extractedData;
+                try {
+                    // Parse JSON from extraction result
+                    const jsonMatch = extractionResult.text.match(/\{[\s\S]*\}/);
+                    extractedData = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+                } catch (parseError) {
+                    logger.warn('extraction_parse_failed', { error: parseError.message });
+                    extractedData = null;
+                }
+
+                if (extractedData) {
+                    logger.info('pass1_complete', {
+                        fieldsFound: Object.keys(extractedData).filter(k => extractedData[k] && k !== 'missing').length,
+                        missing: extractedData.missing || []
+                    });
+
+                    // PASS 2: Draft email using ONLY the extracted JSON (Pure Writing)
+                    const draftPrompt = getPass2DraftPrompt(extractedData);
+
+                    const draftResult = await generateText({
+                        model: google(MODEL_CONFIG.primary),
+                        system: draftPrompt,
+                        messages: [{ role: 'user', content: 'Draft the outreach email using the provided data.' }],
+                        maxRetries: MODEL_CONFIG.maxRetries,
+                        temperature: MODEL_CONFIG.temperature,
+                        abortSignal: abortController.signal,
+                    });
+
+                    clearTimeout(softTimeout);
+                    globalBreaker.recordSuccess();
+
+                    const rawText = draftResult.text || 'Draft generation failed.';
+
+                    // Final safety: ensure the output is properly processed by validation
+                    const validation = validate(rawText, { autoFix: true });
+
+                    logger.info('two_pass_complete', { pass1Fields: Object.keys(extractedData).length });
+                    waitUntil(performAuditLog(supabase, traceId, 'DRAFT_OUTREACH_2PASS', inputText, validation));
+
+                    return createBufferedUIResponse(validation.text, { traceId, status: 'two_pass_complete', issues: validation.issues });
+                }
+
+                // Fallback to single-pass if extraction failed
+                logger.warn('extraction_failed_fallback_to_single_pass');
+            } catch (error) {
+                logger.warn('two_pass_error_fallback', { error: error.message });
+                // Fall through to single-pass execution
+            }
+        }
+
+        // 8. BUFFERED EXECUTION (Edit / Template / Outreach fallback)
         if (isBuffered) {
             try {
                 const result = await generateText({
