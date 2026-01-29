@@ -8,7 +8,8 @@ export function requireEnv(key: EnvKey): string {
     if (!v || v.trim().length === 0) {
         throw new Error(`Missing required env var: ${key}`);
     }
-    return v.trim();
+    // Strip surrounding quotes (common copy-paste error from .env files)
+    return v.trim().replace(/^["']|["']$/g, '');
 }
 
 export function requireHttpUrl(key: "NEXT_PUBLIC_SUPABASE_URL"): string {
