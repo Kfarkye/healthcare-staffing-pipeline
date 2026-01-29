@@ -7,7 +7,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Search, Mail, DollarSign, Copy, Check,
   RefreshCw, Upload, Filter, X, FileUp, ExternalLink, Loader2,
-  Image, FileText
+  Image, FileText, Briefcase
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
@@ -86,6 +86,12 @@ interface Filters {
 interface Toast {
   message: string;
   type: 'success' | 'error' | 'info';
+}
+
+export interface PriorityDashboardProps {
+  selectedJobId?: string | null;
+  onJobClick?: (jobId: string) => void;
+  hideHeader?: boolean;
 }
 
 // ============================================================================
@@ -661,7 +667,11 @@ const JobFilterModal: React.FC<{
 // MAIN COMPONENT
 // ============================================================================
 
-export default function ProspectDashboard() {
+export default function ProspectDashboard({
+  selectedJobId = null,
+  onJobClick,
+  hideHeader = false
+}: PriorityDashboardProps = {}) {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -689,6 +699,15 @@ export default function ProspectDashboard() {
   const [processingQueue, setProcessingQueue] = useState<{ id: string; name: string; status: 'pending' | 'processing' | 'success' | 'error'; type: 'excel' | 'image' }[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
   const [jobIds, setJobIds] = useState<Set<string>>(new Set());
+
+  // Handle selectedJobId from props
+  useEffect(() => {
+    if (selectedJobId) {
+      setJobIds(new Set([selectedJobId]));
+    } else {
+      setJobIds(new Set());
+    }
+  }, [selectedJobId]);
   const [showJobFilter, setShowJobFilter] = useState(false);
 
   const { copied, copy } = useCopy();
@@ -1039,16 +1058,27 @@ export default function ProspectDashboard() {
     {
       header: 'Job ID',
       accessor: (p: Prospect) => (
-        <a
-          href={`https://nova.ayahealthcare.com/#/recruiting/jobs/${p.job_id}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium group"
-        >
-          #{p.job_id}
-          <ExternalLink size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-        </a>
+        <div className="flex items-center gap-2">
+          <a
+            href={`https://nova.ayahealthcare.com/#/recruiting/jobs/${p.job_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium group"
+          >
+            #{p.job_id}
+            <ExternalLink size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+          </a>
+          {onJobClick && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onJobClick(p.job_id); }}
+              className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
+              title="View Job Details"
+            >
+              <Briefcase size={12} strokeWidth={2.5} />
+            </button>
+          )}
+        </div>
       )
     },
     {
@@ -1153,6 +1183,141 @@ export default function ProspectDashboard() {
     );
   }
 
+  const MainContent = (
+    <div className="space-y-6">
+      {/* Advanced Filter Bar */}
+      <div className="precision-glass rounded-[28px] p-5 flex flex-wrap items-center justify-between gap-4 shadow-lift border-white/20">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="relative group">
+            <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+            <input
+              type="text"
+              placeholder="Search leads..."
+              value={filters.search}
+              onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+              className="w-[320px] min-w-0 pl-11 pr-4 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 focus:bg-white transition-all text-[14px] font-medium tracking-tight shadow-sm"
+            />
+          </div>
+
+          <select
+            value={filters.specialty}
+            onChange={(e) => setFilters(prev => ({ ...prev, specialty: e.target.value }))}
+            className="pl-4 pr-10 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 text-[13px] font-bold text-slate-600 appearance-none cursor-pointer transition-all shadow-sm"
+            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '14px' }}
+          >
+            <option value="all">Specialty: All</option>
+            {specialties.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+
+          <select
+            value={filters.recruiter}
+            onChange={(e) => setFilters(prev => ({ ...prev, recruiter: e.target.value }))}
+            className="pl-4 pr-10 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 text-[13px] font-bold text-slate-600 appearance-none cursor-pointer transition-all shadow-sm"
+            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '14px' }}
+          >
+            <option value="all">Recruiter: All</option>
+            {recruiters.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+
+          <button
+            onClick={() => setFilters(prev => ({ ...prev, localOnly: !prev.localOnly }))}
+            className={cn(
+              "px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all border active:scale-95",
+              filters.localOnly
+                ? "bg-slate-900 border-slate-900 text-white shadow-lift"
+                : "bg-white/50 border-slate-200/60 text-slate-500 hover:border-slate-300 hover:bg-white shadow-sm"
+            )}
+          >
+            Local Only
+          </button>
+
+          <button
+            onClick={() => setShowJobFilter(true)}
+            className={cn(
+              "px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all border flex items-center gap-2 active:scale-95",
+              jobIds.size > 0
+                ? "bg-blue-600 border-blue-600 text-white shadow-lift"
+                : "bg-white/50 border-slate-200/60 text-slate-500 hover:border-slate-300 hover:bg-white shadow-sm"
+            )}
+          >
+            <Filter size={14} strokeWidth={2.5} />
+            Job Filter {jobIds.size > 0 && `(${jobIds.size})`}
+          </button>
+        </div>
+
+        <button
+          onClick={() => {
+            setFilters({ search: '', specialty: 'all', recruiter: 'all', localOnly: false });
+            setSort({ key: 'last_note_date', dir: 'desc' });
+            setJobIds(new Set());
+          }}
+          className="text-[12px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-[0.12em] px-2 active:scale-95"
+        >
+          Clear
+        </button>
+      </div>
+
+      <PrecisionTable
+        data={displayedProspects}
+        columns={columns}
+        isLoading={loading}
+        onRowClick={(p) => setModalProspect(p)}
+        onSort={(key) => handleSort(key as SortKey)}
+        sortKey={sort.key}
+        sortDir={sort.dir}
+      />
+
+      {hasMore && (
+        <div className="flex justify-center pt-8 pb-12">
+          <button
+            onClick={() => loadData(true)}
+            disabled={loadingMore}
+            className="group relative px-8 py-3 bg-white border border-slate-200 text-slate-900 rounded-2xl font-bold text-[14px] shadow-sm hover:shadow-md hover:border-slate-300 transition-all active:scale-[0.98] disabled:opacity-50"
+          >
+            {loadingMore ? (
+              <div className="flex items-center gap-2">
+                <Loader2 size={18} className="animate-spin text-blue-600" />
+                <span>Syncing records...</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span>Load More Records</span>
+                <span className="text-slate-300 group-hover:text-slate-500 font-medium tracking-tight">
+                  ({total - prospects.length} remaining)
+                </span>
+              </div>
+            )}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  if (hideHeader) {
+    return (
+      <div className="p-6">
+        {MainContent}
+        <AnimatePresence>
+          {modalProspect && (
+            <PackageModal
+              prospect={modalProspect}
+              onClose={() => setModalProspect(null)}
+            />
+          )}
+          {showJobFilter && (
+            <JobFilterModal onClose={() => setShowJobFilter(false)} onLoad={handleJobLoad} />
+          )}
+          {showSync && (
+            <InterestedClicksSync onClose={() => { setShowSync(false); loadData(false); }} />
+          )}
+          {toast && (
+            <Toast toast={toast} onDismiss={() => setToast(null)} />
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
   return (
     <DashboardShell
       title="Strategic Pipeline"
@@ -1161,113 +1326,7 @@ export default function ProspectDashboard() {
       actions={HeaderActions}
       stats={StatCards}
     >
-      <div className="space-y-6">
-        {/* Advanced Filter Bar */}
-        <div className="precision-glass rounded-[28px] p-5 flex flex-wrap items-center justify-between gap-4 shadow-lift border-white/20">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="relative group">
-              <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-              <input
-                type="text"
-                placeholder="Search leads..."
-                value={filters.search}
-                onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                className="w-[320px] min-w-0 pl-11 pr-4 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 focus:bg-white transition-all text-[14px] font-medium tracking-tight shadow-sm"
-              />
-            </div>
-
-            <select
-              value={filters.specialty}
-              onChange={(e) => setFilters(prev => ({ ...prev, specialty: e.target.value }))}
-              className="pl-4 pr-10 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 text-[13px] font-bold text-slate-600 appearance-none cursor-pointer transition-all shadow-sm"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '14px' }}
-            >
-              <option value="all">Specialty: All</option>
-              {specialties.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-
-            <select
-              value={filters.recruiter}
-              onChange={(e) => setFilters(prev => ({ ...prev, recruiter: e.target.value }))}
-              className="pl-4 pr-10 py-2.5 bg-white/50 border border-slate-200/60 rounded-[14px] focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 text-[13px] font-bold text-slate-600 appearance-none cursor-pointer transition-all shadow-sm"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '14px' }}
-            >
-              <option value="all">Recruiter: All</option>
-              {recruiters.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-
-            <button
-              onClick={() => setFilters(prev => ({ ...prev, localOnly: !prev.localOnly }))}
-              className={cn(
-                "px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all border active:scale-95",
-                filters.localOnly
-                  ? "bg-slate-900 border-slate-900 text-white shadow-lift"
-                  : "bg-white/50 border-slate-200/60 text-slate-500 hover:border-slate-300 hover:bg-white shadow-sm"
-              )}
-            >
-              Local Only
-            </button>
-
-            <button
-              onClick={() => setShowJobFilter(true)}
-              className={cn(
-                "px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all border flex items-center gap-2 active:scale-95",
-                jobIds.size > 0
-                  ? "bg-blue-600 border-blue-600 text-white shadow-lift"
-                  : "bg-white/50 border-slate-200/60 text-slate-500 hover:border-slate-300 hover:bg-white shadow-sm"
-              )}
-            >
-              <Filter size={14} strokeWidth={2.5} />
-              Job Filter {jobIds.size > 0 && `(${jobIds.size})`}
-            </button>
-          </div>
-
-          <button
-            onClick={() => {
-              setFilters({ search: '', specialty: 'all', recruiter: 'all', localOnly: false });
-              setSort({ key: 'last_note_date', dir: 'desc' });
-              setJobIds(new Set());
-            }}
-            className="text-[12px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-[0.12em] px-2 active:scale-95"
-          >
-            Clear
-          </button>
-        </div>
-
-        <PrecisionTable
-          data={displayedProspects}
-          columns={columns}
-          isLoading={loading}
-          onRowClick={(p) => setModalProspect(p)}
-          onSort={(key) => handleSort(key as SortKey)}
-          sortKey={sort.key}
-          sortDir={sort.dir}
-        />
-
-        {hasMore && (
-          <div className="flex justify-center pt-8 pb-12">
-            <button
-              onClick={() => loadData(true)}
-              disabled={loadingMore}
-              className="group relative px-8 py-3 bg-white border border-slate-200 text-slate-900 rounded-2xl font-bold text-[14px] shadow-sm hover:shadow-md hover:border-slate-300 transition-all active:scale-[0.98] disabled:opacity-50"
-            >
-              {loadingMore ? (
-                <div className="flex items-center gap-2">
-                  <Loader2 size={18} className="animate-spin text-blue-600" />
-                  <span>Syncing records...</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <span>Load More Records</span>
-                  <span className="text-slate-300 group-hover:text-slate-500 font-medium tracking-tight">
-                    ({total - prospects.length} remaining)
-                  </span>
-                </div>
-              )}
-            </button>
-          </div>
-        )}
-      </div>
+      {MainContent}
 
       <AnimatePresence>
         {modalProspect && (

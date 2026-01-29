@@ -2,72 +2,21 @@
  * ============================================================================
  * src/types/submittals.ts
  * Type definitions for submittals dashboard
+ * Re-exports ClinicianRow from hook to ensure type consistency
  * ============================================================================
  */
 
+// Import types from hook (single source of truth)
+import type { ClinicianRow, Stage, PrimaryState, AgingBucket, EndBucket, TabId, SourceType } from '../hooks/useClinicianDashboard';
+
+// Re-export for consumers
+export type { ClinicianRow, Stage, PrimaryState, AgingBucket, EndBucket, TabId, SourceType };
+
+
 /**
- * Base candidate interface from submittals_dashboard view
- * FIXED: Correct field names to match SQL view
+ * Ready sub-tab views
  */
-export interface ClinicianRow {
-  // IDs
-  candidate_id: string | number;
-  prospect_id: string | number | null;
-  engagement_id: string | number | null;
-  job_id: string | number | null;
-  facility_id: string | number | null;
-  contract_id?: string | number | null;
-
-  // Personal Info
-  full_name: string | null;
-  email: string | null;
-  phone: string | null;
-  nova_url: string | null;
-
-  // Professional Info
-  primary_specialty: string | null;
-  engagement_specialty?: string | null;
-  home_state: string | null;
-  licenses: string[] | null;
-  recruiter: string | null;
-  available_start_date: string | null;
-  profile_complete?: boolean | null;
-  references_verified?: number | null;
-  rto_notes?: string | null;
-
-  // Engagement/Assignment Details
-  facility_name: string | null;
-  location_city: string | null;
-  location_state: string | null;
-  raw_status: string | null;
-  stage?: string | null;
-  tab?: TabId | null;
-  is_current?: boolean | null;
-  submitted_at: string | null;
-  start_date: string | null;
-  end_date: string | null;
-  contract_end_date: string | null;
-  bill_rate: number | null;
-  actual_margin: number | null;
-  engagement_notes: string | null;
-  seeking_new?: boolean | null;
-  am_name: string | null;
-  ac_name: string | null;
-  extension_stage: string | null;
-  is_active_submittal: boolean | null;
-  is_weekly_priority: boolean | null;
-
-  // Derived/Aggregated
-  primary_state?: string;
-  aging_bucket?: string | null;
-  days_since_submitted: number | null;
-  days_to_end?: number | null;
-  end_bucket?: string | null;
-  other_engagements_count?: number;
-  stage_rank?: number | null;
-  source_type: SourceType | null;
-  updated_at: string | null;
-}
+export type ReadySubTab = 'ALL' | 'PRIORITY';
 
 /**
  * Priority candidate from prospects table
@@ -126,31 +75,6 @@ export function toProspectLike(row: ClinicianRow): ProspectLike {
     is_active_submittal: row.is_active_submittal as any,
   };
 }
-
-/**
- * Tab identifiers
- */
-export type TabId = 'KANBAN' | 'READY' | 'SUBMITTED' | 'OFFER' | 'PRESTART';
-
-/**
- * Ready sub-tab views
- */
-export type ReadySubTab = 'ALL' | 'PRIORITY';
-
-/**
- * Source type for candidate origin
- */
-export type SourceType =
-  | 'Prospect'
-  | 'NEW_PROSPECT'
-  | 'PROSPECT'
-  | 'Retention'
-  | 'ACTIVE_LOOKING'
-  | 'Extension'
-  | 'EXTENSION'
-  | 'TRANSITIONING'
-  | 'EXTENSION_REQUEST'
-  | 'EXTENSION_SIGNED';
 
 /**
  * Tab definition for UI rendering

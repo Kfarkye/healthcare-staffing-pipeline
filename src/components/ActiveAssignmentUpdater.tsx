@@ -55,7 +55,7 @@ const extractJobId = (contract: string): string => {
 
 const formatDateForDB = (dateStr: string): string | null => {
   if (!dateStr) return null;
-  
+
   // Try MM/DD/YYYY format first
   const parts = dateStr.split('/');
   if (parts.length === 3) {
@@ -69,35 +69,35 @@ const formatDateForDB = (dateStr: string): string | null => {
       return formattedDate;
     }
   }
-  
+
   // Fallback to Date parsing
   const date = new Date(dateStr);
   if (!isNaN(date.getTime())) {
     return date.toISOString().split('T')[0];
   }
-  
+
   return null;
 };
 
 const determineStatus = (endDateStr: string | null): 'Active' | 'Needs New Role' | 'Completed' => {
   if (!endDateStr) return 'Active';
-  
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const endDate = new Date(endDateStr);
-  
+
   if (isNaN(endDate.getTime())) return 'Active';
   endDate.setHours(0, 0, 0, 0);
-  
+
   if (endDate < today) {
     return 'Completed';
   }
-  
+
   const daysRemaining = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   if (daysRemaining <= 56) { // 8 weeks
     return 'Needs New Role';
   }
-  
+
   return 'Active';
 };
 
@@ -106,14 +106,14 @@ const processCSVRow = (row: WorkingCandidateCSV): ProcessedCandidate | null => {
   if (!row['Candidate Name'] || !row['Start Date'] || !row['End Date'] || !row.Id) {
     return null;
   }
-  
+
   const phone = row['Cell Phone'] || row['Day Phone'] || '';
   const endDate = formatDateForDB(row['End Date']);
   const startDate = formatDateForDB(row['Start Date']);
-  
+
   // Clean candidate name (remove ID if present in name)
   const candidateName = row['Candidate Name']?.replace(/\s*\(ID:\s*\d+\)/i, '').trim() || '';
-  
+
   return {
     candidate_name: candidateName,
     candidate_id: row.Id.toString(),
@@ -136,10 +136,10 @@ const processCSVRow = (row: WorkingCandidateCSV): ProcessedCandidate | null => {
 
 const formatDisplayDate = (dateString: string | null): string => {
   if (!dateString) return 'N/A';
-  return new Date(dateString).toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric', 
-    year: 'numeric' 
+  return new Date(dateString).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
   });
 };
 
@@ -197,10 +197,10 @@ export default function WorkingCandidatesCSVSync(): JSX.Element {
     if (!file) return;
     setIsProcessing(true);
     setSyncResults({ show: false, success: 0, errors: 0 });
-    
+
     try {
       const text = await file.text();
-      
+
       Papa.parse(text, {
         header: true,
         dynamicTyping: true,
@@ -222,7 +222,7 @@ export default function WorkingCandidatesCSVSync(): JSX.Element {
           setShowPreview(true);
           setIsProcessing(false);
         },
-        error: (error) => {
+        error: (error: Error) => {
           alert(`CSV parsing error: ${error.message}`);
           setIsProcessing(false);
         }
@@ -265,22 +265,22 @@ export default function WorkingCandidatesCSVSync(): JSX.Element {
         .upsert(recordsToUpsert, {
           onConflict: 'candidate_id,job_id',
         });
-      
+
       if (error) {
         console.error("Supabase upsert error:", error);
-        setSyncResults({ 
-          show: true, 
+        setSyncResults({
+          show: true,
           success: 0,
           errors: recordsToUpsert.length,
           errorDetails: error.message
         });
       } else {
-        setSyncResults({ 
-          show: true, 
+        setSyncResults({
+          show: true,
           success: recordsToUpsert.length,
           errors: 0
         });
-        
+
         // Reset after successful sync
         setTimeout(() => {
           setShowPreview(false);
@@ -290,14 +290,14 @@ export default function WorkingCandidatesCSVSync(): JSX.Element {
       }
     } catch (error: any) {
       console.error("Sync error:", error);
-      setSyncResults({ 
-        show: true, 
+      setSyncResults({
+        show: true,
         success: 0,
         errors: recordsToUpsert.length,
         errorDetails: error.message
       });
     }
-    
+
     setIsSyncing(false);
   }, [processedData]);
 
@@ -327,15 +327,15 @@ export default function WorkingCandidatesCSVSync(): JSX.Element {
                 className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center hover:border-blue-400 transition-colors"
               >
                 <FileText size={56} className="mx-auto text-gray-400 mb-4" />
-                
+
                 <h3 className="text-lg font-semibold text-gray-700 mb-2">
                   Upload Working Candidates CSV
                 </h3>
-                
+
                 <p className="text-sm text-gray-500 mb-6">
                   Drag and drop your CSV file here, or click to browse
                 </p>
-                
+
                 <label htmlFor="file-upload" className="cursor-pointer">
                   <span className="inline-flex items-center px-6 py-3 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
                     Select CSV File
@@ -482,7 +482,7 @@ export default function WorkingCandidatesCSVSync(): JSX.Element {
                   </div>
                 </div>
               </div>
-              
+
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
@@ -544,22 +544,20 @@ export default function WorkingCandidatesCSVSync(): JSX.Element {
                               {formatDisplayDate(row.start_date)} - {formatDisplayDate(row.end_date)}
                             </div>
                             {daysRemaining !== null && (
-                              <div className={`text-xs mt-1 ${
-                                daysRemaining < 0 ? 'text-gray-500' :
-                                daysRemaining <= 14 ? 'text-red-600 font-medium' :
-                                daysRemaining <= 56 ? 'text-orange-600 font-medium' :
-                                'text-gray-500'
-                              }`}>
+                              <div className={`text-xs mt-1 ${daysRemaining < 0 ? 'text-gray-500' :
+                                  daysRemaining <= 14 ? 'text-red-600 font-medium' :
+                                    daysRemaining <= 56 ? 'text-orange-600 font-medium' :
+                                      'text-gray-500'
+                                }`}>
                                 {daysRemaining < 0 ? 'Ended' : `${daysRemaining} days remaining`}
                               </div>
                             )}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                              row.status === 'Active' ? 'bg-green-100 text-green-800' :
-                              row.status === 'Needs New Role' ? 'bg-orange-100 text-orange-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
+                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${row.status === 'Active' ? 'bg-green-100 text-green-800' :
+                                row.status === 'Needs New Role' ? 'bg-orange-100 text-orange-800' :
+                                  'bg-gray-100 text-gray-800'
+                              }`}>
                               {row.status}
                             </span>
                           </td>
@@ -586,24 +584,20 @@ export default function WorkingCandidatesCSVSync(): JSX.Element {
 
             {/* Sync Results */}
             {syncResults.show && (
-              <div className={`rounded-lg p-4 ${
-                syncResults.errors > 0 ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
-              }`}>
+              <div className={`rounded-lg p-4 ${syncResults.errors > 0 ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
+                }`}>
                 <div className="flex items-center">
-                  <CheckCircle2 className={`w-5 h-5 mr-3 ${
-                    syncResults.errors > 0 ? 'text-red-600' : 'text-green-600'
-                  }`} />
+                  <CheckCircle2 className={`w-5 h-5 mr-3 ${syncResults.errors > 0 ? 'text-red-600' : 'text-green-600'
+                    }`} />
                   <div className="flex-1">
-                    <p className={`text-sm font-medium ${
-                      syncResults.errors > 0 ? 'text-red-800' : 'text-green-800'
-                    }`}>
+                    <p className={`text-sm font-medium ${syncResults.errors > 0 ? 'text-red-800' : 'text-green-800'
+                      }`}>
                       {syncResults.errors > 0 ? 'Sync Failed' : 'Sync Complete'}
                     </p>
-                    <p className={`text-sm mt-1 ${
-                      syncResults.errors > 0 ? 'text-red-600' : 'text-green-600'
-                    }`}>
-                      {syncResults.errors > 0 
-                        ? `Failed to sync ${syncResults.errors} records${syncResults.errorDetails ? `: ${syncResults.errorDetails}` : ''}` 
+                    <p className={`text-sm mt-1 ${syncResults.errors > 0 ? 'text-red-600' : 'text-green-600'
+                      }`}>
+                      {syncResults.errors > 0
+                        ? `Failed to sync ${syncResults.errors} records${syncResults.errorDetails ? `: ${syncResults.errorDetails}` : ''}`
                         : `Successfully synced ${syncResults.success} records`}
                     </p>
                   </div>

@@ -1,18 +1,20 @@
+'use client';
+
 import React, { createContext, useContext, useState } from 'react';
 
 // ============================================================================
 // AUTH TYPES
 // ============================================================================
 
-export type User = { 
-  name: string; 
-  email: string; 
-  initials: string; 
+export type User = {
+  name: string;
+  email: string;
+  initials: string;
   isAuthenticated: boolean;
 };
 
-export type AuthShape = { 
-  user: User; 
+export type AuthShape = {
+  user: User;
   setUser: React.Dispatch<React.SetStateAction<User>>;
 };
 
@@ -37,9 +39,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initials: "KF",
     isAuthenticated: true
   });
-  
+
   const value: AuthShape = { user, setUser };
-  
+
   return (
     <AuthContext.Provider value={value}>
       {children}

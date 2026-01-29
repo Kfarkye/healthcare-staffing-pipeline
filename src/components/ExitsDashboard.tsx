@@ -66,19 +66,8 @@ const DESIGN = {
 type ExitStatus = 'Stalled' | 'Break' | 'Perm';
 type ViewMode = 'Active' | 'Hidden';
 
-interface Prospect {
-  id: number;
-  candidate_id: number | null;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  specialty: string | null;
-  profession: string | null;
-  exit_bucket: ExitStatus | null;
-  soft_deleted: boolean;
-  soft_deleted_at: string | null;
-  updated_at: string;
-}
+// Import from shared types - single source of truth
+import type { Prospect } from '../shared/types/database';
 
 interface Toast {
   message: string;
@@ -99,7 +88,7 @@ const getStatusConfig = (status: ExitStatus | null) => {
   return configs[status];
 };
 
-const cn = (...classes: (string | boolean | undefined)[]) => 
+const cn = (...classes: (string | boolean | undefined)[]) =>
   classes.filter(Boolean).join(' ');
 
 // ============================================================================
@@ -113,8 +102,8 @@ const Toast: React.FC<{ toast: Toast; onDismiss: () => void }> = ({ toast, onDis
   }, [onDismiss]);
 
   const Icon = toast.type === 'success' ? Check : AlertCircle;
-  const bgColor = toast.type === 'success' ? 'bg-green-600' : 
-                  toast.type === 'error' ? 'bg-red-600' : 'bg-slate-900';
+  const bgColor = toast.type === 'success' ? 'bg-green-600' :
+    toast.type === 'error' ? 'bg-red-600' : 'bg-slate-900';
 
   return (
     <div
@@ -155,22 +144,22 @@ const Metric: React.FC<{
         isActive && 'ring-2 ring-slate-900 ring-offset-2',
         config ? `${config.bg} ${config.border}` : 'bg-white border-slate-200'
       )}
-      style={{ 
+      style={{
         transition: `all ${DESIGN.transition.base} cubic-bezier(0.16, 1, 0.3, 1)`,
       }}
       aria-label={`View ${label} prospects`}
       aria-pressed={isActive}
     >
       <div className="flex items-center gap-2 mb-1">
-        {Icon && <Icon size={14} strokeWidth={2} style={{ color: config.icon }} />}
-        <span 
+        {Icon && <Icon size={14} strokeWidth={2} style={{ color: config.iconColor }} />}
+        <span
           className="text-slate-500 uppercase tracking-wider"
           style={{ fontSize: DESIGN.text.xs, fontWeight: DESIGN.weight.semibold }}
         >
           {label}
         </span>
       </div>
-      <div 
+      <div
         className="text-slate-900 tabular-nums"
         style={{ fontSize: DESIGN.text['2xl'], fontWeight: DESIGN.weight.bold }}
       >
@@ -202,7 +191,7 @@ const ProspectCard: React.FC<{
         'animate-fadeIn',
         prospect.soft_deleted && 'opacity-40 hover:opacity-60'
       )}
-      style={{ 
+      style={{
         animationDelay: `${Math.min(index * 30, 300)}ms`,
         transition: `all ${DESIGN.transition.base} cubic-bezier(0.16, 1, 0.3, 1)`,
       }}
@@ -212,13 +201,13 @@ const ProspectCard: React.FC<{
       {/* Header */}
       <header className="flex items-start justify-between gap-3 mb-3">
         <div className="flex-1 min-w-0">
-          <h3 
+          <h3
             className="text-slate-900 truncate mb-0.5"
             style={{ fontSize: DESIGN.text.base, fontWeight: DESIGN.weight.semibold }}
           >
             {prospect.name}
           </h3>
-          <p 
+          <p
             className="text-slate-500 truncate"
             style={{ fontSize: DESIGN.text.sm }}
           >
@@ -232,8 +221,8 @@ const ProspectCard: React.FC<{
           className={cn(
             'p-1.5 rounded-lg transition-all',
             showActions || prospect.soft_deleted ? 'opacity-100' : 'opacity-0',
-            prospect.soft_deleted 
-              ? 'text-green-600 hover:bg-green-50' 
+            prospect.soft_deleted
+              ? 'text-green-600 hover:bg-green-50'
               : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
           )}
           style={{ transition: `all ${DESIGN.transition.fast} ease-out` }}
@@ -263,12 +252,12 @@ const ProspectCard: React.FC<{
                 className={cn(
                   'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all',
                   'hover:shadow-sm active:scale-95',
-                  isActive 
-                    ? `${statusConfig.bg} ${statusConfig.text} ${statusConfig.border} ring-1 ring-offset-1` 
+                  isActive
+                    ? `${statusConfig.bg} ${statusConfig.text} ${statusConfig.border} ring-1 ring-offset-1`
                     : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
                 )}
-                style={{ 
-                  fontSize: DESIGN.text.xs, 
+                style={{
+                  fontSize: DESIGN.text.xs,
                   fontWeight: DESIGN.weight.semibold,
                   transition: `all ${DESIGN.transition.fast} cubic-bezier(0.16, 1, 0.3, 1)`,
                 }}
@@ -276,10 +265,10 @@ const ProspectCard: React.FC<{
                 aria-pressed={isActive}
                 title={statusConfig.label}
               >
-                <Icon 
-                  size={12} 
+                <Icon
+                  size={12}
                   strokeWidth={2.5}
-                  style={{ color: isActive ? statusConfig.icon : 'currentColor' }}
+                  style={{ color: isActive ? statusConfig.iconColor : 'currentColor' }}
                 />
                 {status}
               </button>
@@ -290,7 +279,7 @@ const ProspectCard: React.FC<{
 
       {/* Hidden State */}
       {prospect.soft_deleted && (
-        <div 
+        <div
           className="flex items-center gap-1.5 text-slate-500"
           style={{ fontSize: DESIGN.text.xs }}
         >
@@ -300,9 +289,9 @@ const ProspectCard: React.FC<{
             <>
               <span>·</span>
               <time dateTime={prospect.soft_deleted_at}>
-                {new Date(prospect.soft_deleted_at).toLocaleDateString('en-US', { 
-                  month: 'short', 
-                  day: 'numeric' 
+                {new Date(prospect.soft_deleted_at).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric'
                 })}
               </time>
             </>
@@ -366,7 +355,7 @@ export default function ExitBuckets(): JSX.Element {
 
   // Filter prospects
   const displayedProspects = useMemo(() => {
-    let filtered = viewMode === 'Active' 
+    let filtered = viewMode === 'Active'
       ? prospects.filter(p => !p.soft_deleted)
       : prospects.filter(p => p.soft_deleted);
 
@@ -380,7 +369,7 @@ export default function ExitBuckets(): JSX.Element {
   // Handle status change
   const handleStatusChange = useCallback(async (prospectId: number, status: ExitStatus | null) => {
     const original = [...prospects];
-    
+
     // Optimistic update
     setProspects(current =>
       current.map(p => p.id === prospectId ? { ...p, exit_bucket: status } : p)
@@ -404,10 +393,10 @@ export default function ExitBuckets(): JSX.Element {
   // Handle visibility toggle
   const handleVisibilityToggle = useCallback(async (prospectId: number, isHidden: boolean) => {
     const original = [...prospects];
-    
+
     // Optimistic update
     setProspects(current =>
-      current.map(p => p.id === prospectId 
+      current.map(p => p.id === prospectId
         ? { ...p, soft_deleted: !isHidden, soft_deleted_at: !isHidden ? new Date().toISOString() : null }
         : p
       )
@@ -434,7 +423,7 @@ export default function ExitBuckets(): JSX.Element {
       <div className="h-full bg-slate-50 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-8 h-8 text-slate-400 animate-spin mx-auto mb-3" />
-          <p 
+          <p
             className="text-slate-600"
             style={{ fontSize: DESIGN.text.sm, fontWeight: DESIGN.weight.medium }}
           >
@@ -449,13 +438,13 @@ export default function ExitBuckets(): JSX.Element {
     <div className="h-full bg-slate-50 overflow-auto">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-5">
-        <h1 
+        <h1
           className="text-slate-900 mb-1"
           style={{ fontSize: DESIGN.text.xl, fontWeight: DESIGN.weight.bold }}
         >
           Exit Buckets
         </h1>
-        <p 
+        <p
           className="text-slate-600"
           style={{ fontSize: DESIGN.text.sm }}
         >
@@ -464,13 +453,13 @@ export default function ExitBuckets(): JSX.Element {
       </header>
 
       {/* Metrics */}
-      <section 
+      <section
         className="px-6 py-5 grid grid-cols-5 gap-3"
         aria-label="Metrics"
       >
-        <Metric 
-          label="Stalled" 
-          value={metrics.stalled} 
+        <Metric
+          label="Stalled"
+          value={metrics.stalled}
           status="Stalled"
           isActive={viewMode === 'Active' && activeFilter === 'Stalled'}
           onClick={() => {
@@ -478,9 +467,9 @@ export default function ExitBuckets(): JSX.Element {
             setActiveFilter(activeFilter === 'Stalled' ? null : 'Stalled');
           }}
         />
-        <Metric 
-          label="Break" 
-          value={metrics.break} 
+        <Metric
+          label="Break"
+          value={metrics.break}
           status="Break"
           isActive={viewMode === 'Active' && activeFilter === 'Break'}
           onClick={() => {
@@ -488,9 +477,9 @@ export default function ExitBuckets(): JSX.Element {
             setActiveFilter(activeFilter === 'Break' ? null : 'Break');
           }}
         />
-        <Metric 
-          label="Perm" 
-          value={metrics.perm} 
+        <Metric
+          label="Perm"
+          value={metrics.perm}
           status="Perm"
           isActive={viewMode === 'Active' && activeFilter === 'Perm'}
           onClick={() => {
@@ -498,8 +487,8 @@ export default function ExitBuckets(): JSX.Element {
             setActiveFilter(activeFilter === 'Perm' ? null : 'Perm');
           }}
         />
-        <Metric 
-          label="Active" 
+        <Metric
+          label="Active"
           value={metrics.active}
           isActive={viewMode === 'Active' && !activeFilter}
           onClick={() => {
@@ -507,8 +496,8 @@ export default function ExitBuckets(): JSX.Element {
             setActiveFilter(null);
           }}
         />
-        <Metric 
-          label="Hidden" 
+        <Metric
+          label="Hidden"
           value={metrics.hidden}
           isActive={viewMode === 'Hidden'}
           onClick={() => setViewMode('Hidden')}
@@ -519,18 +508,18 @@ export default function ExitBuckets(): JSX.Element {
       <section className="px-6 pb-6" aria-label="Prospects">
         {displayedProspects.length === 0 ? (
           <div className="text-center py-16">
-            <div 
+            <div
               className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3"
             >
               <Eye className="w-6 h-6 text-slate-400" strokeWidth={2} />
             </div>
-            <p 
+            <p
               className="text-slate-900 mb-1"
               style={{ fontSize: DESIGN.text.base, fontWeight: DESIGN.weight.medium }}
             >
               No prospects
             </p>
-            <p 
+            <p
               className="text-slate-500"
               style={{ fontSize: DESIGN.text.sm }}
             >

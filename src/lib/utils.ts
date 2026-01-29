@@ -3,8 +3,25 @@
 // Common helper functions used across dashboards
 // ============================================================================
 
-export const cn = (...classes: Array<string | boolean | null | undefined>) =>
-  classes.filter(Boolean).join(' ');
+type ClassValue = string | boolean | null | undefined | Record<string, boolean | undefined>;
+
+export const cn = (...classes: ClassValue[]): string => {
+  const result: string[] = [];
+
+  for (const cls of classes) {
+    if (!cls) continue;
+
+    if (typeof cls === 'string') {
+      result.push(cls);
+    } else if (typeof cls === 'object') {
+      for (const [key, value] of Object.entries(cls)) {
+        if (value) result.push(key);
+      }
+    }
+  }
+
+  return result.join(' ');
+};
 
 export const formatPhoneLink = (phone?: string | null) =>
   phone ? `tel:${phone.replace(/\D/g, '')}` : '';

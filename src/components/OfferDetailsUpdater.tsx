@@ -63,11 +63,11 @@ export default function MarginDataSync(): JSX.Element {
         const parser = new DOMParser();
         const doc = parser.parseFromString(htmlToProcess, "text/html");
         const bodyHtml = doc.body.outerHTML;
-        
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+
+        const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
         if (!apiKey) throw new Error("API key is not configured.");
 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
         const payload = {
           contents: [{ parts: [{ text: MARGIN_EXTRACTION_PROMPT }, { text: bodyHtml }] }],
           generationConfig: { response_mime_type: "application/json", temperature: 0.1 }
@@ -86,14 +86,14 @@ export default function MarginDataSync(): JSX.Element {
         extractedData = JSON.parse(textResponse);
 
         if (!extractedData || !extractedData.job_id || !extractedData.margin_id) throw new Error('AI failed to extract required IDs.');
-        
+
         // Validate job_id is a valid numerical string
         if (!/^\d+$/.test(extractedData.job_id)) {
           throw new Error(`Invalid job_id extracted: "${extractedData.job_id}". Expected a numerical ID.`);
         }
-        
+
         showToast(`Extracted Margin ID ${extractedData.margin_id} for Job ID ${extractedData.job_id}. Syncing...`, 'info');
-        
+
       } catch (err: any) {
         showToast(err.message || 'Error during extraction.', 'error');
         setIsLoading(false);
@@ -104,7 +104,7 @@ export default function MarginDataSync(): JSX.Element {
       // Step 2: Sync to Database
       setIsLoading(false);
       setIsSyncing(true);
-      
+
       const { data, error } = await supabase
         .from('engagements')
         .update({
@@ -131,13 +131,13 @@ export default function MarginDataSync(): JSX.Element {
 
   return (
     <div className="bg-white p-8 rounded-lg shadow-md">
-      <Toast {...toast} onClose={() => {}} />
+      <Toast {...toast} onClose={() => { }} />
       <h1 className="text-2xl font-bold text-gray-800">Margin Data Sync</h1>
       <p className="text-sm text-gray-500 mt-1 mb-6">
         Syncs Margin ID and dates from a Margin Calculator page to the pipeline.
       </p>
       <div className="text-center border-2 border-dashed border-gray-300 rounded-lg p-12">
-        <FileText size={48} className="mx-auto text-gray-400"/>
+        <FileText size={48} className="mx-auto text-gray-400" />
         <h2 className="mt-4 text-xl font-semibold text-gray-700">Sync Margin Details from Clipboard</h2>
         <p className="mt-2 text-sm text-gray-500">
           Use your `Copy Nova HTML` bookmarklet on a "Margin Calculator" page, then click below.

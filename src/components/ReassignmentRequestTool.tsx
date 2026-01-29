@@ -13,13 +13,13 @@ type Prospect = {
 // ============================================================================
 // API & EMAIL LOGIC
 // ============================================================================
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
 
 async function extractCandidateInfo(imageData: string) {
     const base64Data = imageData.split(',')[1];
     const prompt = `Extract from this Nova screenshot: Candidate's full name, email address, and Nova profile URL. Return ONLY JSON: {"full_name": "","email": "","nova_url": ""}`;
-    
+
     const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -28,14 +28,14 @@ async function extractCandidateInfo(imageData: string) {
             generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
         })
     });
-    
+
     if (!response.ok) throw new Error(`API Error: ${response.status}`);
     const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
     return JSON.parse(text);
 }
 
-function generateReassignmentEmail(candidateInfo: {full_name: string, email: string | null, nova_url: string}) {
+function generateReassignmentEmail(candidateInfo: { full_name: string, email: string | null, nova_url: string }) {
     const subject = `Please Reassign – ${candidateInfo.full_name}`;
     const body = `Hi Team,\n\nCan we please reassign ${candidateInfo.full_name}?\n\nEmail: ${candidateInfo.email || '[Email not found]'}\nNova Profile: ${candidateInfo.nova_url}\n\nThank you!`;
     const fullText = `Subject: ${subject}\n\n${body}`;
@@ -45,10 +45,10 @@ function generateReassignmentEmail(candidateInfo: {full_name: string, email: str
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
-export default function ReassignmentRequestTool({ 
-    isModalMode = false, 
-    initialProspect = null 
-}: { 
+export default function ReassignmentRequestTool({
+    isModalMode = false,
+    initialProspect = null
+}: {
     isModalMode?: boolean;
     initialProspect?: Prospect | null;
 }) {
@@ -129,8 +129,8 @@ export default function ReassignmentRequestTool({
     // Standalone Tool UI
     return (
         <div className="min-h-screen bg-gray-50 p-8">
-           <div className="max-w-2xl mx-auto">
-               <h1 className="text-2xl font-bold text-gray-900 mb-6">Reassignment Request Tool</h1>
+            <div className="max-w-2xl mx-auto">
+                <h1 className="text-2xl font-bold text-gray-900 mb-6">Reassignment Request Tool</h1>
                 {!imageData ? (
                     <div onDrop={(e) => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file?.type.startsWith('image/')) handleFile(file); }} onDragOver={(e) => e.preventDefault()} className="bg-white rounded-lg shadow-sm border-2 border-dashed border-gray-300 p-12 text-center">
                         <Upload className="w-12 h-12 mx-auto text-gray-400 mb-4" />
@@ -147,10 +147,10 @@ export default function ReassignmentRequestTool({
                         </div>
                         {error && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg">{error}</div>}
                         {emailText && (
-                           <div className="p-0">
+                            <div className="p-0">
                                 <textarea value={emailText} onChange={(e) => setEmailText(e.target.value)} className="w-full h-48 p-3 border border-gray-200 rounded-lg font-mono text-sm bg-gray-50" />
                                 <div className="flex justify-end gap-2 mt-4">
-                                     <a href={`https://outlook.office.com/mail/deeplink/compose?to=reassignments@ayahealthcare.com&subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors">
+                                    <a href={`https://outlook.office.com/mail/deeplink/compose?to=reassignments@ayahealthcare.com&subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors">
                                         <Mail className="w-4 h-4" /><span>Open in Outlook</span>
                                     </a>
                                     <button onClick={copyToClipboard} className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">

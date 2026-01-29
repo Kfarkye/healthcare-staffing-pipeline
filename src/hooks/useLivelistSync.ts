@@ -20,9 +20,9 @@ interface ExtractedCandidate {
 type EngagementStatus = 'Offer Extended' | 'Extension Request Sent' | 'Needs New Role' | 'Active' | 'Prospect' | 'Submitted' | 'Closed' | 'Interested' | null;
 
 interface SyncResults {
-    operationsCount: number;
-    errorCount: number;
-    totalCandidates: number;
+  operationsCount: number;
+  errorCount: number;
+  totalCandidates: number;
 }
 
 const LIVELIST_EXTRACTION_PROMPT = `You are a highly specialized AI assistant that parses complex HTML from the Nova Live List application. Your task is to analyze the provided HTML source and extract candidate and all their associated jobs into a structured JSON array, correctly grouping all jobs under the appropriate candidate.
@@ -93,112 +93,112 @@ export const useLivelistSync = ({ onNotification, onSyncComplete }: UseLivelistS
 
     let extractedData: ExtractedCandidate[] = [];
     try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlToProcess, "text/html");
-        const tableBody = doc.querySelector('tbody[kendogridtablebody]');
-        if (!tableBody) throw new Error("Could not find candidate table in HTML.");
-        const cleanHtml = tableBody.outerHTML;
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-        if (!apiKey) throw new Error("API key not configured.");
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-        const payload = { contents: [{ parts: [{ text: LIVELIST_EXTRACTION_PROMPT }, { text: cleanHtml }] }], generationConfig: { response_mime_type: "application/json", temperature: 0.1 } };
-        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (!response.ok) throw new Error('AI service communication failed.');
-        const result = await response.json();
-        const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
-        extractedData = JSON.parse(textResponse);
-        if (!Array.isArray(extractedData)) throw new Error('AI did not return a valid list.');
-        onNotification?.(`Extraction complete. Syncing ${extractedData.length} candidates...`, 'info');
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlToProcess, "text/html");
+      const tableBody = doc.querySelector('tbody[kendogridtablebody]');
+      if (!tableBody) throw new Error("Could not find candidate table in HTML.");
+      const cleanHtml = tableBody.outerHTML;
+      const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+      if (!apiKey) throw new Error("API key not configured.");
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+      const payload = { contents: [{ parts: [{ text: LIVELIST_EXTRACTION_PROMPT }, { text: cleanHtml }] }], generationConfig: { response_mime_type: "application/json", temperature: 0.1 } };
+      const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error('AI service communication failed.');
+      const result = await response.json();
+      const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      extractedData = JSON.parse(textResponse);
+      if (!Array.isArray(extractedData)) throw new Error('AI did not return a valid list.');
+      onNotification?.(`Extraction complete. Syncing ${extractedData.length} candidates...`, 'info');
     } catch (err: any) {
-        onNotification?.(err.message || 'Extraction error.', 'error');
-        setIsLoading(false);
-        return;
+      onNotification?.(err.message || 'Extraction error.', 'error');
+      setIsLoading(false);
+      return;
     }
 
     setIsLoading(false);
     setIsSyncing(true);
-    
+
     let operationsCount = 0;
     let errorCount = 0;
 
     for (const [index, candidate] of extractedData.entries()) {
-        let prospectHasError = false;
+      let prospectHasError = false;
 
-        // --- NEW LOGIC: Determine the most advanced status for the prospect ---
-        let bestProspectStatus: EngagementStatus = 'Prospect';
-        const statusHierarchy: EngagementStatus[] = ['Offer Extended', 'Submitted', 'Prospect'];
+      // --- NEW LOGIC: Determine the most advanced status for the prospect ---
+      let bestProspectStatus: EngagementStatus = 'Prospect';
+      const statusHierarchy: EngagementStatus[] = ['Offer Extended', 'Submitted', 'Prospect'];
 
-        if (candidate.jobs && candidate.jobs.length > 0) {
-            for (const job of candidate.jobs) {
-                const currentJobStatus = translateStatus(job.current_status_text);
-                const currentIndex = statusHierarchy.indexOf(currentJobStatus);
-                const bestIndex = statusHierarchy.indexOf(bestProspectStatus);
-                if (currentIndex !== -1 && currentIndex < bestIndex) {
-                    bestProspectStatus = currentJobStatus;
-                }
-            }
+      if (candidate.jobs && candidate.jobs.length > 0) {
+        for (const job of candidate.jobs) {
+          const currentJobStatus = translateStatus(job.current_status_text);
+          const currentIndex = statusHierarchy.indexOf(currentJobStatus);
+          const bestIndex = statusHierarchy.indexOf(bestProspectStatus);
+          if (currentIndex !== -1 && currentIndex < bestIndex) {
+            bestProspectStatus = currentJobStatus;
+          }
         }
-        
-        // Map 'Offer Extended' to 'Interested' for the prospect board
-        if (bestProspectStatus === 'Offer Extended') {
-            bestProspectStatus = 'Interested'; 
-        }
+      }
 
-        // 1. Prepare and upsert data for the 'prospects' table
-        const prospectData = {
+      // Map 'Offer Extended' to 'Interested' for the prospect board
+      if (bestProspectStatus === 'Offer Extended') {
+        bestProspectStatus = 'Interested';
+      }
+
+      // 1. Prepare and upsert data for the 'prospects' table
+      const prospectData = {
+        candidate_id: candidate.candidate_id,
+        name: candidate.candidate_name,
+        specialty: candidate.specialty,
+        status: bestProspectStatus, // The crucial update
+        available_start_date: candidate.jobs[0]?.start_date,
+      };
+
+      const { error: prospectError } = await supabase
+        .from('prospects')
+        .upsert(prospectData, { onConflict: 'candidate_id' });
+
+      if (prospectError) {
+        errorCount++;
+        prospectHasError = true;
+        console.error(`Error syncing prospect ${candidate.candidate_name}:`, prospectError);
+      } else {
+        operationsCount++;
+      }
+
+      // 2. Loop through jobs again to update individual engagements
+      if (!prospectHasError && candidate.jobs && candidate.jobs.length > 0) {
+        for (const job of candidate.jobs) {
+          const engagementStatus = translateStatus(job.current_status_text);
+          if (!engagementStatus || !job.job_id || !candidate.candidate_id) continue;
+
+          const engagementData = {
             candidate_id: candidate.candidate_id,
-            name: candidate.candidate_name,
-            specialty: candidate.specialty,
-            status: bestProspectStatus, // The crucial update
-            available_start_date: candidate.jobs[0]?.start_date,
-        };
+            job_id: job.job_id,
+            status: engagementStatus,
+            facility_name: job.facility_name,
+            candidate_name: candidate.candidate_name,
+            specialty: candidate.specialty
+          };
 
-        const { error: prospectError } = await supabase
-            .from('prospects')
-            .upsert(prospectData, { onConflict: 'candidate_id' });
-        
-        if (prospectError) {
+          const { error: engagementError } = await supabase
+            .from('engagements')
+            .upsert(engagementData, { onConflict: 'candidate_id,job_id' });
+
+          if (engagementError) {
             errorCount++;
-            prospectHasError = true;
-            console.error(`Error syncing prospect ${candidate.name}:`, prospectError);
-        } else {
+            console.error(`Error syncing engagement for ${candidate.candidate_name}:`, engagementError);
+          } else {
             operationsCount++;
+          }
         }
-
-        // 2. Loop through jobs again to update individual engagements
-        if (!prospectHasError && candidate.jobs && candidate.jobs.length > 0) {
-            for (const job of candidate.jobs) {
-                const engagementStatus = translateStatus(job.current_status_text);
-                if (!engagementStatus || !job.job_id || !candidate.candidate_id) continue;
-                
-                const engagementData = {
-                    candidate_id: candidate.candidate_id,
-                    job_id: job.job_id,
-                    status: engagementStatus,
-                    facility_name: job.facility_name,
-                    candidate_name: candidate.candidate_name,
-                    specialty: candidate.specialty
-                };
-
-                const { error: engagementError } = await supabase
-                    .from('engagements')
-                    .upsert(engagementData, { onConflict: 'candidate_id,job_id' });
-                
-                if (engagementError) {
-                    errorCount++;
-                    console.error(`Error syncing engagement for ${candidate.name}:`, engagementError);
-                } else {
-                    operationsCount++;
-                }
-            }
-        }
-        setSyncProgress(((index + 1) / extractedData.length) * 100);
+      }
+      setSyncProgress(((index + 1) / extractedData.length) * 100);
     }
-    
+
     setSyncResults({ operationsCount, errorCount, totalCandidates: extractedData.length });
     setIsSyncing(false);
     setShowResultsScreen(true);
-    
+
     if (onSyncComplete) {
       onSyncComplete();
     }

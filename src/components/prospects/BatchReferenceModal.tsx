@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { X, MailCheck, Loader2 as Loader, AlertCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import type { Prospect } from '../ProspectsDashboard';
+import type { Prospect } from '../../shared/types/database';
 import { buildReferenceEmail } from './emailBuilders';
 
 const TIFFANY_CC = 'Tiffany.Chavez@ayahealthcare.com';
@@ -37,7 +37,7 @@ export function BatchReferenceModal({
     setSending(true);
 
     try {
-      const isDev = import.meta.env.DEV;
+      const isDev = process.env.NODE_ENV === 'development';
       const successIds: number[] = [];
 
       for (const p of valid) {

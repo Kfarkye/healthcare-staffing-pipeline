@@ -35,11 +35,11 @@ export interface ExtractedProspectData {
   licenses?: string[];
   references_verified?: number;
   profile_complete?: boolean;
-  
+
   // Nova specific
   referees?: Referee[];
   workHistory?: WorkHistory[];
-  
+
   // Job details
   facility?: string;
   specialty?: string;
@@ -55,7 +55,7 @@ export interface ExtractedProspectData {
   jobId?: string;
   candidateId?: string;
   contractType?: "New" | "Extension";
-  
+
   // Email context
   candidateResponded?: boolean;
   expressedInterest?: boolean;
@@ -97,7 +97,7 @@ const utils = {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
-      reader.onload = () => resolve({ 
+      reader.onload = () => resolve({
         data: (reader.result as string).split(',')[1],
         mime: file.type || 'image/*'
       });
@@ -117,7 +117,7 @@ const utils = {
       /\b(\w{3,9})\s+(\d{1,2}),?\s+(\d{4})\b/,
       /\b(\d{1,2})\s+(\w{3,9})\s+(\d{4})\b/,
     ];
-    
+
     for (const pattern of patterns) {
       const match = text.match(pattern);
       if (match) {
@@ -139,7 +139,7 @@ const utils = {
       /vacation[:\s]+([^.]+)/i,
       /(december|january|february|march|april|may|june|july|august|september|october|november)\s+\d+/gi
     ];
-    
+
     for (const pattern of patterns) {
       const match = text.match(pattern);
       if (match) {
@@ -157,22 +157,22 @@ const utils = {
 class AIService {
   private apiKey: string;
   private apiUrl: string;
-  
+
   constructor() {
-    this.apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+    this.apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
     this.apiUrl = this.apiKey
-      ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`
+      ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${this.apiKey}`
       : '';
   }
 
   private get isConfigured(): boolean {
     // Prevent API key exposure in production - use Edge Functions instead
-    return Boolean(this.apiKey) && import.meta.env.MODE !== 'production';
+    return Boolean(this.apiKey) && process.env.NODE_ENV !== 'production';
   }
 
   private async makeRequest(prompt: string, images?: any[]): Promise<any> {
     const parts: any[] = [{ text: prompt }];
-    
+
     if (images?.length) {
       parts.push(...images.map(item => {
         const isString = typeof item === 'string';
@@ -242,7 +242,7 @@ class AIService {
       Return: {"referees": [], "workHistory": [], "verifiedCount": 0}`;
 
     const result = await this.makeRequest(prompt, imageData);
-    
+
     return {
       referees: result.referees || [],
       workHistory: result.workHistory || [],
@@ -395,12 +395,12 @@ class StorageService {
       const key = this.getKey(candidateId);
       const existing = this.load(candidateId);
       existing.push(result);
-      
+
       // Keep only recent items
       if (existing.length > this.maxItems) {
         existing.shift();
       }
-      
+
       localStorage.setItem(key, JSON.stringify(existing));
     } catch (error) {
       console.error('Storage save failed:', error);
@@ -425,10 +425,10 @@ class StorageService {
     const items = this.load(candidateId);
     if (!items.length) return null;
 
-    const best = items.reduce((prev, curr) => 
+    const best = items.reduce((prev, curr) =>
       curr.confidence > prev.confidence ? curr : prev
     );
-    
+
     return {
       fileCount: items.length,
       lastProcessed: items[items.length - 1]?.metadata.processedAt,
@@ -441,16 +441,16 @@ class StorageService {
   cleanup(): void {
     if (typeof window === 'undefined') return;
     const cutoff = Date.now() - (this.maxAge * 24 * 60 * 60 * 1000);
-    
+
     Object.keys(localStorage)
       .filter(key => key.startsWith(this.prefix))
       .forEach(key => {
         try {
           const items = JSON.parse(localStorage.getItem(key) || '[]');
-          const filtered = items.filter((item: any) => 
+          const filtered = items.filter((item: any) =>
             new Date(item.metadata?.processedAt).getTime() > cutoff
           );
-          
+
           if (filtered.length === 0) {
             localStorage.removeItem(key);
           } else if (filtered.length < items.length) {
@@ -476,12 +476,12 @@ class DatabaseService {
   async saveProspectData(candidateId: number | string, data: ExtractedProspectData): Promise<void> {
     try {
       console.log('Saving data for candidate_id:', candidateId);
-      
+
       // Save references if present
       if (data.referees?.length) {
         await this.saveReferences(candidateId, data.referees);
       }
-      
+
       // Save work history if present  
       if (data.workHistory?.length) {
         await this.saveWorkHistory(candidateId, data.workHistory);
@@ -489,25 +489,25 @@ class DatabaseService {
 
       // Build update object with only defined values
       const updateData: any = { updated_at: new Date().toISOString() };
-      
+
       const fieldsToUpdate = [
-        'available_start_date', 'home_state', 'licenses', 
+        'available_start_date', 'home_state', 'licenses',
         'references_verified', 'profile_complete', 'rto_notes'
       ];
-      
+
       fieldsToUpdate.forEach(key => {
         if (data[key as keyof ExtractedProspectData] !== undefined) {
           updateData[key] = data[key as keyof ExtractedProspectData];
         }
       });
-      
+
       // Only update if we have fields beyond updated_at
       if (Object.keys(updateData).length > 1) {
         const { error } = await supabase
           .from('prospects')
           .update(updateData)
           .eq('candidate_id', candidateId);
-          
+
         if (error) {
           console.error('Failed to update prospect:', error);
           throw error;
@@ -523,7 +523,7 @@ class DatabaseService {
   }
 
   private async saveReferences(candidateId: number | string, referees: Referee[]): Promise<void> {
-    const promises = referees.map(ref => 
+    const promises = referees.map(ref =>
       supabase.rpc('upsert_reference', {
         p_candidate_id: candidateId,
         p_name: ref.name,
@@ -532,7 +532,7 @@ class DatabaseService {
         p_reference_date: ref.date
       })
     );
-    
+
     const results = await Promise.allSettled(promises);
     results.forEach((result, index) => {
       if (result.status === 'rejected') {
@@ -549,11 +549,11 @@ class DatabaseService {
       start_date: work.start,
       end_date: work.end === 'Present' ? null : work.end
     }));
-    
+
     const { error } = await supabase
       .from('work_history')
       .upsert(records, { onConflict: 'candidate_id,facility,role,start_date' });
-      
+
     if (error) {
       console.error('Failed to save work history:', error);
     }
@@ -573,7 +573,7 @@ class DatabaseService {
           metadata: data,
           created_at: new Date().toISOString()
         });
-        
+
       if (error) {
         console.error('Failed to log extraction:', error);
         console.error('Candidate ID used:', candidateId);
@@ -595,23 +595,23 @@ export function useUnifiedContext(
 ) {
   const [results, setResults] = useState<ProcessingResult[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  
+
   // Derive extractions from results instead of separate state
-  const extractions = useMemo(() => 
+  const extractions = useMemo(() =>
     results.map(r => r.data),
     [results]
   );
-  
-  const config = { 
-    autoSaveToDb: true, 
-    enableLocalCache: true, 
-    ...options 
+
+  const config = {
+    autoSaveToDb: true,
+    enableLocalCache: true,
+    ...options
   };
-  
+
   const ai = useMemo(() => new AIService(), []);
   const storage = useMemo(() => new StorageService(), []);
   const db = useMemo(() => new DatabaseService(), []);
-  
+
   // Load cached data on mount
   useEffect(() => {
     if (candidateId && config.enableLocalCache) {
@@ -639,7 +639,7 @@ export function useUnifiedContext(
 
     setIsProcessing(true);
     console.log(`Processing ${file.name} for candidate_id: ${candidateId}`);
-    
+
     try {
       let data: ExtractedProspectData;
       let fileType: ProcessingResult['metadata']['fileType'] = 'screenshot';
@@ -649,9 +649,9 @@ export function useUnifiedContext(
         fileType = 'eml';
         const raw = await file.text();
         const emailBody = (() => {
-          try { 
-            return getTextBodyFromEml(raw); 
-          } catch { 
+          try {
+            return getTextBodyFromEml(raw);
+          } catch {
             console.warn('EML parser failed, using raw text');
             return raw; // fallback to raw text if parser fails
           }
@@ -665,7 +665,7 @@ export function useUnifiedContext(
 
       // Calculate confidence based on data completeness
       const calculateConfidence = (d: ExtractedProspectData, baseScore: number) => {
-        const dataScore = 
+        const dataScore =
           (d.available_start_date ? 0.25 : 0) +
           (Array.isArray(d.licenses) && d.licenses.length ? 0.2 : 0) +
           (Array.isArray(d.referees) && d.referees.length ? 0.2 : 0) +
@@ -675,7 +675,7 @@ export function useUnifiedContext(
       };
 
       const confidence = calculateConfidence(
-        data, 
+        data,
         fileType === 'eml' ? 0.8 : 0.9
       );
 
@@ -695,18 +695,18 @@ export function useUnifiedContext(
       if (config.enableLocalCache) {
         storage.save(candidateId, result);
       }
-      
+
       // Save to database if enabled
       if (config.autoSaveToDb) {
         await db.saveProspectData(candidateId, data);
       }
-      
+
       // Update state
       setResults(prev => [...prev, result]);
-      
+
       // Call success callback
       config.onProcessingComplete?.(data);
-      
+
       return data;
     } catch (error) {
       console.error('Processing failed:', error);
@@ -723,13 +723,13 @@ export function useUnifiedContext(
       config.onProcessingError?.(err);
       return null;
     }
-    
+
     setIsProcessing(true);
     console.log(`Processing Nova references for candidate_id: ${candidateId}`);
-    
+
     try {
       const data = await ai.processNovaReferences(files);
-      
+
       const result: ProcessingResult = {
         success: true,
         data,
@@ -744,14 +744,14 @@ export function useUnifiedContext(
       if (config.enableLocalCache) {
         storage.save(candidateId, result);
       }
-      
+
       if (config.autoSaveToDb) {
         await db.saveProspectData(candidateId, data);
       }
 
       setResults(prev => [...prev, result]);
       config.onProcessingComplete?.(data);
-      
+
       return data;
     } catch (error) {
       console.error('Nova processing failed:', error);
@@ -762,11 +762,11 @@ export function useUnifiedContext(
     }
   }, [candidateId, ai, storage, db, config]);
 
-  const getSummary = useCallback(() => 
+  const getSummary = useCallback(() =>
     candidateId ? storage.getSummary(candidateId) : null,
     [candidateId, storage]
   );
-  
+
   const clearCache = useCallback(() => {
     if (candidateId) {
       storage.clearForCandidate(candidateId);
@@ -779,12 +779,12 @@ export function useUnifiedContext(
     processFile,
     processScreenshot: processFile, // Alias for backward compatibility
     processNovaReferences,
-    
+
     // State
     results,
     extractions,
     isProcessing,
-    
+
     // Utilities
     getSummary,
     clearCache,

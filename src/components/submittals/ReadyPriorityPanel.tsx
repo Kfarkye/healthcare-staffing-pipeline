@@ -7,7 +7,7 @@ import React, { useMemo } from 'react';
 import { Star, Clock, Mail, Phone, ExternalLink } from 'lucide-react';
 import { Tooltip } from '../shared/Tooltip';
 import { getUrgencyLevel, getUrgencyIndicator } from '../../hooks/useSortedCandidates';
-import { SourceBadge } from '../shared/Badges';
+import { SourceBadge } from '../../shared/components/Badge';
 import type { ClinicianRow } from '../../types/submittals';
 
 const cn = (...classes: (string | boolean | null | undefined)[]) =>
@@ -40,7 +40,7 @@ export default function ReadyPriorityPanel({
 }: ReadyPriorityPanelProps) {
   // Group priority candidates by their actual pipeline stage
   const columns: PriorityColumn[] = useMemo(() => {
-    const pipeline = priorityCandidates.filter(c => 
+    const pipeline = priorityCandidates.filter(c =>
       c.tab === 'READY' || c.tab === 'SUBMITTED'
     );
     const offer = priorityCandidates.filter(c => c.tab === 'OFFER');
@@ -170,7 +170,7 @@ const PriorityCard: React.FC<{
   const urgency = getUrgencyIndicator(urgencyLevel);
 
   return (
-    <div 
+    <div
       onClick={onSelect}
       className="group relative p-4 bg-white border-2 border-amber-200/60 rounded-xl hover:shadow-md transition-all duration-200 cursor-pointer"
     >

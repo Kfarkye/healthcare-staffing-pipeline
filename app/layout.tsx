@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
+import { Providers } from './providers';
 import '../src/index.css';
+import '../src/styles/animations.css';
 
 export const metadata: Metadata = {
     title: 'The Drip - Healthcare Staffing Pipeline',
@@ -14,7 +16,9 @@ export default function RootLayout({
     return (
         <html lang="en">
             <body className="antialiased">
-                {children}
+                <Providers>
+                    {children}
+                </Providers>
             </body>
         </html>
     );

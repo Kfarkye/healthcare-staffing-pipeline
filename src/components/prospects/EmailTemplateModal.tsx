@@ -1,8 +1,3 @@
-// ============================================================================
-// src/components/prospects/EmailTemplateModal.tsx
-// Refactored to use EmailModalShell - maintains all existing functionality
-// ============================================================================
-
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   Send, Copy, Download, ChevronRight, Check, Upload, Trash2, Link,
@@ -11,7 +6,7 @@ import {
 import { EmailModalShell } from '../shared/EmailModalShell';
 import { supabase } from '../../lib/supabase';
 import type { Prospect } from '../../shared/types/database';
-import { ExtractedOfferData, ExtractionService } from '../../services/extractionService';
+import { ExtractionService } from '../../services/extractionService';
 import type { ExtractedData } from '../../types/prospects';
 import {
   OUTREACH_EMAIL_TEMPLATES,
@@ -19,6 +14,7 @@ import {
   OPS_EMAIL_TEMPLATES,
   getTemplateById,
   type TemplateCategory,
+  type ExtractedOfferData,
 } from '../../outreach/templates';
 import { trackEvent } from '../../utils/telemetry';
 
@@ -90,18 +86,17 @@ const formatDate = (dateString?: string | null): string => {
     : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-const sanitizeFilename = (filename: string): string => 
+const sanitizeFilename = (filename: string): string =>
   filename.replace(/[^\w.\-]+/g, '_');
 
-const encodeParam = (s: string): string => 
+const encodeParam = (s: string): string =>
   encodeURIComponent(s ?? '');
 
 const buildOutlookLink = (to: string, cc: string | undefined, subject: string, body: string): string =>
-  `https://outlook.office.com/mail/deeplink/compose?to=${encodeParam(to)}${
-    cc ? `&cc=${encodeParam(cc)}` : ''
+  `https://outlook.office.com/mail/deeplink/compose?to=${encodeParam(to)}${cc ? `&cc=${encodeParam(cc)}` : ''
   }&subject=${encodeParam(subject)}&body=${encodeParam(body)}`;
 
-const buildRingCentralLink = (phoneNumber: string | null): string => 
+const buildRingCentralLink = (phoneNumber: string | null): string =>
   `rcapp://call?number=${phoneNumber?.replace(/[\s\-\(\)]/g, '')}`;
 
 const toExtractedOfferData = (p: Prospect, e: ExtractedData | null): ExtractedOfferData => ({
@@ -118,8 +113,9 @@ const toExtractedOfferData = (p: Prospect, e: ExtractedData | null): ExtractedOf
   weeklyStipend: e?.weeklyStipend ?? ((p as any).weekly_stipend ?? 0),
   grossWeeklyPay: e?.grossWeeklyPay ?? ((p as any).gross_weekly ?? 0),
   specialty: e?.specialty || p.specialty || p.profession || '',
-  jobId: (e as any)?.jobId ?? null,
-  candidateId: p.candidate_id ? Number(p.candidate_id) : ((e as any)?.candidateId ?? null),
+  jobId: (e as any)?.jobId ? Number((e as any).jobId) : null,
+  candidateId: p.candidate_id ? Number(p.candidate_id) : ((e as any)?.candidateId ? Number((e as any).candidateId) : null),
+  actualMargin: (e as any)?.actualMargin ?? (e as any)?.actual_margin ?? null,
 });
 
 const createFilePreview = (file: File): Promise<string> => {
@@ -156,7 +152,7 @@ export default function EmailTemplateModal({
 
   // Template State
   const [category, setCategory] = useState<TemplateCategory>('outreach');
-  
+
   const pool = useMemo(() => {
     switch (category) {
       case 'response': return RESPONSE_EMAIL_TEMPLATES;
@@ -166,12 +162,12 @@ export default function EmailTemplateModal({
         return OUTREACH_EMAIL_TEMPLATES;
     }
   }, [category]);
-  
+
   const initialTemplateId = useMemo(() => {
     const template = pool.find(t => t.id === 'hourly_rate_outreach');
     return template ? template.id : pool[0]?.id || '';
   }, [pool]);
-  
+
   const [templateId, setTemplateId] = useState<string>(initialTemplateId);
   const selectedTemplate = useMemo(() => getTemplateById(templateId, category), [templateId, category]);
 
@@ -216,7 +212,7 @@ export default function EmailTemplateModal({
         .eq('id', prospect.id);
 
       if (error) throw error;
-      
+
       trackEvent('email_extraction_used', {
         kind: 'prospect',
         extraction_type: 'pay_package',
@@ -255,51 +251,51 @@ export default function EmailTemplateModal({
 
   const handleFileSelect = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
-    
+
     const newFiles: UploadedFile[] = [];
-    
+
     for (const file of Array.from(fileList)) {
       const error = validateFile(file);
       const uploadFile = await createUploadFile(file);
-      
+
       if (error) {
         uploadFile.status = 'error';
         uploadFile.error = error;
         newFiles.push(uploadFile);
         continue;
       }
-      
+
       uploadFile.status = 'uploading';
       uploadFile.progress = 15;
       newFiles.push(uploadFile);
-      uploadSingleFile(file, uploadFile.id).catch(() => {});
+      uploadSingleFile(file, uploadFile.id).catch(() => { });
     }
-    
+
     setFiles(prev => [...newFiles, ...prev]);
   };
 
   const uploadSingleFile = async (file: File, fileId: string) => {
     try {
       updateFileProgress(fileId, 40);
-      
+
       const path = `${prospect?.candidate_id || 'anonymous'}/${Date.now()}-${sanitizeFilename(file.name)}`;
       const { data, error } = await supabase.storage
         .from(STORAGE_BUCKET)
         .upload(path, file, { upsert: true, cacheControl: '3600' });
-      
+
       if (error) {
         markFileError(fileId, error.message || 'Upload failed');
         return;
       }
-      
+
       updateFileProgress(fileId, 85);
-      
+
       const { data: publicUrlData } = supabase.storage
         .from(STORAGE_BUCKET)
         .getPublicUrl(data.path);
-      
+
       markFileComplete(fileId, publicUrlData.publicUrl);
-      
+
       // Extract if extractable type
       if (EXTRACTABLE_FILE_TYPES.includes(file.type)) {
         await handleExtractData(file, path);
@@ -312,24 +308,38 @@ export default function EmailTemplateModal({
   const handleExtractData = async (file: File, storagePath?: string) => {
     if (isExtracting) return;
     setIsExtracting(true);
-    
+
     try {
       const extracted = await ExtractionService.extractDataFromAssignmentFile(file);
-      const parsedData = extracted as ExtractedOfferData;
-      
+
+      // Normalize to match templates ExtractedOfferData (number types for IDs)
+      const parsedData: ExtractedOfferData = {
+        name: prospect.name || extracted.name || '',
+        email: prospect.email || extracted.email || '',
+        facility: extracted.facility || '',
+        city: extracted.city || '',
+        state: extracted.state || '',
+        shiftType: extracted.shiftType || '',
+        weeklyHours: extracted.weeklyHours || 40,
+        startDate: extracted.startDate || null,
+        endDate: extracted.endDate || null,
+        taxableRate: extracted.taxableRate || 0,
+        weeklyStipend: extracted.weeklyStipend || 0,
+        grossWeeklyPay: extracted.grossWeeklyPay || 0,
+        specialty: extracted.specialty || '',
+        jobId: extracted.jobId ? Number(extracted.jobId) : null,
+        candidateId: extracted.candidateId ? Number(extracted.candidateId) : null,
+        actualMargin: extracted.actual_margin ?? null,
+      };
+
       if (parsedData) {
-        const finalData = {
-          ...parsedData,
-          name: prospect.name || parsedData.name,
-          email: prospect.email || parsedData.email,
-        };
-        setExtractedDataLocal({ ...(extractedDataLocal ?? {} as ExtractedData), ...finalData });
-        await persistTemplateData(finalData, storagePath);
+        setExtractedDataLocal({ ...(extractedDataLocal ?? {}), ...parsedData } as unknown as ExtractedData);
+        await persistTemplateData(parsedData, storagePath);
       }
     } catch (error: any) {
       console.error('[Extraction] Error:', error);
       showToastNotification(error.message || 'Extraction failed', 'error');
-      
+
       trackEvent('email_extraction_used', {
         kind: 'prospect',
         extraction_type: 'pay_package',
@@ -341,21 +351,21 @@ export default function EmailTemplateModal({
   };
 
   const updateFileProgress = (fileId: string, progress: number) => {
-    setFiles(prev => prev.map(f => 
-      f.id === fileId && f.status === 'uploading' 
-        ? { ...f, progress: Math.max(f.progress, progress) } 
+    setFiles(prev => prev.map(f =>
+      f.id === fileId && f.status === 'uploading'
+        ? { ...f, progress: Math.max(f.progress, progress) }
         : f
     ));
   };
 
   const markFileComplete = (fileId: string, url: string) => {
-    setFiles(prev => prev.map(f => 
+    setFiles(prev => prev.map(f =>
       f.id === fileId ? { ...f, status: 'done' as const, progress: 100, url } : f
     ));
   };
 
   const markFileError = (fileId: string, error: string) => {
-    setFiles(prev => prev.map(f => 
+    setFiles(prev => prev.map(f =>
       f.id === fileId ? { ...f, status: 'error' as const, progress: 0, error } : f
     ));
   };
@@ -374,14 +384,14 @@ export default function EmailTemplateModal({
   const addLinksToEmail = () => {
     const uploadedFiles = files.filter(f => f.status === 'done' && f.url);
     if (uploadedFiles.length === 0) return;
-    
+
     const links = [
       '',
       'Attachments:',
       ...uploadedFiles.map(f => `• ${f.name} — ${f.url}`),
       ''
     ];
-    
+
     setBody(currentBody => `${currentBody.trimEnd()}\n${links.join('\n')}`);
   };
 
@@ -422,12 +432,12 @@ export default function EmailTemplateModal({
     if (!recipient) return;
     const url = buildOutlookLink(recipient, CC_EMAIL, subject, body);
     window.open(url, '_blank');
-    
+
     trackEvent('email_modal_sent', {
       kind: 'prospect',
       with_attachments: files.some(f => f.status === 'done'),
     });
-    
+
     onSend();
     onClose();
   }, [recipient, subject, body, files, onSend, onClose]);
@@ -578,9 +588,8 @@ export default function EmailTemplateModal({
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(true); }}
               onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(false); }}
               onDrop={handleDrop}
-              className={`flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl p-6 cursor-pointer transition-all duration-200 ${
-                dragActive ? 'border-slate-900 bg-slate-50' : 'border-slate-200 hover:border-slate-300'
-              }`}
+              className={`flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl p-6 cursor-pointer transition-all duration-200 ${dragActive ? 'border-slate-900 bg-slate-50' : 'border-slate-200 hover:border-slate-300'
+                }`}
             >
               <div className="p-2.5 bg-slate-100 rounded-xl">
                 <Upload size={16} className="text-slate-600" />
@@ -614,7 +623,7 @@ export default function EmailTemplateModal({
                           <img src={file.previewUrl} alt={file.name} className="w-full h-full object-cover" />
                         </button>
                       )}
-                      
+
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
@@ -623,7 +632,7 @@ export default function EmailTemplateModal({
                               {(file.size / (1024 * 1024)).toFixed(2)} MB
                             </div>
                           </div>
-                          
+
                           <button
                             onClick={() => removeFile(file.id)}
                             className="p-1.5 rounded-lg hover:bg-red-50 group"
@@ -647,7 +656,7 @@ export default function EmailTemplateModal({
                             {EXTRACTABLE_FILE_TYPES.includes(file.type) ? 'Uploaded & Analyzed' : 'Uploaded'}
                           </div>
                         )}
-                        
+
                         {file.status === 'error' && (
                           <div className="mt-2 text-[10px] text-red-600 font-medium">Error: {file.error}</div>
                         )}
@@ -661,11 +670,10 @@ export default function EmailTemplateModal({
             <button
               onClick={addLinksToEmail}
               disabled={!files.some(f => f.status === 'done')}
-              className={`mt-3 w-full py-2.5 text-[11px] font-semibold tracking-wider uppercase rounded-xl transition-all flex items-center justify-center gap-2 ${
-                files.some(f => f.status === 'done')
-                  ? 'text-slate-700 bg-white border border-slate-200 hover:bg-slate-50'
-                  : 'text-slate-400 bg-slate-100 cursor-not-allowed opacity-50'
-              }`}
+              className={`mt-3 w-full py-2.5 text-[11px] font-semibold tracking-wider uppercase rounded-xl transition-all flex items-center justify-center gap-2 ${files.some(f => f.status === 'done')
+                ? 'text-slate-700 bg-white border border-slate-200 hover:bg-slate-50'
+                : 'text-slate-400 bg-slate-100 cursor-not-allowed opacity-50'
+                }`}
             >
               <Link size={13} />
               Add Links to Email
@@ -742,11 +750,10 @@ export default function EmailTemplateModal({
                   setCategory('outreach');
                   setTemplateId(OUTREACH_EMAIL_TEMPLATES[0].id);
                 }}
-                className={`px-4 py-2 text-[11px] font-bold tracking-wider uppercase rounded-lg transition-all ${
-                  category === 'outreach' 
-                    ? 'bg-white text-slate-900 shadow-sm' 
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
+                className={`px-4 py-2 text-[11px] font-bold tracking-wider uppercase rounded-lg transition-all ${category === 'outreach'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+                  }`}
               >
                 Outreach
               </button>
@@ -755,11 +762,10 @@ export default function EmailTemplateModal({
                   setCategory('response');
                   setTemplateId(RESPONSE_EMAIL_TEMPLATES[0].id);
                 }}
-                className={`px-4 py-2 text-[11px] font-bold tracking-wider uppercase rounded-lg transition-all ${
-                  category === 'response' 
-                    ? 'bg-white text-slate-900 shadow-sm' 
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
+                className={`px-4 py-2 text-[11px] font-bold tracking-wider uppercase rounded-lg transition-all ${category === 'response'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+                  }`}
               >
                 Response
               </button>
@@ -768,11 +774,10 @@ export default function EmailTemplateModal({
                   setCategory('ops');
                   setTemplateId(OPS_EMAIL_TEMPLATES[0].id);
                 }}
-                className={`px-4 py-2 text-[11px] font-bold tracking-wider uppercase rounded-lg transition-all ${
-                  category === 'ops' 
-                    ? 'bg-white text-slate-900 shadow-sm' 
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
+                className={`px-4 py-2 text-[11px] font-bold tracking-wider uppercase rounded-lg transition-all ${category === 'ops'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+                  }`}
               >
                 Ops
               </button>
@@ -798,12 +803,12 @@ export default function EmailTemplateModal({
             <div className="grid grid-cols-2 gap-4 text-[12px] items-center">
               <div className="flex items-center gap-2">
                 <label htmlFor="recipient" className="font-semibold text-slate-900">To:</label>
-                <input 
+                <input
                   id="recipient"
-                  type="email" 
-                  value={recipient} 
-                  onChange={(e) => setRecipient(e.target.value)} 
-                  className="w-full font-mono text-[11px] text-slate-600 bg-slate-100 rounded-lg px-3 py-1.5 border-0 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white" 
+                  type="email"
+                  value={recipient}
+                  onChange={(e) => setRecipient(e.target.value)}
+                  className="w-full font-mono text-[11px] text-slate-600 bg-slate-100 rounded-lg px-3 py-1.5 border-0 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white"
                 />
               </div>
               <div className="flex items-center gap-2">

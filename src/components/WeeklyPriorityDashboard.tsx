@@ -124,10 +124,18 @@ const Badge = ({ children, variant = 'default' }) => {
   );
 };
 
-const IconButton = ({ icon: Icon, onClick, href, title, color = theme.colors.text.tertiary }) => {
+interface IconButtonProps {
+  icon: any;
+  onClick?: (e: React.MouseEvent) => void;
+  href?: string;
+  title: string;
+  color?: string;
+}
+
+const IconButton: React.FC<IconButtonProps> = ({ icon: Icon, onClick, href, title, color = theme.colors.text.tertiary }) => {
   const [isHovered, setIsHovered] = useState(false);
 
-  const baseStyle = {
+  const baseStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -141,7 +149,7 @@ const IconButton = ({ icon: Icon, onClick, href, title, color = theme.colors.tex
     transform: isHovered ? 'translateY(-1px)' : 'translateY(0)',
   };
 
-  const handleClick = (e) => {
+  const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (href) {
       window.open(href, '_blank', 'noopener,noreferrer');
@@ -375,7 +383,7 @@ const Column = ({ title, prospects, status, onDrop, isDragOver, totalCount, onCa
 
 const AddProspectModal = ({ isOpen, onClose, onAdd, prospects, currentCount }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   if (!isOpen) return null;
 
   const limitReached = currentCount >= MAX_WEEKLY_PROSPECTS;
@@ -698,11 +706,11 @@ const WeeklyPriorityDashboard = () => {
     const optimisticUpdate = prospects.map((p) =>
       p.id === prospect.id
         ? {
-            ...p,
-            previous_status_info: `From: ${p.status}`,
-            status: newStatus,
-            status_updated_at: new Date().toISOString(),
-          }
+          ...p,
+          previous_status_info: `From: ${p.status}`,
+          status: newStatus,
+          status_updated_at: new Date().toISOString(),
+        }
         : p
     );
     setProspects(optimisticUpdate);

@@ -6,7 +6,7 @@
 
 import React, { useState, useRef } from 'react';
 import { X, Upload, Sparkles, Loader2, Check, UserPlus, Link } from 'lucide-react';
-import { ExtractionService } from '../../services/extractionService';
+import { ExtractionService } from '../services/extractionService';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -126,18 +126,16 @@ const InputGroup: React.FC<InputGroupProps> = ({
   const isError = required && (!value || value.trim() === '');
 
   const baseInputClasses = 'w-full px-4 py-3 text-[13px] border rounded-xl transition-all duration-300 ease-out';
-  
-  const inputClasses = `${baseInputClasses} ${
-    readOnly
+
+  const inputClasses = `${baseInputClasses} ${readOnly
       ? 'bg-gradient-to-br from-slate-50 to-slate-100/50 text-slate-700 cursor-default font-medium border-slate-200/80'
-      : `bg-white ${
-          isError
-            ? 'border-red-300 focus:border-red-400 focus:ring-4 focus:ring-red-50'
-            : isFocused
-            ? 'border-blue-400 ring-4 ring-blue-50 shadow-sm'
-            : 'border-slate-200 hover:border-slate-300'
-        }`
-  }`;
+      : `bg-white ${isError
+        ? 'border-red-300 focus:border-red-400 focus:ring-4 focus:ring-red-50'
+        : isFocused
+          ? 'border-blue-400 ring-4 ring-blue-50 shadow-sm'
+          : 'border-slate-200 hover:border-slate-300'
+      }`
+    }`;
 
   const handleCopy = async (text: string) => {
     await navigator.clipboard.writeText(text);
@@ -167,11 +165,10 @@ const InputGroup: React.FC<InputGroupProps> = ({
               e.stopPropagation();
               handleCopy(value);
             }}
-            className={`shrink-0 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-200 transform ${
-              copied
+            className={`shrink-0 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-200 transform ${copied
                 ? 'bg-green-100 text-green-700 scale-95'
                 : 'bg-blue-50 text-blue-600 hover:bg-blue-100 hover:scale-105 active:scale-95'
-            }`}
+              }`}
           >
             {copied ? 'Copied!' : 'Copy'}
           </button>
@@ -259,9 +256,8 @@ const InputGroup: React.FC<InputGroupProps> = ({
 
   return (
     <div className="group">
-      <label className={`block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2.5 transition-colors duration-200 ${
-        isFocused ? 'text-blue-600' : ''
-      }`}>
+      <label className={`block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2.5 transition-colors duration-200 ${isFocused ? 'text-blue-600' : ''
+        }`}>
         {label} {required && <span className="text-red-500">*</span>}
       </label>
       {renderInput()}
@@ -298,7 +294,7 @@ const FormSection: React.FC<FormSectionProps> = ({
   const handleCandidateIdChange = (value: string) => {
     const parsed = value ? parseInt(value) : undefined;
     updateFormData('candidate_id', parsed);
-    
+
     if (parsed && mode === 'screenshot') {
       const generatedUrl = generateNovaUrl(parsed);
       updateFormData('nova_url', generatedUrl);
@@ -319,7 +315,7 @@ const FormSection: React.FC<FormSectionProps> = ({
           </h3>
           <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
         </div>
-        
+
         <div className="grid grid-cols-2 gap-5">
           {/* Nova URL - First in manual mode */}
           {isManualUrlEntry && (
@@ -328,7 +324,7 @@ const FormSection: React.FC<FormSectionProps> = ({
                 label="Nova URL"
                 placeholder="https://nova.ayahealthcare.com/#/recruiting/candidates/4328863/..."
                 value={formData.nova_url}
-                onChange={onNovaUrlChange || (() => {})}
+                onChange={onNovaUrlChange || (() => { })}
                 hint="Paste Nova URL to automatically extract Candidate ID"
               />
             </div>
@@ -356,12 +352,12 @@ const FormSection: React.FC<FormSectionProps> = ({
               label="Nova URL"
               placeholder="Auto-generated from ID"
               value={formData.nova_url}
-              onChange={() => {}}
+              onChange={() => { }}
               readOnly={true}
               hint="Generated from Candidate ID"
             />
           )}
-          
+
           {/* Name */}
           <InputGroup
             label="Full Name"
@@ -427,7 +423,7 @@ const FormSection: React.FC<FormSectionProps> = ({
           </h3>
           <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
         </div>
-        
+
         <div className="grid grid-cols-2 gap-5">
           {/* Shift Preference */}
           <InputGroup
@@ -545,7 +541,7 @@ const UploadZone: React.FC<UploadZoneProps> = ({
               <div className="absolute inset-0 bg-green-400 rounded-full blur-xl opacity-30" />
             </div>
             <p className="text-[13px] text-green-700 font-semibold">
-              {candidateId 
+              {candidateId
                 ? `Extracted - Candidate ID: ${candidateId}`
                 : 'Data extracted - verify fields below'
               }
@@ -568,9 +564,8 @@ const UploadZone: React.FC<UploadZoneProps> = ({
       default: // idle
         return (
           <>
-            <div className={`p-4 bg-gradient-to-br from-slate-100 to-slate-50 rounded-2xl shadow-inner transition-all duration-300 ${
-              isDragging ? 'scale-110 rotate-3' : ''
-            }`}>
+            <div className={`p-4 bg-gradient-to-br from-slate-100 to-slate-50 rounded-2xl shadow-inner transition-all duration-300 ${isDragging ? 'scale-110 rotate-3' : ''
+              }`}>
               <Upload size={28} className="text-slate-600" strokeWidth={2} />
             </div>
             <div className="text-center">
@@ -593,13 +588,12 @@ const UploadZone: React.FC<UploadZoneProps> = ({
       onDrop={onDrop}
       onDragOver={(e) => e.preventDefault()}
       onClick={onClick}
-      className={`relative flex flex-col items-center justify-center gap-4 border-2 border-dashed rounded-2xl p-16 cursor-pointer transition-all duration-300 overflow-hidden ${
-        isDragging
+      className={`relative flex flex-col items-center justify-center gap-4 border-2 border-dashed rounded-2xl p-16 cursor-pointer transition-all duration-300 overflow-hidden ${isDragging
           ? 'border-blue-400 bg-blue-50/50 scale-105 shadow-lg'
           : uploadStatus === 'idle'
-          ? 'border-slate-200 hover:border-slate-400 hover:bg-slate-50/30 hover:scale-[1.02]'
-          : 'border-slate-200'
-      }`}
+            ? 'border-slate-200 hover:border-slate-400 hover:bg-slate-50/30 hover:scale-[1.02]'
+            : 'border-slate-200'
+        }`}
     >
       {getContent()}
     </div>
@@ -659,7 +653,7 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
 
     console.log('[FileSelect] Processing:', fileToProcess.name);
     setUploadStatus('uploading');
-    
+
     try {
       await new Promise(resolve => setTimeout(resolve, 300));
       setUploadStatus('processing');
@@ -690,7 +684,7 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
 
       setUploadStatus('done');
       showToast('Data extracted successfully', 'success');
-      
+
     } catch (error: any) {
       console.error('[FileSelect] Failed:', error);
       setUploadStatus('error');
@@ -700,7 +694,7 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
 
   const handleNovaUrlChange = (url: string) => {
     setFormData(prev => ({ ...prev, nova_url: url }));
-    
+
     if (url) {
       const candidateId = parseCandidateIdFromUrl(url);
       if (candidateId) {
@@ -734,7 +728,7 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
 
   const handleSave = async () => {
     console.log('[Save] Initiated');
-    
+
     // Validate required fields
     const name = formData.name?.trim();
     const email = formData.email?.trim();
@@ -763,7 +757,7 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
 
     try {
       const nova_url = formData.nova_url?.trim() || generateNovaUrl(candidate_id);
-      
+
       // Build metadata
       const metadata: Record<string, string> = {};
       if (personalFields.shift_preference) {
@@ -820,17 +814,17 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
   const updatePersonalFields = (field: keyof PersonalFields, value: string) => {
     setPersonalFields(prev => ({ ...prev, [field]: value }));
   };
-  
-  const isFormValid = 
-    !!formData.candidate_id && 
-    !!formData.name?.trim() && 
-    !!formData.email?.trim() && 
+
+  const isFormValid =
+    !!formData.candidate_id &&
+    !!formData.name?.trim() &&
+    !!formData.email?.trim() &&
     !!formData.profession?.trim();
-  
+
   // ============================================================================
   // RENDER
   // ============================================================================
-  
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 animate-fadeIn">
       <style>{`
@@ -877,10 +871,10 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
         className="absolute inset-0 z-0 bg-black/50 backdrop-blur-xl"
         onClick={onClose}
       />
-      
+
       {/* Modal Container */}
       <div className="relative z-10 w-full max-w-3xl bg-white rounded-3xl shadow-2xl overflow-hidden animate-slideUp">
-        
+
         {/* Header */}
         <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-gradient-to-b from-slate-50 to-white">
           <div className="flex items-center gap-4">
@@ -909,22 +903,20 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
           <div className="flex p-1.5 bg-slate-100/80 rounded-2xl shadow-inner backdrop-blur-sm w-fit">
             <button
               onClick={() => setMode('screenshot')}
-              className={`px-5 py-2.5 text-[11px] font-bold tracking-wider uppercase rounded-xl transition-all duration-300 flex items-center gap-2 ${
-                mode === 'screenshot'
+              className={`px-5 py-2.5 text-[11px] font-bold tracking-wider uppercase rounded-xl transition-all duration-300 flex items-center gap-2 ${mode === 'screenshot'
                   ? 'bg-white text-slate-900 shadow-lg scale-105'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50/50 hover:scale-105'
-              }`}
+                }`}
             >
               <Upload size={13} strokeWidth={2.5} />
               Screenshot
             </button>
             <button
               onClick={() => setMode('manual')}
-              className={`px-5 py-2.5 text-[11px] font-bold tracking-wider uppercase rounded-xl transition-all duration-300 flex items-center gap-2 ${
-                mode === 'manual'
+              className={`px-5 py-2.5 text-[11px] font-bold tracking-wider uppercase rounded-xl transition-all duration-300 flex items-center gap-2 ${mode === 'manual'
                   ? 'bg-white text-slate-900 shadow-lg scale-105'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50/50 hover:scale-105'
-              }`}
+                }`}
             >
               <Link size={13} strokeWidth={2.5} />
               Paste URL
@@ -943,7 +935,7 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
                 className="hidden"
                 onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
               />
-              
+
               <UploadZone
                 uploadStatus={uploadStatus}
                 isDragging={isDragging}
@@ -953,7 +945,7 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
                 onDrop={handleDrop}
                 onClick={() => uploadStatus === 'idle' && fileInputRef.current?.click()}
               />
-              
+
               {uploadStatus !== 'idle' && (
                 <FormSection
                   formData={formData}
@@ -965,7 +957,7 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
               )}
             </div>
           )}
-          
+
           {mode === 'manual' && (
             <FormSection
               formData={formData}
@@ -989,11 +981,10 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
           <button
             onClick={handleSave}
             disabled={saving || !isFormValid}
-            className={`px-6 py-3 text-[11px] font-bold tracking-wider uppercase rounded-xl text-white transition-all duration-300 flex items-center gap-2.5 ${
-              saving || !isFormValid
+            className={`px-6 py-3 text-[11px] font-bold tracking-wider uppercase rounded-xl text-white transition-all duration-300 flex items-center gap-2.5 ${saving || !isFormValid
                 ? 'bg-slate-300 cursor-not-allowed'
                 : 'bg-slate-900 hover:bg-slate-800 shadow-lg hover:shadow-xl hover:scale-105 active:scale-95'
-            }`}
+              }`}
           >
             {saving ? (
               <>

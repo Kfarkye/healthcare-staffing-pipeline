@@ -3,34 +3,13 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { X, Phone, Mail, MapPin, Calendar, CircleCheck as CheckCircle, Circle, ExternalLink, CreditCard as Edit2, UserCheck, UserX, Clock, FileText, CircleAlert as AlertCircle, ChevronRight, Loader as Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { EditProspectModal } from './prospects/EditProspectModal';
-import { EmailTemplateModal } from './prospects/EmailTemplateModal';
+import EditProspectModal from './prospects/EditProspectModal';
+import EmailTemplateModal from './prospects/EmailTemplateModal';
+import type { Prospect } from '../shared/types/database';
 
 // ============================================================================
 // TYPE DEFINITIONS
 // ============================================================================
-
-interface Prospect {
-  id: number;
-  candidate_id?: number;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  specialty: string | null;
-  profession: string | null;
-  status: string;
-  home_state: string | null;
-  licenses: string[] | null;
-  notes: string | null;
-  recruiter?: string | null;
-  references_verified?: number;
-  profile_complete?: boolean;
-  available_start_date?: string | null;
-  rto_notes?: string | null;
-  reassignment_requested_at?: string | null;
-  created_at?: string;
-  updated_at?: string;
-}
 
 interface ProspectDetailModalProps {
   prospect: Prospect;
@@ -44,7 +23,7 @@ interface Requirement {
   label: string;
   value: string | null;
   isComplete: boolean;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: React.ElementType;
   color: string;
 }
 
@@ -52,7 +31,7 @@ interface Requirement {
 // UTILITIES
 // ============================================================================
 
-const classNames = (...classes: (string | boolean | null | undefined)[]) => 
+const classNames = (...classes: (string | boolean | null | undefined)[]) =>
   classes.filter(Boolean).join(' ');
 
 const formatDate = (dateString: string | null | undefined) => {
@@ -112,13 +91,13 @@ export default function ProspectDetailModal({
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
-        
+
         setExtractedData(data);
       } catch (error) {
         console.error('Error loading pay package:', error);
       }
     };
-    
+
     loadPayPackage();
   }, []);
 
@@ -176,14 +155,14 @@ export default function ProspectDetailModal({
     try {
       const { error } = await supabase
         .from('prospects')
-        .update({ 
-          status, 
-          updated_at: new Date().toISOString() 
+        .update({
+          status,
+          updated_at: new Date().toISOString()
         })
         .eq('id', prospect.id);
-      
+
       if (error) throw error;
-      
+
       showToastNotification(`${prospect.name} marked as ${status}`, 'success');
       onUpdate();
       onClose();
@@ -198,12 +177,12 @@ export default function ProspectDetailModal({
   const handleEmailSent = async () => {
     await supabase
       .from('prospects')
-      .update({ 
-        status: 'Contacted', 
-        updated_at: new Date().toISOString() 
+      .update({
+        status: 'Contacted',
+        updated_at: new Date().toISOString()
       })
       .eq('id', prospect.id);
-    
+
     setShowEmailModal(false);
     showToastNotification('Email sent successfully', 'success');
     onUpdate();
@@ -223,11 +202,11 @@ export default function ProspectDetailModal({
     <>
       {/* Main Modal */}
       <div className="fixed inset-0 z-50">
-        <div 
-          className="absolute inset-0 bg-black/40 backdrop-blur-sm" 
-          onClick={onClose} 
+        <div
+          className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+          onClick={onClose}
         />
-        
+
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-3xl max-h-[90vh] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col">
           {/* Header */}
           <div className="flex-shrink-0 px-6 py-5 border-b border-gray-100">
@@ -243,13 +222,13 @@ export default function ProspectDetailModal({
                   )}>
                     {prospect.status}
                   </span>
-                  
+
                   {prospect.specialty && (
                     <span className="text-sm text-gray-600">
                       {prospect.specialty}
                     </span>
                   )}
-                  
+
                   {prospect.candidate_id && (
                     <button
                       onClick={() => openExternalLink(
@@ -263,7 +242,7 @@ export default function ProspectDetailModal({
                   )}
                 </div>
               </div>
-              
+
               <button
                 onClick={onClose}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -299,7 +278,7 @@ export default function ProspectDetailModal({
                       </button>
                     )}
                   </div>
-                  
+
                   <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                     <Phone size={16} className="text-gray-400" />
                     <div className="flex-1 min-w-0">
@@ -333,24 +312,24 @@ export default function ProspectDetailModal({
                     {readinessPercentage}% Complete
                   </span>
                 </div>
-                
+
                 {/* Progress Bar */}
                 <div className="h-2 bg-gray-200 rounded-full overflow-hidden mb-4">
                   <div
                     className={classNames(
                       'h-full transition-all duration-500',
-                      isFullyReady 
+                      isFullyReady
                         ? 'bg-gradient-to-r from-green-500 to-green-400'
-                        : readinessPercentage >= 75 
+                        : readinessPercentage >= 75
                           ? 'bg-gradient-to-r from-blue-500 to-blue-400'
-                          : readinessPercentage >= 50 
+                          : readinessPercentage >= 50
                             ? 'bg-gradient-to-r from-amber-500 to-amber-400'
                             : 'bg-gray-300'
                     )}
                     style={{ width: `${readinessPercentage}%` }}
                   />
                 </div>
-                
+
                 {/* Requirements List */}
                 <div className="space-y-2">
                   {requirements.map(req => (
@@ -358,8 +337,8 @@ export default function ProspectDetailModal({
                       key={req.key}
                       className={classNames(
                         'flex items-center gap-3 p-3 rounded-lg border transition-all',
-                        req.isComplete 
-                          ? 'bg-green-50/50 border-green-200' 
+                        req.isComplete
+                          ? 'bg-green-50/50 border-green-200'
                           : 'bg-gray-50 border-gray-200'
                       )}
                     >
@@ -368,7 +347,7 @@ export default function ProspectDetailModal({
                       ) : (
                         <Circle size={18} className="text-gray-300 flex-shrink-0" />
                       )}
-                      
+
                       <div className="flex-1">
                         <p className={classNames(
                           'text-sm font-medium',
@@ -403,7 +382,7 @@ export default function ProspectDetailModal({
                         </div>
                       </div>
                     )}
-                    
+
                     {prospect.recruiter && (
                       <div className="flex items-start gap-3">
                         <UserCheck size={16} className="text-gray-400 mt-0.5" />
@@ -413,7 +392,7 @@ export default function ProspectDetailModal({
                         </div>
                       </div>
                     )}
-                    
+
                     {prospect.notes && (
                       <div className="flex items-start gap-3">
                         <FileText size={16} className="text-gray-400 mt-0.5" />
@@ -465,7 +444,7 @@ export default function ProspectDetailModal({
                     Mark Submittal Ready
                   </button>
                 )}
-                
+
                 <button
                   onClick={() => handleArchive('Not Interested')}
                   disabled={loading}
@@ -479,7 +458,7 @@ export default function ProspectDetailModal({
                   Not Interested
                 </button>
               </div>
-              
+
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowEditModal(true)}
@@ -488,7 +467,7 @@ export default function ProspectDetailModal({
                   <Edit2 size={14} />
                   Edit
                 </button>
-                
+
                 <button
                   onClick={onClose}
                   className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
@@ -515,6 +494,7 @@ export default function ProspectDetailModal({
       {/* Email Modal */}
       {showEmailModal && (
         <EmailTemplateModal
+          isOpen={true}
           prospect={prospect}
           extractedData={extractedData}
           onClose={() => setShowEmailModal(false)}

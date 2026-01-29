@@ -6,8 +6,8 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
-import { ROUTE_CONFIG } from '../config/routes';
-import { CATEGORIES } from '../config/constants';
+import { ROUTE_CONFIG } from '../../config/routes';
+import { CATEGORIES } from '../../config/constants';
 
 // ============================================================================
 // DESIGN SYSTEM - Single source of truth
@@ -115,7 +115,7 @@ interface QuickLinkProps {
 
 const QuickLink: React.FC<QuickLinkProps> = ({ label, href }) => {
   const isExternal = href.startsWith('http');
-  
+
   return (
     <a
       href={href}
@@ -129,9 +129,9 @@ const QuickLink: React.FC<QuickLinkProps> = ({ label, href }) => {
       aria-label={label}
     >
       <span className="text-[13px] font-medium">{label}</span>
-      <ChevronRight 
-        size={15} 
-        strokeWidth={2} 
+      <ChevronRight
+        size={15}
+        strokeWidth={2}
         className="text-slate-300 opacity-0 group-hover:opacity-100 group-hover:text-slate-400 transition-all -translate-x-2 group-hover:translate-x-0"
       />
     </a>
@@ -201,10 +201,9 @@ const NavItem: React.FC<NavItemProps> = ({ path, label, delay }) => (
   <NavLink
     to={path}
     className={({ isActive }) =>
-      `group relative w-full flex items-center justify-between px-3 py-2.5 ${DESIGN.radius.md} text-left overflow-hidden ${DESIGN.transition} ${
-        isActive
-          ? `bg-${DESIGN.colors.primary} text-white`
-          : `${DESIGN.text.nav} hover:bg-${DESIGN.colors.primaryHover} hover:text-slate-900 active:scale-[0.98]`
+      `group relative w-full flex items-center justify-between px-3 py-2.5 ${DESIGN.radius.md} text-left overflow-hidden ${DESIGN.transition} ${isActive
+        ? `bg-${DESIGN.colors.primary} text-white`
+        : `${DESIGN.text.nav} hover:bg-${DESIGN.colors.primaryHover} hover:text-slate-900 active:scale-[0.98]`
       }`
     }
     style={{ animationDelay: `${delay}ms` }}
@@ -224,11 +223,10 @@ const NavItem: React.FC<NavItemProps> = ({ path, label, delay }) => (
 
         {/* Direction indicator - appears on hover or when active */}
         <div
-          className={`relative z-10 ${DESIGN.transition} ${
-            isActive
+          className={`relative z-10 ${DESIGN.transition} ${isActive
               ? 'opacity-100 translate-x-0'
               : 'opacity-0 -translate-x-2 group-hover:opacity-50 group-hover:translate-x-0'
-          }`}
+            }`}
         >
           <ChevronRight size={15} strokeWidth={2.5} />
         </div>
@@ -248,7 +246,7 @@ interface NavSectionProps {
 
 const NavSection: React.FC<NavSectionProps> = ({ category, index }) => {
   const routes = ROUTE_CONFIG.filter(route => route.category === category);
-  
+
   if (routes.length === 0) return null;
 
   return (

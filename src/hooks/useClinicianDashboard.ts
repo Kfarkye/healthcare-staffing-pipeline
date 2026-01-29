@@ -23,8 +23,10 @@ export type EndBucket =
 export type PrimaryState = 'PROSPECTING' | 'SUBMITTED' | 'SIGNED' | 'ACTIVE' | 'INACTIVE';
 export type Stage = 'SUBMITTED' | 'SIGNED' | 'ACTIVE';
 
-import type { TabId, SourceType } from '../types/submittals';
-export type { TabId, SourceType };
+// Define these here to avoid circular imports with submittals.ts
+export type TabId = 'KANBAN' | 'PROSPECTS' | 'READY' | 'SUBMITTED' | 'OFFER' | 'PRESTART' | 'SIGNED' | 'ACTIVE' | 'INACTIVE';
+export type SourceType = 'PROSPECT' | 'TRANSITIONING' | 'EXTENSION_REQUEST' | 'EXTENSION_SIGNED' | string;
+
 
 export interface ClinicianRow {
   // IDs

@@ -42,7 +42,7 @@ const EMAIL_TEMPLATES: EmailTemplate[] = [
     name: '📧 EMAIL: Rush Medical Center MA - Full Details with References',
     generateContent: (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
-      
+
       let hoursDisplay = '';
       if (data.weeklyHours === 40) {
         hoursDisplay = '5x8s (40 hours/week)';
@@ -53,15 +53,15 @@ const EMAIL_TEMPLATES: EmailTemplate[] = [
       } else {
         hoursDisplay = `${data.shiftType} (${data.weeklyHours} hours/week)`;
       }
-      
+
       let compensationLine = '';
-      
+
       if (data.weeklyStipend && data.weeklyStipend > 0 && data.grossWeeklyPay && data.grossWeeklyPay > 0) {
         compensationLine = `Total Weekly Pay: ${formatCurrency(data.grossWeeklyPay)}`;
       } else {
         compensationLine = `Hourly Rate: ${formatCurrency(data.taxableRate)}/hr`;
       }
-      
+
       return {
         subject: `Medical Assistant – Rush University Medical Center (${data.city}, ${data.state})`,
         body: `Hi ${firstName},
@@ -91,7 +91,7 @@ Thank you!`
       };
     }
   },
-  
+
   // GENERAL OUTREACH TEMPLATES
   {
     id: 'initial_outreach',
@@ -132,7 +132,7 @@ Thank you!`
     name: '📧 EMAIL: Re-engagement - Past Candidate',
     generateContent: (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
-      
+
       return {
         subject: `${firstName}, ready for your next adventure?`,
         body: `Hi ${firstName},
@@ -163,7 +163,7 @@ Best,
       const endDate = new Date(data.endDate || '');
       endDate.setDate(endDate.getDate() + 91);
       const newEndDate = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      
+
       return {
         subject: `Extension Available - ${data.facility}`,
         body: `Hi ${firstName},
@@ -190,7 +190,7 @@ Thanks!
     generateContent: (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
       const enhancedPay = data.grossWeeklyPay * 1.05;
-      
+
       return {
         subject: `${firstName}, we can beat that offer`,
         body: `Hi ${firstName},
@@ -220,7 +220,7 @@ Can we talk for 5 minutes? I think you'll be pleasantly surprised.
     name: '📧 EMAIL: Referral Request',
     generateContent: (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
-      
+
       return {
         subject: `${firstName}, know any ${data.specialty}s looking?`,
         body: `Hi ${firstName},
@@ -241,7 +241,7 @@ Thanks!
       };
     }
   },
-  
+
   // TEXT MESSAGE TEMPLATES
   {
     id: 'text_quick_pitch',
@@ -258,15 +258,13 @@ Thanks!
 Facility: ${data.facility}
 Location: ${data.city}, ${data.state}
 Assignment Dates: ${formatDate(data.startDate)} – ${formatEndDate(data.endDate)}
-Shifts & Hours/Week: ${data.shiftType} (${data.hoursPerWeek || 36} hours/week)
+Shifts & Hours/Week: ${data.shiftType} (${data.weeklyHours || 36} hours/week)
 Specialty: ${data.specialty}
 
 Pay Package:
-Taxable Hourly Rate: ${formatCurrency(data.taxableHourly || 0)}/hr
-Weekly Meals Stipend: ${formatCurrency(data.mealsStipend || 0)}
-Weekly Housing Stipend: ${formatCurrency(data.housingStipend || 0)}
-Total Weekly Stipends (Meals + Housing): ${formatCurrency((data.mealsStipend || 0) + (data.housingStipend || 0))}
-Total Gross Weekly Pay for ${data.hoursPerWeek || 36} Hours Worked: ${formatCurrency(data.grossWeeklyPay)}
+Taxable Hourly Rate: ${formatCurrency(data.taxableRate || 0)}/hr
+Weekly Stipend (Meals + Housing): ${formatCurrency(data.weeklyStipend || 0)}
+Total Gross Weekly Pay for ${data.weeklyHours || 36} Hours Worked: ${formatCurrency(data.grossWeeklyPay)}
 
 Please let me know if you would like to be submitted or if you have any questions.`
       };
@@ -277,7 +275,7 @@ Please let me know if you would like to be submitted or if you have any question
     name: '💬 TEXT: Follow-up Check',
     generateContent: (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
-      
+
       return {
         subject: 'Text Message',
         body: `Hi ${firstName} - Just circling back on the ${data.specialty} position at ${data.facility} (${formatCurrency(data.grossWeeklyPay)}/wk). Still interested? Let me know either way so I can update my notes. Thanks!`
@@ -292,9 +290,9 @@ Please let me know if you would like to be submitted or if you have any question
         if (!dateString) return 'ASAP';
         return new Date(dateString).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
       };
-      
+
       const firstName = data.name.split(' ')[0];
-      
+
       return {
         subject: 'Text Message',
         body: `${firstName} - URGENT: ${data.facility} needs ${data.specialty} by ${formatDate(data.startDate)}. ${formatCurrency(data.grossWeeklyPay)}/wk. They're deciding TODAY. Can you talk now? Call me at [phone] or reply YES.`
@@ -306,7 +304,7 @@ Please let me know if you would like to be submitted or if you have any question
     name: '💬 TEXT: Last Chance',
     generateContent: (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
-      
+
       return {
         subject: 'Text Message',
         body: `${firstName} - Final call on ${data.facility} (${formatCurrency(data.grossWeeklyPay)}/wk). They're deciding by EOD. Reply YES if interested, NO if not. Thanks!`
@@ -318,7 +316,7 @@ Please let me know if you would like to be submitted or if you have any question
     name: '💬 TEXT: Submission Confirmation',
     generateContent: (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
-      
+
       return {
         subject: 'Text Message',
         body: `${firstName} - Great news! You're submitted to ${data.facility}. They typically respond within 24-48 hours. I'll text you as soon as I hear back. Fingers crossed!`
@@ -330,7 +328,7 @@ Please let me know if you would like to be submitted or if you have any question
     name: '💬 TEXT: Offer Received',
     generateContent: (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
-      
+
       return {
         subject: 'Text Message',
         body: `${firstName} - OFFER IN! ${data.facility} wants you! ${formatCurrency(data.grossWeeklyPay)}/week confirmed. Call me ASAP to review details: [phone]`
@@ -345,15 +343,15 @@ Please let me know if you would like to be submitted or if you have any question
 
 const Toast = ({ message, show, type = 'success' }) => {
   if (!show) return null;
-  
+
   const styles = {
     success: 'bg-green-50 border-green-200 text-green-900',
     error: 'bg-red-50 border-red-200 text-red-900',
     info: 'bg-blue-50 border-blue-200 text-blue-900',
   };
-  
+
   const Icon = type === 'error' ? AlertCircle : CheckCircle;
-  
+
   return (
     <div className="fixed bottom-6 right-6 z-50">
       <div className={`${styles[type]} px-4 py-3 rounded-md shadow-lg border flex items-center gap-3 max-w-md`}>
@@ -370,14 +368,14 @@ const Toast = ({ message, show, type = 'success' }) => {
 
 export default function BatchOutreachSystem() {
   // Use the global store instead of local state
-  const { 
-    batchItems, 
+  const {
+    batchItems,
     currentItemIndex,
     addBatchItems,
     updateBatchItem,
     processChunk,
     setCurrentItemIndex,
-    clearAll: clearBatchStore 
+    clearAll: clearBatchStore
   } = useBatchStore();
 
   // Local UI state (not shared) remains in the component
@@ -390,7 +388,7 @@ export default function BatchOutreachSystem() {
   const [isEditing, setIsEditing] = useState(false);
   const [editedData, setEditedData] = useState<ExtractedOfferData | null>(null);
   const [isEditingEmail, setIsEditingEmail] = useState(false);
-  const [editedEmailContent, setEditedEmailContent] = useState<{subject: string, body: string} | null>(null);
+  const [editedEmailContent, setEditedEmailContent] = useState<{ subject: string, body: string } | null>(null);
   const [customEmailContent, setCustomEmailContent] = useState<{ [key: string]: { subject: string, body: string } }>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -430,7 +428,7 @@ export default function BatchOutreachSystem() {
 
   const copyKeyDetails = async () => {
     if (!displayData) return;
-    
+
     const keyDetails = `Facility: ${displayData.facility}
 Location: ${displayData.city}, ${displayData.state}
 Assignment Dates: ${formatDate(displayData.startDate)} – ${formatDate(displayData.endDate)}
@@ -485,7 +483,7 @@ Total Gross Weekly Pay: ${formatCurrency(displayData.grossWeeklyPay)}`;
 
       const promises = chunk.map(item =>
         ExtractionService.extractDataFromImage(item.file)
-          .then(data => ({ ...item, status: 'completed' as const, extractedData: data }))
+          .then(data => ({ ...item, status: 'completed' as const, extractedData: data as unknown as ExtractedOfferData }))
           .catch(error => ({ ...item, status: 'error' as const, error: error.message }))
       );
 
@@ -648,11 +646,10 @@ Total Gross Weekly Pay: ${formatCurrency(displayData.grossWeeklyPay)}`;
                   <button
                     onClick={processBatch}
                     disabled={isProcessing}
-                    className={`w-full py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                      isProcessing
-                        ? 'bg-gray-100 text-gray-400'
-                        : 'bg-black text-white hover:bg-gray-800'
-                    }`}
+                    className={`w-full py-2 px-4 rounded-md text-sm font-medium transition-colors ${isProcessing
+                      ? 'bg-gray-100 text-gray-400'
+                      : 'bg-black text-white hover:bg-gray-800'
+                      }`}
                   >
                     {isProcessing ? 'Processing...' : 'Process All'}
                   </button>
@@ -678,11 +675,10 @@ Total Gross Weekly Pay: ${formatCurrency(displayData.grossWeeklyPay)}`;
                     <div
                       key={item.id}
                       onClick={() => navigateToItem(index)}
-                      className={`p-2 rounded-md cursor-pointer flex items-center gap-2 mb-2 ${
-                        currentItemIndex === index
-                          ? 'bg-gray-100'
-                          : 'hover:bg-gray-50'
-                      }`}
+                      className={`p-2 rounded-md cursor-pointer flex items-center gap-2 mb-2 ${currentItemIndex === index
+                        ? 'bg-gray-100'
+                        : 'hover:bg-gray-50'
+                        }`}
                     >
                       <input
                         type="checkbox"
@@ -725,7 +721,7 @@ Total Gross Weekly Pay: ${formatCurrency(displayData.grossWeeklyPay)}`;
                           <button
                             onClick={() => {
                               setIsEditing(true);
-                              setEditedData({...currentItem.extractedData});
+                              setEditedData({ ...currentItem.extractedData });
                             }}
                             className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
                           >

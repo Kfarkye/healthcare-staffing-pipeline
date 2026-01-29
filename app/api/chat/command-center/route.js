@@ -59,7 +59,7 @@ export const maxDuration = 300;
  */
 const MODEL_CONFIG = Object.freeze({
     primary: 'gemini-3-flash-preview',
-    fallback: 'gemini-2.0-flash-exp',
+    fallback: 'gemini-3-pro-preview',
     temperature: 0.7,
     maxSteps: 5,
     maxRetries: 2,

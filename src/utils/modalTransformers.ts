@@ -11,8 +11,8 @@ import type { ClinicianRow, Prospect, Contract, ActiveAssignment } from '../type
  * for EmailTemplateModal.
  */
 export const toProspectLike = (row: ClinicianRow): Prospect => ({
-  id: row.prospect_id || 0,
-  candidate_id: row.candidate_id || null,
+  id: Number(row.prospect_id) || 0,
+  candidate_id: row.candidate_id ? Number(row.candidate_id) : null,
   name: row.full_name || 'Unknown Prospect',
   email: row.email || null,
   phone: row.phone || null,
@@ -27,7 +27,7 @@ export const toProspectLike = (row: ClinicianRow): Prospect => ({
   template_uploaded_at: null,
 
   // Metadata
-  status: row.raw_status || 'Outreach',
+  status: (row.raw_status || 'Outreach') as any,
   licenses: Array.isArray(row.licenses) ? row.licenses : null,
   notes: row.engagement_notes || null,
   recruiter: row.recruiter || null,
@@ -48,7 +48,7 @@ export const toContractData = (row: ClinicianRow): Contract => ({
   end_date: row.contract_end_date || null,
   status: 'Active',
   actual_margin: null,
-  extension_stage: row.extension_stage || 'outreach',
+  extension_stage: (row.extension_stage || 'outreach') as any,
 
   // Combine AM/AC names into single field
   am_ac: row.am_name

@@ -543,11 +543,9 @@ export default function OffersSignedPrestartDashboard() {
         <div
           className={cn(
             'fixed bottom-5 right-5 px-4 py-3 rounded-lg text-sm font-medium text-white shadow-xl z-50 flex items-center gap-2.5 animate-slideUp',
-            {
-              'bg-slate-900': toast.type === 'info',
-              'bg-green-600': toast.type === 'success',
-              'bg-red-600': toast.type === 'error'
-            }
+            toast.type === 'info' && 'bg-slate-900',
+            toast.type === 'success' && 'bg-green-600',
+            toast.type === 'error' && 'bg-red-600'
           )}
         >
           {toast.type === 'success' && <CheckCircle size={15} />}

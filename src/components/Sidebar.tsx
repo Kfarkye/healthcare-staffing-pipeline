@@ -1,12 +1,16 @@
 // ============================================================================
 // src/components/Sidebar.tsx
 // JONY IVE CLARITY: Every element earns its place
+// MIGRATED TO NEXT.JS APP ROUTER
 // ============================================================================
 
+'use client';
+
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { ChevronRight, Zap } from 'lucide-react';
-import { ROUTE_CONFIG } from '../config/routes';
+import { ROUTE_CONFIG_NEXT } from '../config/routes-next';
 import { CATEGORIES } from '../config/constants';
 import QuickOutreachModal from './QuickOutreachModal';
 
@@ -210,7 +214,7 @@ const UserProfile: React.FC = () => (
 );
 
 // ============================================================================
-// NAVIGATION LINK - Single purpose, clear state
+// NAVIGATION LINK - Next.js native Link with active state
 // ============================================================================
 
 interface NavItemProps {
@@ -219,43 +223,42 @@ interface NavItemProps {
   delay: number;
 }
 
-const NavItem: React.FC<NavItemProps> = ({ path, label, delay }) => (
-  <NavLink
-    to={path}
-    className={({ isActive }) =>
-      `group relative w-full flex items-center justify-between px-3 py-2.5 ${DESIGN.radius.md} text-left overflow-hidden ${DESIGN.transition} ${isActive
+const NavItem: React.FC<NavItemProps> = ({ path, label, delay }) => {
+  const pathname = usePathname();
+  const isActive = pathname === path;
+
+  return (
+    <Link
+      href={path}
+      className={`group relative w-full flex items-center justify-between px-3 py-2.5 ${DESIGN.radius.md} text-left overflow-hidden ${DESIGN.transition} ${isActive
         ? `bg-${DESIGN.colors.primary} text-white`
         : `${DESIGN.text.nav} hover:bg-${DESIGN.colors.primaryHover} hover:text-slate-900 active:scale-[0.98]`
-      }`
-    }
-    style={{ animationDelay: `${delay}ms` }}
-    aria-label={label}
-  >
-    {({ isActive }) => (
-      <>
-        {/* Subtle gradient overlay on active state */}
-        {isActive && (
-          <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-transparent opacity-50" />
-        )}
+        }`}
+      style={{ animationDelay: `${delay}ms` }}
+      aria-label={label}
+    >
+      {/* Subtle gradient overlay on active state */}
+      {isActive && (
+        <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-transparent opacity-50" />
+      )}
 
-        {/* Label */}
-        <span className={`relative z-10 ${isActive ? DESIGN.text.navActive : DESIGN.text.nav}`}>
-          {label}
-        </span>
+      {/* Label */}
+      <span className={`relative z-10 ${isActive ? DESIGN.text.navActive : DESIGN.text.nav}`}>
+        {label}
+      </span>
 
-        {/* Direction indicator - appears on hover or when active */}
-        <div
-          className={`relative z-10 ${DESIGN.transition} ${isActive
-            ? 'opacity-100 translate-x-0'
-            : 'opacity-0 -translate-x-2 group-hover:opacity-50 group-hover:translate-x-0'
-            }`}
-        >
-          <ChevronRight size={15} strokeWidth={2.5} />
-        </div>
-      </>
-    )}
-  </NavLink>
-);
+      {/* Direction indicator - appears on hover or when active */}
+      <div
+        className={`relative z-10 ${DESIGN.transition} ${isActive
+          ? 'opacity-100 translate-x-0'
+          : 'opacity-0 -translate-x-2 group-hover:opacity-50 group-hover:translate-x-0'
+          }`}
+      >
+        <ChevronRight size={15} strokeWidth={2.5} />
+      </div>
+    </Link>
+  );
+};
 
 // ============================================================================
 // NAVIGATION SECTION - Grouped by purpose
@@ -267,7 +270,7 @@ interface NavSectionProps {
 }
 
 const NavSection: React.FC<NavSectionProps> = ({ category, index }) => {
-  const routes = ROUTE_CONFIG.filter(route => route.category === category);
+  const routes = ROUTE_CONFIG_NEXT.filter(route => route.category === category);
 
   if (routes.length === 0) return null;
 
@@ -349,48 +352,3 @@ export function Sidebar(): JSX.Element {
     </>
   );
 }
-
-// ============================================================================
-// ANIMATIONS - Defined in animations.css
-// ============================================================================
-/*
-@keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-16px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-slideInLeft {
-  animation: slideInLeft 0.2s ease-out;
-}
-
-.animate-fadeInUp {
-  animation: fadeInUp 0.15s ease-out forwards;
-}
-
-.custom-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
-  border-radius: 3px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
-}
-*/

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, UserX, Loader2 as Loader } from 'lucide-react';
-import type { Prospect } from '../ProspectsDashboard';
+import type { Prospect } from '../../shared/types/database';
 import { buildReassignmentEmail } from './emailBuilders';
 
 const REASSIGNMENT_EMAIL = 'reassignments@ayahealthcare.com';

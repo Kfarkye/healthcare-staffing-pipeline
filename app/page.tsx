@@ -1,7 +1,5 @@
-'use client';
-
-import App from '../src/App';
+import { redirect } from 'next/navigation';
 
 export default function Home() {
-    return <App />;
+    redirect('/prospects');
 }

@@ -173,7 +173,7 @@ export default function MarginDataSync(): JSX.Element {
         const doc = parser.parseFromString(html, "text/html");
         const bodyHtml = doc.body.outerHTML;
 
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
         if (!apiKey) throw new Error("API key is not configured.");
 
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
@@ -197,7 +197,7 @@ export default function MarginDataSync(): JSX.Element {
         });
         const base64Data = fileAsBase64.split(',')[1];
 
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
         if (!apiKey) throw new Error("API key is not configured.");
 
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;

@@ -14,7 +14,7 @@ import { supabase as supabaseClient } from '../../lib/supabase';
 const DESIGN = {
   space: {
     xs: '0.5rem',
-    sm: '1rem', 
+    sm: '1rem',
     md: '1.5rem',
     lg: '2rem',
   },
@@ -56,28 +56,12 @@ const DESIGN = {
   transition: 'transition-all duration-150 ease-out',
 };
 
+// Import Prospect from shared types
+import type { Prospect } from '../../shared/types/database';
+
 // ============================================================================
 // TYPES
 // ============================================================================
-
-interface Prospect {
-  id: string | number;
-  name: string;
-  email?: string;
-  phone?: string;
-  specialty?: string;
-  profession?: string;
-  status?: string;
-  licenses?: string[];
-  available_start_date?: string | Date | null;
-  rto_notes?: string;
-  metadata?: {
-    profile_complete?: boolean;
-    references_verified?: number;
-    [key: string]: any;
-  };
-  updated_at?: string;
-}
 
 interface EditProspectModalProps {
   prospect: Prospect;
@@ -183,11 +167,11 @@ const STATE_FULL_TO_ABBR: Record<string, string> = {
 
 const getCredentialConfig = (profession: string | undefined): CredentialConfig => {
   if (!profession) return CREDENTIALS_BY_PROFESSION['default'];
-  
+
   const key = Object.keys(CREDENTIALS_BY_PROFESSION).find(
     k => k.toLowerCase() === profession.toLowerCase()
   );
-  
+
   return key ? CREDENTIALS_BY_PROFESSION[key] : CREDENTIALS_BY_PROFESSION['default'];
 };
 
@@ -250,9 +234,8 @@ const ChecklistItem: React.FC<ChecklistItemProps> = ({
               aria-label={isComplete ? 'Mark incomplete' : 'Mark complete'}
             >
               <IconComponent
-                className={`w-5 h-5 ${DESIGN.transition} ${
-                  isComplete ? `text-${DESIGN.colors.success}` : 'text-slate-300 group-hover:text-slate-400'
-                }`}
+                className={`w-5 h-5 ${DESIGN.transition} ${isComplete ? `text-${DESIGN.colors.success}` : 'text-slate-300 group-hover:text-slate-400'
+                  }`}
                 strokeWidth={2.5}
               />
             </button>
@@ -308,7 +291,7 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
   supabase
 }) => {
   const sb = supabase ?? supabaseClient;
-  
+
   const [editedProspect, setEditedProspect] = useState<Prospect>(() => normalizeProspect(prospect));
   const [isSaving, setIsSaving] = useState(false);
   const [selectedCredential, setSelectedCredential] = useState('');
@@ -330,10 +313,10 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !isAnalyzing && !isSaving) onClose();
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     modalRef.current?.focus();
-    
+
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, isAnalyzing, isSaving]);
 
@@ -355,7 +338,7 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
       const formData = new FormData();
       formData.append('file', file);
 
-      const functionsUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/llm-ocr-gemini`;
+      const functionsUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/llm-ocr-gemini`;
 
       const resp = await fetch(functionsUrl, {
         method: 'POST',
@@ -392,7 +375,7 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
           ...p,
           licenses: [...(p.licenses || []), ...newToAdd].sort()
         }));
-        
+
         showToastNotification(
           `Added ${newToAdd.length} credential${newToAdd.length > 1 ? 's' : ''}: ${newToAdd.join(', ')}`,
           'success'
@@ -428,7 +411,7 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
 
   const addCredential = useCallback(() => {
     if (!selectedCredential) return;
-    
+
     const currentLicenses = editedProspect.licenses || [];
     if (currentLicenses.includes(selectedCredential)) {
       showToastNotification(`${selectedCredential} already added`, 'info');
@@ -449,9 +432,9 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
   // REQUIREMENT TOGGLES
   // ============================================================================
 
-  const toggleReferencesVerified = useCallback(() => 
-    setEditedProspect(p => ({ 
-      ...p, 
+  const toggleReferencesVerified = useCallback(() =>
+    setEditedProspect(p => ({
+      ...p,
       metadata: {
         ...p.metadata,
         references_verified: (p.metadata?.references_verified || 0) >= 2 ? 0 : 2
@@ -459,9 +442,9 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
     })), []
   );
 
-  const toggleProfileComplete = useCallback(() => 
-    setEditedProspect(p => ({ 
-      ...p, 
+  const toggleProfileComplete = useCallback(() =>
+    setEditedProspect(p => ({
+      ...p,
       metadata: {
         ...p.metadata,
         profile_complete: !p.metadata?.profile_complete
@@ -469,14 +452,14 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
     })), []
   );
 
-  const toggleStartDate = useCallback(() => 
-    setEditedProspect(p => ({ 
-      ...p, 
-      available_start_date: p.available_start_date ? null : new Date().toISOString().slice(0, 10) 
+  const toggleStartDate = useCallback(() =>
+    setEditedProspect(p => ({
+      ...p,
+      available_start_date: p.available_start_date ? null : new Date().toISOString().slice(0, 10)
     })), []
   );
 
-  const toggleRtoConfirmed = useCallback(() => 
+  const toggleRtoConfirmed = useCallback(() =>
     setEditedProspect(p => ({ ...p, rto_notes: p.rto_notes ? '' : 'Confirmed' })), []
   );
 
@@ -486,12 +469,12 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
 
   const handleSaveProgress = useCallback(async () => {
     setIsSaving(true);
-    
+
     try {
       if (!sb) throw new Error('Supabase client unavailable');
 
-      const prospectId = typeof editedProspect.id === 'string' 
-        ? parseInt(editedProspect.id) 
+      const prospectId = typeof editedProspect.id === 'string'
+        ? parseInt(editedProspect.id)
         : editedProspect.id;
 
       const payload = {
@@ -512,7 +495,7 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
         .eq('id', prospectId);
 
       if (error) throw error;
-      
+
       showToastNotification('Progress saved', 'success');
       onUpdate();
       onClose();
@@ -526,12 +509,12 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
 
   const handleSaveAndMarkReady = useCallback(async () => {
     setIsSaving(true);
-    
+
     try {
       if (!sb) throw new Error('Supabase client unavailable');
 
-      const prospectId = typeof editedProspect.id === 'string' 
-        ? parseInt(editedProspect.id) 
+      const prospectId = typeof editedProspect.id === 'string'
+        ? parseInt(editedProspect.id)
         : editedProspect.id;
 
       const payload = {
@@ -553,7 +536,7 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
         .eq('id', prospectId);
 
       if (error) throw error;
-      
+
       showToastNotification('Marked as Submittal Ready', 'success');
       onUpdate();
       onClose();
@@ -610,9 +593,9 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
 
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      
+
       {/* Modal */}
-      <div 
+      <div
         ref={modalRef}
         className={`relative w-full max-w-2xl bg-${DESIGN.colors.bgSubtle} ${DESIGN.radius.lg} ${DESIGN.elevation.modal} flex flex-col max-h-[90vh] animate-slideUp`}
         role="dialog"
@@ -620,7 +603,7 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
         aria-labelledby="modal-title"
         tabIndex={-1}
       >
-        
+
         {/* Header - Context for what you're editing */}
         <header className={`px-6 py-5 border-b border-${DESIGN.colors.border} bg-gradient-to-b from-${DESIGN.colors.bgSubtle} to-white backdrop-blur-sm sticky top-0 z-10 ${DESIGN.radius.lg} ${DESIGN.radius.lg.replace('rounded', 'rounded-t')}`}>
           <div className="flex items-center justify-between">
@@ -629,7 +612,7 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
               <div className={`p-2.5 bg-${DESIGN.colors.primaryLight} border border-${DESIGN.colors.primaryBorder} ${DESIGN.radius.md} ${DESIGN.elevation.card}`}>
                 <Edit2 className={`w-5 h-5 text-${DESIGN.colors.primary}`} strokeWidth={2.5} />
               </div>
-              
+
               {/* Title & Context */}
               <div>
                 <h2 id="modal-title" className={DESIGN.text.heading}>
@@ -642,8 +625,8 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
             </div>
 
             {/* Close */}
-            <button 
-              onClick={onClose} 
+            <button
+              onClick={onClose}
               className={`p-2 ${DESIGN.radius.md} hover:bg-${DESIGN.colors.bgHover} ${DESIGN.transition}`}
               aria-label="Close modal"
             >
@@ -654,7 +637,7 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
 
         {/* Requirements Checklist */}
         <main className="flex-1 p-6 space-y-3 overflow-y-auto">
-          
+
           {/* References */}
           <ChecklistItem
             label="References Verified"
@@ -663,27 +646,27 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
             onToggle={toggleReferencesVerified}
           >
             <div className="space-y-2">
-              <button 
-                onClick={() => setEditedProspect(p => ({ ...p, metadata: { ...p.metadata, references_verified: 2 } }))} 
+              <button
+                onClick={() => setEditedProspect(p => ({ ...p, metadata: { ...p.metadata, references_verified: 2 } }))}
                 className={`w-full text-left px-4 py-2.5 ${DESIGN.text.input} hover:bg-${DESIGN.colors.bgHover} ${DESIGN.radius.sm} ${DESIGN.transition}`}
               >
                 Mark 2 verified
               </button>
-              <button 
-                onClick={() => setEditedProspect(p => ({ ...p, metadata: { ...p.metadata, references_verified: 1 } }))} 
+              <button
+                onClick={() => setEditedProspect(p => ({ ...p, metadata: { ...p.metadata, references_verified: 1 } }))}
                 className={`w-full text-left px-4 py-2.5 ${DESIGN.text.input} hover:bg-${DESIGN.colors.bgHover} ${DESIGN.radius.sm} ${DESIGN.transition}`}
               >
                 Mark 1 verified
               </button>
-              <button 
-                onClick={() => setEditedProspect(p => ({ ...p, metadata: { ...p.metadata, references_verified: 0 } }))} 
+              <button
+                onClick={() => setEditedProspect(p => ({ ...p, metadata: { ...p.metadata, references_verified: 0 } }))}
                 className={`w-full text-left px-4 py-2.5 ${DESIGN.text.input} hover:bg-${DESIGN.colors.bgHover} ${DESIGN.radius.sm} ${DESIGN.transition}`}
               >
                 Reset to 0
               </button>
             </div>
           </ChecklistItem>
-          
+
           {/* Profile */}
           <ChecklistItem
             label="Profile Complete"
@@ -691,7 +674,7 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
             statusText={editedProspect.metadata?.profile_complete ? 'Completed in Nova' : 'Incomplete'}
             onToggle={toggleProfileComplete}
           />
-          
+
           {/* Credentials */}
           <ChecklistItem
             label={credentialConfig.label}
@@ -741,8 +724,8 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
               {uploadedImage && (
                 <div className="relative">
                   <img src={uploadedImage} alt="Uploaded credential" className={`w-full h-32 object-cover ${DESIGN.radius.md} border border-${DESIGN.colors.border}`} />
-                  <button 
-                    onClick={() => setUploadedImage(null)} 
+                  <button
+                    onClick={() => setUploadedImage(null)}
                     className={`absolute top-2 right-2 p-1.5 bg-white ${DESIGN.radius.full} ${DESIGN.elevation.card}`}
                     aria-label="Remove preview"
                   >
@@ -805,7 +788,7 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
               )}
             </div>
           </ChecklistItem>
-          
+
           {/* Start Date */}
           <ChecklistItem
             label="Start Date"
@@ -891,15 +874,14 @@ const EditProspectModal: React.FC<EditProspectModalProps> = ({
                 )}
                 Save
               </button>
-              
+
               <button
                 onClick={handleSaveAndMarkReady}
                 disabled={isSaving || !isReady}
-                className={`flex items-center gap-2.5 px-5 py-3 text-[12px] font-semibold ${DESIGN.radius.md} ${DESIGN.transition} ${
-                  isSaving || !isReady
-                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                    : `bg-slate-900 text-white hover:bg-slate-800 ${DESIGN.elevation.card}`
-                }`}
+                className={`flex items-center gap-2.5 px-5 py-3 text-[12px] font-semibold ${DESIGN.radius.md} ${DESIGN.transition} ${isSaving || !isReady
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                  : `bg-slate-900 text-white hover:bg-slate-800 ${DESIGN.elevation.card}`
+                  }`}
                 title={!isReady ? 'Complete all requirements first' : 'Mark as ready for submittal'}
                 aria-label="Mark as ready for submittal"
               >

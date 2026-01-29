@@ -23,7 +23,7 @@ import EmailTemplateModal from './prospects/EmailTemplateModal';
 import AssignmentEmailModal from './AssignmentEmailModal';
 import { AssignmentDetailModal } from './AssignmentDetailModal';
 import EditProspectModal from './prospects/EditProspectModal';
-import { SourceBadge } from './shared/Badges';
+import { SourceBadge } from '../shared/components/Badge';
 import { toContractData } from '../utils/modalTransformers';
 import type { ActiveAssignment } from '../lib/supabase/assignments';
 
@@ -404,7 +404,9 @@ export default function SubmittalsDashboard() {
   }, [tabView, rows]);
 
   const byTab = useMemo(() => {
-    const map: Record<TabId, ClinicianRow[]> = { KANBAN: [], READY: [], SUBMITTED: [], OFFER: [], PRESTART: [] };
+    const map: Record<TabId, ClinicianRow[]> = {
+      KANBAN: [], PROSPECTS: [], READY: [], SUBMITTED: [], OFFER: [], PRESTART: [], SIGNED: [], ACTIVE: [], INACTIVE: []
+    };
     rows.forEach(r => { if (r.tab && map[r.tab as TabId]) map[r.tab as TabId].push(r); });
     return map;
   }, [rows]);
@@ -478,12 +480,12 @@ export default function SubmittalsDashboard() {
       if (row.tab === target) return;
 
       if (row.prospect_id) {
-        const statuses: Record<TabId, string> = { KANBAN: '', READY: 'Submittal Ready', SUBMITTED: 'Submitted', OFFER: 'Offer Extended', PRESTART: 'Hired' };
+        const statuses: Record<TabId, string> = { KANBAN: '', PROSPECTS: '', READY: 'Submittal Ready', SUBMITTED: 'Submitted', OFFER: 'Offer Extended', PRESTART: 'Hired', SIGNED: '', ACTIVE: '', INACTIVE: '' };
         if (statuses[target]) {
           await supabase.from('prospects').update({ status: statuses[target], updated_at: new Date().toISOString() }).eq('id', Number(row.prospect_id));
         }
       } else if (row.candidate_id) {
-        const stages: Record<TabId, string> = { KANBAN: 'outreach', READY: 'outreach', SUBMITTED: 'interested', OFFER: 'extension_approved', PRESTART: 'signed' };
+        const stages: Record<TabId, string> = { KANBAN: 'outreach', PROSPECTS: 'outreach', READY: 'outreach', SUBMITTED: 'interested', OFFER: 'extension_approved', PRESTART: 'signed', SIGNED: '', ACTIVE: '', INACTIVE: '' };
         await supabase.from('active_assignments').update({ extension_stage: stages[target], updated_at: new Date().toISOString() }).eq('candidate_id', Number(row.candidate_id));
       }
       showToast(`Moved to ${target}`, 'success');
@@ -659,7 +661,7 @@ export default function SubmittalsDashboard() {
           isOpen={true}
           contract={contractData}
           onClose={() => setActiveModal(null)}
-          initialTab={(selectedRow?.extension_stage as string) || 'outreach'}
+          initialTab={(selectedRow?.extension_stage as 'outreach' | 'interested' | 'extension_request') || 'outreach'}
           showToast={showToast}
         />
       )}

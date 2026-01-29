@@ -310,7 +310,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
     if (editedData) {
       setExtractedData(editedData);
       setIsEditing(false);
-      showToastNotification('Data updated successfully');
+      showToast('Data updated successfully');
     }
   };
 
@@ -366,7 +366,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
     setIsLoading(true);
 
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
       if (!apiKey) throw new Error("Gemini API key not configured. Check your .env file.");
 
       const base64Image = await fileToBase64(imageFile);
@@ -488,7 +488,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <Toast {...toast} onClose={() => { }} />
+      <Toast {...toast} />
 
       <header className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -561,8 +561,8 @@ export default function ProspectOutreachGenerator(): JSX.Element {
               onClick={processAndGenerate}
               disabled={!imageFile || isLoading}
               className={`w-full mt-6 px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2 ${!imageFile || isLoading
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 shadow-md hover:shadow-lg transform hover:-translate-y-0.5'
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 shadow-md hover:shadow-lg transform hover:-translate-y-0.5'
                 }`}
             >
               {isLoading ? (

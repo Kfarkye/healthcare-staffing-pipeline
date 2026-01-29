@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Prospect } from '../../../store/useAppStore';
+import type { Prospect } from '../../shared/types/database';
 import { Clock, ExternalLink } from 'lucide-react';
 
 type Props = {
@@ -35,7 +35,7 @@ export const ProspectCard: React.FC<Props> = ({ prospect, onClick }) => {
     onClick?.();
   };
 
-  const novaUrl = prospect.candidate_id 
+  const novaUrl = prospect.candidate_id
     ? `https://nova.ayahealthcare.com/#/recruiting/candidates/${prospect.candidate_id}/new-profile/about`
     : null;
 

@@ -50,31 +50,31 @@ The final JSON output must be an array of objects, each following this exact str
 }]`;
 
 const formatDate = (dateStr: string | null): string | null => {
-    if (!dateStr) return null;
-    const date = new Date(dateStr);
-    return !isNaN(date.getTime()) ? date.toISOString() : null;
+  if (!dateStr) return null;
+  const date = new Date(dateStr);
+  return !isNaN(date.getTime()) ? date.toISOString() : null;
 };
 
 // ============================================================================
 // UI COMPONENTS
 // ============================================================================
 const Toast: React.FC<{ message: string, type: 'success' | 'error', onDismiss: () => void }> = ({ message, type, onDismiss }) => {
-    useEffect(() => {
-        const timer = setTimeout(onDismiss, 4000);
-        return () => clearTimeout(timer);
-    }, [onDismiss]);
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, 4000);
+    return () => clearTimeout(timer);
+  }, [onDismiss]);
 
-    const colors = type === 'success' 
-        ? 'bg-green-100 text-green-800 border-green-200' 
-        : 'bg-red-100 text-red-800 border-red-200';
-    const Icon = type === 'success' ? CheckCircle : AlertTriangle;
+  const colors = type === 'success'
+    ? 'bg-green-100 text-green-800 border-green-200'
+    : 'bg-red-100 text-red-800 border-red-200';
+  const Icon = type === 'success' ? CheckCircle : AlertTriangle;
 
-    return (
-        <div className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg animate-in fade-in slide-in-from-top-4 duration-300 ${colors}`}>
-            <Icon size={18} />
-            <span className="text-sm font-medium">{message}</span>
-        </div>
-    );
+  return (
+    <div className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg animate-in fade-in slide-in-from-top-4 duration-300 ${colors}`}>
+      <Icon size={18} />
+      <span className="text-sm font-medium">{message}</span>
+    </div>
+  );
 };
 
 // ============================================================================
@@ -93,83 +93,83 @@ export default function CandidateSync(): JSX.Element {
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-        if (!file.name.match(/\.html$/i)) {
-            showToast('Please select an HTML file', 'error');
-            return;
-        }
-        if (file.size > 10 * 1024 * 1024) { 
-            showToast('File size must be less than 10MB', 'error'); 
-            return; 
-        }
-        setHtmlFile(file);
+      if (!file.name.match(/\.html$/i)) {
+        showToast('Please select an HTML file', 'error');
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        showToast('File size must be less than 10MB', 'error');
+        return;
+      }
+      setHtmlFile(file);
     }
   };
 
   const handleSync = useCallback(async () => {
     if (!htmlFile) {
-        showToast('Please upload an HTML file first.', 'error');
-        return;
+      showToast('Please upload an HTML file first.', 'error');
+      return;
     }
     setSyncStatus('reading');
 
     try {
-        const htmlContent = await htmlFile.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlContent, "text/html");
-        const tableBody = doc.querySelector('mat-table > tbody');
-        
-        if (!tableBody) {
-            throw new Error("Could not find the candidate table in the HTML file.");
-        }
-        
-        setSyncStatus('parsing');
-        const cleanHtml = tableBody.outerHTML;
+      const htmlContent = await htmlFile.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlContent, "text/html");
+      const tableBody = doc.querySelector('mat-table > tbody');
 
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-        if (!apiKey) throw new Error("API key not configured.");
-        
-        // Using Flash for speed and cost-efficiency
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-        const payload = {
-            contents: [{ parts: [{ text: EXTRACTION_PROMPT }, { text: cleanHtml }] }],
-            generationConfig: { response_mime_type: "application/json" }
-        };
+      if (!tableBody) {
+        throw new Error("Could not find the candidate table in the HTML file.");
+      }
 
-        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (!response.ok) throw new Error(`AI service failed: ${response.statusText}`);
+      setSyncStatus('parsing');
+      const cleanHtml = tableBody.outerHTML;
 
-        const result = await response.json();
-        const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!jsonText) throw new Error("AI did not return any data.");
+      const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+      if (!apiKey) throw new Error("API key not configured.");
 
-        const extractedData: ExtractedCandidate[] = JSON.parse(jsonText);
+      // Using Flash for speed and cost-efficiency
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+      const payload = {
+        contents: [{ parts: [{ text: EXTRACTION_PROMPT }, { text: cleanHtml }] }],
+        generationConfig: { response_mime_type: "application/json" }
+      };
 
-        setSyncStatus('saving');
-        const recordsToUpsert = extractedData.map(c => ({
-            candidate_id: Number(c.candidate_id), // Ensure it's a number for the database
-            name: c.name,
-            email: c.email,
-            phone: c.phone,
-            recruiter: c.recruiter,
-            specialty: c.specialty,
-            last_login_date: formatDate(c.last_login_date),
-            registration_date: formatDate(c.registration_date)
-        }));
+      const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error(`AI service failed: ${response.statusText}`);
 
-        const { error } = await supabase.from('candidates').upsert(recordsToUpsert, { onConflict: 'candidate_id' });
+      const result = await response.json();
+      const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!jsonText) throw new Error("AI did not return any data.");
 
-        if (error) throw error;
-        
-        setSyncStatus('success');
-        showToast(`Successfully synced ${recordsToUpsert.length} candidates!`);
-        setHtmlFile(null);
-        setTimeout(() => setSyncStatus('idle'), 2000);
+      const extractedData: ExtractedCandidate[] = JSON.parse(jsonText);
+
+      setSyncStatus('saving');
+      const recordsToUpsert = extractedData.map(c => ({
+        candidate_id: Number(c.candidate_id), // Ensure it's a number for the database
+        name: c.name,
+        email: c.email,
+        phone: c.phone,
+        recruiter: c.recruiter,
+        specialty: c.specialty,
+        last_login_date: formatDate(c.last_login_date),
+        registration_date: formatDate(c.registration_date)
+      }));
+
+      const { error } = await supabase.from('candidates').upsert(recordsToUpsert, { onConflict: 'candidate_id' });
+
+      if (error) throw error;
+
+      setSyncStatus('success');
+      showToast(`Successfully synced ${recordsToUpsert.length} candidates!`);
+      setHtmlFile(null);
+      setTimeout(() => setSyncStatus('idle'), 2000);
 
     } catch (err: any) {
-        console.error("Sync Error:", err);
-        showToast(`An error occurred: ${err.message}`, 'error');
-        setSyncStatus('error');
-        setTimeout(() => setSyncStatus('idle'), 4000);
+      console.error("Sync Error:", err);
+      showToast(`An error occurred: ${err.message}`, 'error');
+      setSyncStatus('error');
+      setTimeout(() => setSyncStatus('idle'), 4000);
     }
   }, [htmlFile]);
 
@@ -196,25 +196,25 @@ export default function CandidateSync(): JSX.Element {
         </div>
 
         <div>
-            <input id="html-upload" type="file" ref={fileInputRef} className="sr-only" accept=".html" onChange={handleFileChange} />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-blue-400 transition-colors cursor-pointer"
-            >
-              <Upload size={40} className="mx-auto text-gray-400 mb-3" />
-              <h3 className="text-md font-semibold text-gray-700">
-                {htmlFile ? 'File Selected:' : 'Upload HTML File'}
-              </h3>
-              <p className="text-sm text-gray-500 mt-1">
-                {htmlFile ? htmlFile.name : 'Drag and drop, or click to browse'}
-              </p>
-            </button>
+          <input id="html-upload" type="file" ref={fileInputRef} className="sr-only" accept=".html" onChange={handleFileChange} />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-blue-400 transition-colors cursor-pointer"
+          >
+            <Upload size={40} className="mx-auto text-gray-400 mb-3" />
+            <h3 className="text-md font-semibold text-gray-700">
+              {htmlFile ? 'File Selected:' : 'Upload HTML File'}
+            </h3>
+            <p className="text-sm text-gray-500 mt-1">
+              {htmlFile ? htmlFile.name : 'Drag and drop, or click to browse'}
+            </p>
+          </button>
         </div>
-        
-        <button 
-            onClick={handleSync} 
-            disabled={!htmlFile || isLoading} 
-            className="w-full bg-gray-900 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-800 transition-colors disabled:bg-gray-300"
+
+        <button
+          onClick={handleSync}
+          disabled={!htmlFile || isLoading}
+          className="w-full bg-gray-900 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-800 transition-colors disabled:bg-gray-300"
         >
           {isLoading ? <Loader2 size={18} className="animate-spin" /> : syncStatus === 'success' ? <CheckCircle size={18} /> : <Zap size={16} />}
           {syncButtonText}

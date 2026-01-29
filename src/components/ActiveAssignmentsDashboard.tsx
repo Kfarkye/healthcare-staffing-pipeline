@@ -5,7 +5,7 @@
 // ============================================================================
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import { cn } from '../lib/utils';
 import {
   Search, X, Phone, Mail, CheckCircle, ExternalLink, Calendar, Zap,
@@ -361,8 +361,8 @@ const KanbanColumn: React.FC<{
   onDragLeave?: () => void;
   onDrop?: (e: React.DragEvent) => void;
   onDragStart: (e: React.DragEvent, a: ActiveAssignment) => void;
-  onMarkAsLooking: (id: number) => void;
-  onMarkAsExiting: (id: number) => void;
+  onMarkAsLooking: (id: string | number) => void;
+  onMarkAsExiting: (id: string | number) => void;
   onEmail: (assignment: ActiveAssignment) => void;
   onMarginApproval: (assignment: ActiveAssignment) => void;
   onCardClick?: (assignment: ActiveAssignment) => void;
@@ -501,7 +501,7 @@ const Toast: React.FC<{
 // ============================================================================
 
 export default function ActiveAssignmentsDashboard() {
-  const navigate = useNavigate();
+  const router = useRouter();
 
   // State
   const [search, setSearch] = useState('');
@@ -544,7 +544,8 @@ export default function ActiveAssignmentsDashboard() {
   );
 
   const handleFlagToggle = useCallback(
-    (id: number, flagName: 'looking' | 'exiting') => {
+    (id: string | number, flagName: 'looking' | 'exiting') => {
+      const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
       const assignment = assignments.find((a) => a.id === id);
       if (!assignment) {
         showToast('Assignment not found', 'error');
@@ -552,7 +553,7 @@ export default function ActiveAssignmentsDashboard() {
       }
 
       toggleFlagMutation.mutate(
-        { id, flagName, flagValue: true },
+        { id: numericId, flagName, flagValue: true },
         {
           onSuccess: () => {
             const destination = flagName === 'looking' ? '/submittals' : '/exits';
@@ -560,13 +561,13 @@ export default function ActiveAssignmentsDashboard() {
               `${assignment.candidate_name} marked as ${flagName === 'looking' ? 'retention' : 'exiting'}`,
               'success'
             );
-            setTimeout(() => navigate(destination), 500);
+            setTimeout(() => router.push(destination), 500);
           },
           onError: (error) => showToast(`Update failed: ${error.message}`, 'error'),
         }
       );
     },
-    [assignments, toggleFlagMutation, showToast, navigate]
+    [assignments, toggleFlagMutation, showToast, router]
   );
 
   const handleDrop = useCallback(
@@ -579,8 +580,9 @@ export default function ActiveAssignmentsDashboard() {
         const assignment = assignments.find((a) => a.id === assignmentId);
 
         if (assignment && assignment.extension_stage !== targetStage) {
+          const numericId = typeof assignment.id === 'string' ? parseInt(assignment.id, 10) : assignment.id;
           updateStageMutation.mutate(
-            { id: assignment.id, newStage: targetStage },
+            { id: numericId, newStage: targetStage },
             {
               onSuccess: () => {
                 const stageLabels = {

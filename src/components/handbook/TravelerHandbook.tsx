@@ -2006,6 +2006,7 @@ const ChecklistSection: FC = () => (
 
 const CredentialPackSection: FC = () => {
     const [items, setItems] = useState<CredentialItem[]>(() => {
+        if (typeof window === 'undefined') return [];
         const saved = localStorage.getItem('traveler_credentials');
         return saved ? JSON.parse(saved) : [];
     });

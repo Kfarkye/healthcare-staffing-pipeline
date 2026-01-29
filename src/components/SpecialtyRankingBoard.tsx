@@ -12,33 +12,14 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
-import { Badge } from './shared/Badges';
+import { Badge } from '../shared/components/Badge';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-interface Prospect {
-  id: number;
-  candidate_id?: number;
-  name: string;
-  email?: string | null;
-  phone?: string | null;
-  specialty?: string | null;
-  profession?: string | null;
-  status: string;
-  home_state?: string | null;
-  licenses?: string[] | null;
-  shift_preference?: string | null;
-  last_placement?: string | null;
-  contract_end_date?: string | null;
-  pool_notes?: string | null;
-  facility_tags?: string[] | null;
-  specialty_rank?: number | null;
-  updated_at?: string;
-  has_worked_before?: boolean;
-  nova_url?: string;
-}
+// Import from shared types - single source of truth
+import type { Prospect } from '../shared/types/database';
 
 interface ToastNotification {
   id: number;
@@ -366,7 +347,7 @@ export default function SpecialtyRankingBoard() {
   // Group by specialty and paginate
   const { specialtyPages, columns } = useMemo(() => {
     const specialtyMap = new Map<string, Prospect[]>();
-    
+
     filteredProspects.forEach(p => {
       const spec = normalizeSpecialty(p.specialty);
       if (!specialtyMap.has(spec)) {
@@ -400,7 +381,7 @@ export default function SpecialtyRankingBoard() {
   const handleDrop = useCallback(
     async (e: React.DragEvent, newSpecialty: string) => {
       e.preventDefault();
-      
+
       const prospectId = Number(e.dataTransfer.getData('text/plain'));
       const draggedProspect = prospects.find(p => p.id === prospectId);
 

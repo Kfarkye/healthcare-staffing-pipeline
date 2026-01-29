@@ -10,20 +10,20 @@ const OUTLOOK_CONFIG = {
     baseUrl: 'https://outlook.office.com/mail/deeplink/compose',
     maxUrlLength: 2000, // URL length limit for browsers
   },
-  
+
   // Outlook Desktop Integration (via mailto)
   desktop: {
     protocol: 'mailto:',
     maxLength: 500, // Conservative limit for mailto links
   },
-  
+
   // Microsoft Graph API Configuration (for future OAuth integration)
   graph: {
     baseUrl: 'https://graph.microsoft.com/v1.0',
     sendMailEndpoint: '/me/sendMail',
     scopes: ['Mail.Send', 'Mail.ReadWrite'],
   },
-  
+
   // Email Recipients
   recipients: {
     to: 'Colton.Valdez@ayahealthcare.com',
@@ -81,8 +81,8 @@ const DESIGN_SYSTEM = {
 // ============================================================================
 const API_CONFIG = {
   gemini: {
-    apiKey: import.meta.env.VITE_GEMINI_API_KEY,
-    model: 'gemini-1.5-flash',
+    apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY,
+    model: 'gemini-3-flash-preview',
     endpoint: 'https://generativelanguage.googleapis.com/v1beta/models'
   }
 };
@@ -150,16 +150,16 @@ class OutlookIntegrationService {
     if (outlookUrl.length > OUTLOOK_CONFIG.webApp.maxUrlLength) {
       console.warn('URL may be too long for some browsers. Consider shortening the email body.');
     }
-    
+
     try {
       // Open in new tab/window
       const newWindow = window.open(outlookUrl, '_blank', 'noopener,noreferrer');
-      
+
       // Check if window opened successfully
       if (newWindow === null || newWindow === undefined) {
         return false;
       }
-      
+
       setTimeout(() => {
         try {
           if (newWindow.closed) {
@@ -170,23 +170,23 @@ class OutlookIntegrationService {
           // Cross-origin error, window likely opened successfully
         }
       }, 100);
-      
+
       return true;
     } catch (error) {
       console.warn('Failed to open Outlook Web App:', error);
       return false;
     }
   }
-  
+
   /**
    * Open email via mailto protocol (for desktop Outlook)
    */
   static openInDesktopOutlook(emailData) {
     const { to, cc, subject, body } = emailData;
-    
+
     // Build mailto link with proper encoding
     const mailtoUrl = `mailto:${to}?cc=${encodeURIComponent(cc)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    
+
     // Check length constraints
     if (mailtoUrl.length > OUTLOOK_CONFIG.desktop.maxLength) {
       // Truncate body if needed
@@ -197,7 +197,7 @@ class OutlookIntegrationService {
       window.location.href = mailtoUrl;
     }
   }
-  
+
   /**
    * Generate .eml file for download
    * This creates a properly formatted email file with embedded images
@@ -206,7 +206,7 @@ class OutlookIntegrationService {
     const { to, cc, subject, body, htmlBody } = emailData;
     const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const date = new Date().toUTCString();
-    
+
     let emlContent = `From: sender@ayahealthcare.com
 To: ${to}
 CC: ${cc}
@@ -235,14 +235,14 @@ Content-ID: <image${index + 1}>
 ${image.base64}`;
       }
     });
-    
+
     emlContent += `
 
 --${boundary}--`;
-    
+
     return emlContent;
   }
-  
+
   /**
    * Download EML file
    */
@@ -258,22 +258,22 @@ ${image.base64}`;
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
-  
+
   /**
    * Copy email content to clipboard in HTML format
    * Useful for pasting directly into Outlook
    */
   static async copyEmailAsHTML(emailData) {
     const { htmlBody } = emailData;
-    
+
     if (!htmlBody) {
       throw new Error('No HTML content to copy');
     }
-    
+
     // Create a blob with HTML content
     const htmlBlob = new Blob([htmlBody], { type: 'text/html' });
     const textBlob = new Blob([emailData.body], { type: 'text/plain' });
-    
+
     try {
       // Use Clipboard API with multiple formats
       await navigator.clipboard.write([
@@ -315,10 +315,10 @@ class MarginApprovalService {
       contents: [{
         parts: [
           { text: EXTRACTION_CONFIG.prompt },
-          { 
-            inline_data: { 
-              mime_type: imageFile.type, 
-              data: base64ImageForApi 
+          {
+            inline_data: {
+              mime_type: imageFile.type,
+              data: base64ImageForApi
             }
           }
         ]
@@ -339,7 +339,7 @@ class MarginApprovalService {
 
     const result = await response.json();
     const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
-    
+
     if (!textResponse) {
       throw new Error('No content found in API response');
     }
@@ -355,7 +355,7 @@ class MarginApprovalService {
     const { candidateName, actualMarginPercent } = extractedData;
 
     const subject = `Margin Approval: ${candidateName || '[Candidate]'} – ${actualMarginPercent || '[Margin]'}%`;
-    
+
     const body = `Reason needed for approval? ${reason || PRESET_REASONS[0].template(actualMarginPercent || 12)}
 Is this a New Placement, Extension, or Change of Contract? ${placementType}
 Is premium approval needed? ${premiumNeeded}. Why? ${premiumNeeded === 'Y' ? premiumReason : 'No'}
@@ -385,7 +385,7 @@ Was this sent to Comp Info Y/N? ${sentToComp}. If yes, what was the distro's res
     if (!file) {
       throw new Error('No image to copy');
     }
-    
+
     const clipboardItem = new ClipboardItem({ [file.type]: file });
     await navigator.clipboard.write([clipboardItem]);
   }
@@ -397,7 +397,7 @@ Was this sent to Comp Info Y/N? ${sentToComp}. If yes, what was the distro's res
     if (!text) {
       throw new Error('No text to copy');
     }
-    
+
     await navigator.clipboard.writeText(text);
   }
 }
@@ -424,21 +424,21 @@ const Toast = ({ message, show, type = 'success' }) => {
   if (!show) return null;
 
   const styles = {
-    success: { 
-      bg: 'bg-green-50', 
-      border: 'border-green-200', 
+    success: {
+      bg: 'bg-green-50',
+      border: 'border-green-200',
       icon: 'text-green-600',
       text: 'text-green-900'
     },
-    error: { 
-      bg: 'bg-red-50', 
-      border: 'border-red-200', 
+    error: {
+      bg: 'bg-red-50',
+      border: 'border-red-200',
       icon: 'text-red-600',
       text: 'text-red-900'
     },
-    info: { 
-      bg: 'bg-blue-50', 
-      border: 'border-blue-200', 
+    info: {
+      bg: 'bg-blue-50',
+      border: 'border-blue-200',
       icon: 'text-blue-600',
       text: 'text-blue-900'
     }
@@ -460,24 +460,24 @@ const Toast = ({ message, show, type = 'success' }) => {
   );
 };
 
-const Button = ({ 
-  variant = 'primary', 
-  size = 'md', 
-  disabled = false, 
-  children, 
-  onClick, 
+const Button = ({
+  variant = 'primary',
+  size = 'md',
+  disabled = false,
+  children,
+  onClick,
   className = '',
-  ...props 
+  ...props
 }) => {
   const baseStyles = 'inline-flex items-center justify-center font-medium rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900';
-  
+
   const variants = {
     primary: 'bg-gray-900 text-white hover:bg-gray-700 disabled:bg-gray-300',
     secondary: 'bg-white text-gray-900 border border-gray-200 hover:bg-gray-50 disabled:bg-gray-100',
     ghost: 'text-gray-600 hover:bg-gray-100',
     outlook: 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300'
   };
-  
+
   const sizes = {
     sm: 'px-3 py-1.5 text-sm gap-1.5',
     md: 'px-4 py-2 text-base gap-2',
@@ -556,11 +556,11 @@ const RadioGroup = ({ label, options, selectedValue, onChange }) => (
   </div>
 );
 
-const FileUploadZone = ({ 
-  id, 
-  file, 
-  onChange, 
-  label, 
+const FileUploadZone = ({
+  id,
+  file,
+  onChange,
+  label,
   onRemove = null,
   isProcessing = false,
   extractionComplete = false
@@ -575,23 +575,22 @@ const FileUploadZone = ({
         </span>
       )}
     </h2>
-    <input 
-      type="file" 
-      id={id} 
-      accept="image/*" 
-      onChange={onChange} 
-      className="hidden" 
+    <input
+      type="file"
+      id={id}
+      accept="image/*"
+      onChange={onChange}
+      className="hidden"
       disabled={isProcessing}
     />
-    <label 
-      htmlFor={id} 
-      className={`relative block w-full p-8 border-2 border-dashed rounded-lg text-center transition-colors ${
-        isProcessing 
-          ? 'border-blue-300 bg-blue-50 cursor-wait' 
-          : file 
-            ? 'border-green-300 bg-green-50 cursor-pointer hover:border-green-400'
-            : 'border-gray-300 cursor-pointer hover:border-gray-400'
-      }`}
+    <label
+      htmlFor={id}
+      className={`relative block w-full p-8 border-2 border-dashed rounded-lg text-center transition-colors ${isProcessing
+        ? 'border-blue-300 bg-blue-50 cursor-wait'
+        : file
+          ? 'border-green-300 bg-green-50 cursor-pointer hover:border-green-400'
+          : 'border-gray-300 cursor-pointer hover:border-gray-400'
+        }`}
     >
       {isProcessing ? (
         <>
@@ -640,12 +639,12 @@ const FileUploadZone = ({
 const OutlookIntegrationModal = ({ isOpen, onClose, emailData, images = [] }) => {
   const [sending, setSending] = useState(false);
   const [method, setMethod] = useState('web'); // Default to 'web' as it's fastest.
-  
+
   if (!isOpen) return null;
-  
+
   const handleSend = async () => {
     setSending(true);
-    
+
     try {
       switch (method) {
         case 'web':
@@ -654,22 +653,22 @@ const OutlookIntegrationModal = ({ isOpen, onClose, emailData, images = [] }) =>
             throw new Error('Failed to open Outlook Web App. Please try another method.');
           }
           break;
-          
+
         case 'desktop':
           OutlookIntegrationService.openInDesktopOutlook(emailData);
           break;
-          
+
         case 'copy':
           const htmlCopied = await OutlookIntegrationService.copyEmailAsHTML(emailData);
           if (!htmlCopied) {
             console.warn('HTML copy failed, copied as plain text');
           }
           break;
-          
+
         default:
           throw new Error('Invalid method selected');
       }
-      
+
       onClose(true); // Success
     } catch (err) {
       console.error('Send failed:', err);
@@ -678,7 +677,7 @@ const OutlookIntegrationModal = ({ isOpen, onClose, emailData, images = [] }) =>
       setSending(false);
     }
   };
-  
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
@@ -688,7 +687,7 @@ const OutlookIntegrationModal = ({ isOpen, onClose, emailData, images = [] }) =>
             Send with Outlook 365
           </h3>
         </div>
-        
+
         <div className="p-6 space-y-4">
           <div className="space-y-3">
             <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
@@ -718,7 +717,7 @@ const OutlookIntegrationModal = ({ isOpen, onClose, emailData, images = [] }) =>
                 <div className="text-sm text-gray-500">Copies formatted email for you to paste manually.</div>
               </div>
             </label>
-            
+
             <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
               <input
                 type="radio"
@@ -733,14 +732,14 @@ const OutlookIntegrationModal = ({ isOpen, onClose, emailData, images = [] }) =>
               </div>
             </label>
           </div>
-          
+
           {images.length > 0 && (
             <div className="p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
               <strong>Note:</strong> {images.length} screenshot{images.length > 1 ? 's' : ''} will need to be attached manually after opening Outlook.
             </div>
           )}
         </div>
-        
+
         <div className="p-6 border-t border-gray-200 flex gap-3">
           <Button
             onClick={handleSend}
@@ -821,7 +820,7 @@ const useMarginApproval = () => {
     }
 
     const parts = MarginApprovalService.generateEmailContent(extractedData, formState);
-    
+
     // Add image references to HTML body
     let enhancedHtmlBody = parts.htmlBody;
     if (imagePreviewUrl) {
@@ -843,14 +842,14 @@ const useMarginApproval = () => {
     try {
       const data = await MarginApprovalService.extractDataFromImage(file, previewUrl);
       setExtractedData(data);
-      
+
       if (data && data.actualMarginPercent) {
         setFormState(prev => ({
           ...prev,
           reason: PRESET_REASONS[0].template(data.actualMarginPercent)
         }));
       }
-      
+
       showToastNotification('Data extracted successfully');
     } catch (err) {
       showToastNotification(err.message, 'error');
@@ -864,7 +863,7 @@ const useMarginApproval = () => {
     if (file) {
       setImageFile(file);
       const dataUrl = await fileToBase64DataUrl(file);
-      setImagePreviewUrl(dataUrl);
+      setImagePreviewUrl(String(dataUrl));
       showToastNotification('Uploading and processing screenshot...');
       await processImage(file, dataUrl);
     }
@@ -875,7 +874,7 @@ const useMarginApproval = () => {
     if (file) {
       setAdditionalImageFile(file);
       const dataUrl = await fileToBase64DataUrl(file);
-      setAdditionalImagePreviewUrl(dataUrl);
+      setAdditionalImagePreviewUrl(String(dataUrl));
       showToastNotification('Additional screenshot uploaded successfully');
     }
   }, [showToastNotification]);
@@ -910,7 +909,7 @@ const useMarginApproval = () => {
 
   const downloadEMLFile = useCallback(() => {
     if (!extractedData) return;
-    
+
     const images = [];
     if (imagePreviewUrl) {
       images.push({
@@ -926,7 +925,7 @@ const useMarginApproval = () => {
         name: 'additional-screenshot.png'
       });
     }
-    
+
     const filename = `margin-approval-${extractedData.candidateName || 'candidate'}.eml`;
     OutlookIntegrationService.downloadEMLFile(emailParts, filename, images);
     showToastNotification('Email file downloaded successfully');
@@ -1010,7 +1009,7 @@ export default function MarginApprovalGenerator() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Toast message={toastMessage} show={showToast} type={toastType} />
-      
+
       <OutlookIntegrationModal
         isOpen={showOutlookModal}
         onClose={handleOutlookModalClose}
@@ -1038,7 +1037,7 @@ export default function MarginApprovalGenerator() {
 
       <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          
+
           <div className="space-y-6">
             <Card className={DESIGN_SYSTEM.spacing.section}>
               <FileUploadZone
@@ -1049,12 +1048,12 @@ export default function MarginApprovalGenerator() {
                 isProcessing={isLoading}
                 extractionComplete={!!extractedData}
               />
-              
+
               {extractedData && !isLoading && (
-                <Button 
-                  onClick={reExtract} 
+                <Button
+                  onClick={reExtract}
                   variant="secondary"
-                  size="sm" 
+                  size="sm"
                   className="mt-4"
                 >
                   <RefreshCw className="w-3 h-3" />
@@ -1068,7 +1067,7 @@ export default function MarginApprovalGenerator() {
                 <h2 className={`${DESIGN_SYSTEM.typography.title} text-gray-900 mb-6`}>
                   2. Customize Approval Details
                 </h2>
-                
+
                 <div className="space-y-6">
                   <div>
                     <label className={`${DESIGN_SYSTEM.typography.label} ${DESIGN_SYSTEM.colors.text.muted}`}>
@@ -1079,11 +1078,10 @@ export default function MarginApprovalGenerator() {
                         <button
                           key={preset.id}
                           onClick={() => handleFormChange('reason', preset.template(extractedData.actualMarginPercent))}
-                          className={`px-3 py-1.5 text-xs font-medium border rounded-md transition-colors ${
-                            formState.reason === preset.template(extractedData.actualMarginPercent)
-                              ? 'bg-gray-900 text-white border-gray-900'
-                              : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
-                          }`}
+                          className={`px-3 py-1.5 text-xs font-medium border rounded-md transition-colors ${formState.reason === preset.template(extractedData.actualMarginPercent)
+                            ? 'bg-gray-900 text-white border-gray-900'
+                            : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
+                            }`}
                         >
                           {preset.label}
                         </button>
@@ -1143,7 +1141,7 @@ export default function MarginApprovalGenerator() {
                     <h3 className={`${DESIGN_SYSTEM.typography.label} ${DESIGN_SYSTEM.colors.text.muted} mb-4`}>
                       3. Additional Screenshot (Optional)
                     </h3>
-                    
+
                     <FileUploadZone
                       id="additional-file-upload"
                       file={additionalImageFile}
@@ -1172,49 +1170,49 @@ export default function MarginApprovalGenerator() {
 
               {extractedData && (
                 <div className="border border-gray-200 rounded-lg p-4 mb-4 space-y-2">
-                  <HeaderLine 
-                    label="To" 
-                    text={emailParts.to} 
-                    onCopy={() => copyText(emailParts.to)} 
+                  <HeaderLine
+                    label="To"
+                    text={emailParts.to}
+                    onCopy={() => copyText(emailParts.to)}
                   />
-                  <HeaderLine 
-                    label="CC" 
-                    text={emailParts.cc} 
-                    onCopy={() => copyText(emailParts.cc)} 
+                  <HeaderLine
+                    label="CC"
+                    text={emailParts.cc}
+                    onCopy={() => copyText(emailParts.cc)}
                   />
-                  <HeaderLine 
-                    label="Subject" 
-                    text={emailParts.subject} 
-                    onCopy={() => copyText(emailParts.subject)} 
+                  <HeaderLine
+                    label="Subject"
+                    text={emailParts.subject}
+                    onCopy={() => copyText(emailParts.subject)}
                   />
                 </div>
               )}
 
-              <div 
+              <div
                 className="bg-gray-50 p-4 min-h-[300px] flex-grow overflow-auto border border-gray-200 rounded-lg"
-                dangerouslySetInnerHTML={{ 
-                  __html: emailParts.htmlBody || 
-                    '<div class="flex items-center justify-center h-full text-sm text-gray-500">Approval preview will appear here...</div>' 
+                dangerouslySetInnerHTML={{
+                  __html: emailParts.htmlBody ||
+                    '<div class="flex items-center justify-center h-full text-sm text-gray-500">Approval preview will appear here...</div>'
                 }}
               />
 
               <div className="mt-4 space-y-3">
-                <Button 
-                  onClick={openInOutlook} 
-                  disabled={!extractedData} 
-                  size="lg" 
+                <Button
+                  onClick={openInOutlook}
+                  disabled={!extractedData}
+                  size="lg"
                   variant="outlook"
                   className="w-full"
                 >
                   <Mail className="w-4 h-4" />
                   Send with Outlook 365
                 </Button>
-                
+
                 <div className="flex gap-3">
-                  <Button 
-                    onClick={downloadEMLFile} 
-                    disabled={!extractedData} 
-                    size="md" 
+                  <Button
+                    onClick={downloadEMLFile}
+                    disabled={!extractedData}
+                    size="md"
                     variant="secondary"
                     className="flex-1"
                     title="Download email file with embedded images"
@@ -1223,11 +1221,11 @@ export default function MarginApprovalGenerator() {
                     Download .eml
                   </Button>
 
-                  <Button 
-                    onClick={() => copyImage(imageFile, 'Screenshot copied!')} 
-                    disabled={!imageFile} 
-                    size="md" 
-                    variant="secondary" 
+                  <Button
+                    onClick={() => copyImage(imageFile, 'Screenshot copied!')}
+                    disabled={!imageFile}
+                    size="md"
+                    variant="secondary"
                     className="flex-1"
                   >
                     <Copy className="w-3 h-3" />

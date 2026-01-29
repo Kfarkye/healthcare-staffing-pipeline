@@ -25,6 +25,74 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// PHASE 2: ROBUST RESULT SERIALIZATION (Audit Fix)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Ensures tool results are always well-defined, never undefined/null.
+ * Prevents AI from saying "Result: undefined" when tools return empty data.
+ * 
+ * @param {any} result - Raw result from tool execution
+ * @param {string} toolName - Name of the tool for context
+ * @returns {Object} - Always returns a properly structured result object
+ */
+function safeResult(result, toolName = 'unknown') {
+    // 1. Handle explicit error schema from tool
+    if (result && result.error) {
+        return {
+            success: false,
+            status: 'error',
+            error: result.error,
+            message: `Tool "${toolName}" encountered an error: ${result.error}`,
+        };
+    }
+
+    // 2. Handle undefined/null results
+    if (result === undefined || result === null) {
+        return {
+            success: false,
+            status: 'no_data',
+            message: `Tool "${toolName}" returned no data.`,
+            data: null,
+        };
+    }
+
+    // 3. Handle empty arrays
+    if (Array.isArray(result) && result.length === 0) {
+        return {
+            success: true,
+            status: 'empty',
+            message: 'Search completed but found no matching records.',
+            data: [],
+            count: 0,
+        };
+    }
+
+    // 4. Handle objects with empty data arrays (common pattern)
+    if (result && typeof result === 'object') {
+        const dataKeys = ['data', 'results', 'items', 'prospects', 'travelers', 'templates', 'campaigns'];
+        for (const key of dataKeys) {
+            if (Array.isArray(result[key]) && result[key].length === 0) {
+                return {
+                    ...result,
+                    success: result.success !== false,
+                    status: 'empty',
+                    message: result.message || `No ${key} found matching your criteria.`,
+                    count: 0,
+                };
+            }
+        }
+    }
+
+    // 5. Normal result - ensure success flag exists
+    if (result && typeof result === 'object' && result.success === undefined) {
+        return { success: true, ...result };
+    }
+
+    return result;
+}
+
 /**
  * Creates Command Center tools with Supabase client
  * 
@@ -241,13 +309,16 @@ export function createCommandCenterTools(supabase) {
                 if (status) query = query.eq('status', status);
 
                 const { data, error } = await query.limit(20);
-                if (error) return { success: false, error: error.message };
+                if (error) return safeResult({ success: false, error: error.message }, 'search_prospects');
 
-                return {
+                return safeResult({
                     success: true,
                     prospects: data ?? [],
                     count: data?.length ?? 0,
-                };
+                    message: (data?.length ?? 0) === 0
+                        ? 'No prospects found matching your search criteria.'
+                        : `Found ${data.length} prospect(s).`,
+                }, 'search_prospects');
             },
         }),
 
@@ -273,13 +344,16 @@ export function createCommandCenterTools(supabase) {
                 }
 
                 const { data, error } = await query.limit(20);
-                if (error) return { success: false, error: error.message };
+                if (error) return safeResult({ success: false, error: error.message }, 'search_travel_list');
 
-                return {
+                return safeResult({
                     success: true,
                     travelers: data ?? [],
                     count: data?.length ?? 0,
-                };
+                    message: (data?.length ?? 0) === 0
+                        ? 'No active travelers found matching your search criteria.'
+                        : `Found ${data.length} active traveler(s).`,
+                }, 'search_travel_list');
             },
         }),
 
@@ -290,7 +364,7 @@ export function createCommandCenterTools(supabase) {
                 name: z.string().optional(),
             }),
             execute: async ({ nova_id, name }) => {
-                if (!nova_id && !name) return { success: false, error: 'Provide nova_id or name.' };
+                if (!nova_id && !name) return safeResult({ success: false, error: 'Provide nova_id or name.' }, 'get_prospect_details');
 
                 // 1. Check Prospects
                 let prospectQuery = supabase.from('prospects').select('*');
@@ -300,12 +374,12 @@ export function createCommandCenterTools(supabase) {
                 const { data: prospect } = await prospectQuery.maybeSingle();
 
                 if (prospect) {
-                    return {
+                    return safeResult({
                         success: true,
                         ...prospect,
                         nova_url: prospect.nova_url || `https://nova.ayahealthcare.com/#/recruiting/candidates/${prospect.candidate_id}/new-profile/about`,
                         source: 'prospect',
-                    };
+                    }, 'get_prospect_details');
                 }
 
                 // 2. Check Travelers
@@ -316,15 +390,15 @@ export function createCommandCenterTools(supabase) {
                 const { data: traveler } = await travelerQuery.maybeSingle();
 
                 if (traveler) {
-                    return {
+                    return safeResult({
                         success: true,
                         ...traveler,
                         full_name: traveler.candidate_name,
                         source: 'active_traveler',
-                    };
+                    }, 'get_prospect_details');
                 }
 
-                return { success: false, message: 'Candidate not found.' };
+                return safeResult({ success: false, message: 'Candidate not found in prospects or active travelers.' }, 'get_prospect_details');
             },
         }),
 

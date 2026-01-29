@@ -54,6 +54,7 @@ const DESIGN = {
     sm: 'rounded-lg',
     md: 'rounded-xl',
     lg: 'rounded-2xl',
+    full: 'rounded-full',
   },
   transition: 'transition-all duration-150 ease-out',
 };
@@ -233,7 +234,7 @@ export const AssignmentDetailModal: React.FC<AssignmentDetailModalProps> = ({
 
   const handleToggleMode = useCallback(() => {
     setIsChangingMode(true);
-    onToggleRetention(assignment.id);
+    onToggleRetention(Number(assignment.id));
     showToastInternal(
       `Switched to ${isRetention ? 'Extension' : 'Retention'}`,
       'success'
@@ -242,14 +243,14 @@ export const AssignmentDetailModal: React.FC<AssignmentDetailModalProps> = ({
   }, [assignment.id, onToggleRetention, isRetention, showToastInternal]);
 
   const handleMarkExiting = useCallback(() => {
-    onToggleExiting(assignment.id);
+    onToggleExiting(Number(assignment.id));
     showToastInternal('Marked as exiting', 'info');
   }, [assignment.id, onToggleExiting, showToastInternal]);
 
   const handleStageChange = useCallback(
     (newStage: string) => {
       if (onUpdateStage) {
-        onUpdateStage(assignment.id, newStage);
+        onUpdateStage(Number(assignment.id), newStage);
         const stageName = EXTENSION_STAGES.find((s) => s.value === newStage)?.label;
         showToastInternal(`Updated to ${stageName}`, 'success');
       }
@@ -426,8 +427,8 @@ export const AssignmentDetailModal: React.FC<AssignmentDetailModalProps> = ({
                 />
                 <InfoCard
                   icon={Calendar}
-                  label="Start"
-                  value={formatDate(assignment.start_date)}
+                  label="End Date"
+                  value={formatDate(assignment.end_date)}
                 />
                 <InfoCard
                   icon={Calendar}
@@ -608,7 +609,7 @@ export const AssignmentDetailModal: React.FC<AssignmentDetailModalProps> = ({
           )}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                {assignment.candidate_email && (
+                {assignment.email && (
                   <button
                     onClick={() => onEmail(assignment)}
                     className={cn(
@@ -623,9 +624,9 @@ export const AssignmentDetailModal: React.FC<AssignmentDetailModalProps> = ({
                   </button>
                 )}
 
-                {assignment.candidate_phone && (
+                {assignment.phone && (
                   <a
-                    href={`tel:${assignment.candidate_phone}`}
+                    href={`tel:${assignment.phone}`}
                     className={cn(
                       `px-4 py-2.5 text-[11px] font-semibold text-slate-700 bg-${DESIGN.colors.bgCard} border-2 border-${DESIGN.colors.border} ${DESIGN.radius.md}`,
                       `hover:bg-${DESIGN.colors.bgSubtle} hover:border-${DESIGN.colors.borderHover} ${DESIGN.transition} flex items-center gap-2`,

@@ -3,8 +3,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 // =====================================================================================
 // ENVIRONMENT & CONFIGURATION
 // =====================================================================================
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   console.error('Missing Supabase environment variables');
@@ -106,12 +106,12 @@ class SimpleSupabase {
       ...init,
       headers: { ...this.baseHeaders, ...(init?.headers || {}) },
     });
-    
+
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Supabase ${res.status}: ${res.statusText} ${text}`);
     }
-    
+
     if (res.status === 204) return null;
     return await res.json();
   }
@@ -129,8 +129,8 @@ class SimpleSupabase {
   }
 
   upsert<T = any>(table: string, rows: T | T[]) {
-    return this.query(table, { 
-      method: 'POST', 
+    return this.query(table, {
+      method: 'POST',
       body: JSON.stringify(rows),
       headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' }
     });
@@ -145,16 +145,16 @@ const supabase = new SimpleSupabase(SUPABASE_URL, SUPABASE_ANON_KEY);
 const formatters = {
   date: (iso: string): string => {
     const d = new Date(iso + 'T00:00:00');
-    return new Intl.DateTimeFormat('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
     }).format(d);
   },
-  
+
   dateTime: (date: Date): string => {
-    return new Intl.DateTimeFormat('en-US', { 
-      month: 'short', 
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit'
@@ -165,14 +165,13 @@ const formatters = {
 const emailUtils = {
   buildOutlookDeepLink: (to: string, subject: string, body: string, cc?: string): string => {
     const encode = (s: string) => encodeURIComponent(s ?? '');
-    return `https://outlook.office.com/mail/deeplink/compose?to=${encode(to)}${
-      cc ? `&cc=${encode(cc)}` : ''
-    }&subject=${encode(subject)}&body=${encode(body)}`;
+    return `https://outlook.office.com/mail/deeplink/compose?to=${encode(to)}${cc ? `&cc=${encode(cc)}` : ''
+      }&subject=${encode(subject)}&body=${encode(body)}`;
   },
-  
+
   exportToCSV: (emails: GeneratedEmail[]): void => {
     if (!emails.length) return;
-    
+
     const rows = emails.map(e => ({
       first_name: e.firstName,
       email: e.email,
@@ -180,13 +179,13 @@ const emailUtils = {
       body: e.body.replace(/\n/g, ' '),
       nova_profile: e.novaProfileUrl || ''
     }));
-    
+
     const headers = Object.keys(rows[0]);
     const csv = [
       headers.join(','),
       ...rows.map(r => headers.map(h => `"${(r[h as keyof typeof r] ?? '').replace(/"/g, '""')}"`).join(','))
     ].join('\n');
-    
+
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -206,7 +205,7 @@ const novaUtils = {
     const match = href.match(/\/candidates\/(\d+)/);
     return match ? match[1] : '';
   },
-  
+
   buildFullUrl: (path: string): string => {
     // Convert relative path to full URL
     if (!path) return '';
@@ -219,19 +218,19 @@ const novaUtils = {
 // OUTREACH SKIP LOGIC
 // =====================================================================================
 const outreachLogic = {
-  normalizeName: (s?: string | null): string => 
+  normalizeName: (s?: string | null): string =>
     (s || '').trim().replace(/\s+/g, ' ').toLowerCase(),
-  
-  isPerDiem: (name: string): boolean => 
+
+  isPerDiem: (name: string): boolean =>
     /\bpd$/i.test(name.trim()),
-  
+
   extractOwner: (row: Element): string => {
     const selectors = [
       '.cdk-column-travelRecruiterFirstName a',
       '.cdk-column-perDiemRecruiterFirstName a',
       '.cdk-column-recruiterFirstName a'
     ];
-    
+
     for (const selector of selectors) {
       const elements = row.querySelectorAll(selector);
       if (elements.length > 0) {
@@ -240,7 +239,7 @@ const outreachLogic = {
     }
     return '';
   },
-  
+
   extractLastNoteAuthor: (row: Element): string => {
     const lastNoteCell = row.querySelector('.cdk-column-lastNoteDate, .cdk-column-lastNote');
     if (lastNoteCell) {
@@ -251,14 +250,14 @@ const outreachLogic = {
     }
     return '';
   },
-  
+
   shouldSkipOutreach: (row: Element): boolean => {
     const owner = outreachLogic.extractOwner(row);
     const lastAuthor = outreachLogic.extractLastNoteAuthor(row);
-    
+
     if (!owner || !lastAuthor) return false;
     if (outreachLogic.isPerDiem(owner)) return false;
-    
+
     return outreachLogic.normalizeName(owner) === outreachLogic.normalizeName(lastAuthor);
   }
 };
@@ -268,7 +267,7 @@ const outreachLogic = {
 // =====================================================================================
 const createEmailBody = (firstName: string, dates: string): string => {
   const startDate = dates.split(' – ')[0];
-  
+
   return `Hi ${firstName},
 
 I wanted to connect about a local Medical Assistant contract at Rush University Medical Center in Chicago, IL. It's a high-paying local role at one of the city's most respected hospitals — a great opportunity if you're nearby.
@@ -310,23 +309,20 @@ interface TabButtonProps {
 const TabButton: React.FC<TabButtonProps> = ({ id, label, isActive, onClick, count }) => (
   <button
     onClick={() => onClick(id)}
-    className={`relative px-1 pb-4 text-sm font-medium transition-all ${
-      isActive ? 'text-gray-900' : 'text-gray-500 hover:text-gray-700'
-    }`}
+    className={`relative px-1 pb-4 text-sm font-medium transition-all ${isActive ? 'text-gray-900' : 'text-gray-500 hover:text-gray-700'
+      }`}
   >
     <span className="flex items-center gap-2">
       {label}
       {count !== undefined && (
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-          isActive ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'
-        }`}>
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isActive ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'
+          }`}>
           {count}
         </span>
       )}
     </span>
-    <span className={`absolute bottom-0 left-0 right-0 h-0.5 transition-all ${
-      isActive ? 'bg-gray-900' : 'bg-transparent'
-    }`} />
+    <span className={`absolute bottom-0 left-0 right-0 h-0.5 transition-all ${isActive ? 'bg-gray-900' : 'bg-transparent'
+      }`} />
   </button>
 );
 
@@ -361,7 +357,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
 // Nova Profile Link Button Component
 const NovaProfileButton: React.FC<{ url?: string }> = ({ url }) => {
   if (!url) return null;
-  
+
   return (
     <a
       href={url}
@@ -387,18 +383,18 @@ export default function CandidateOutreachAutomator() {
   const [htmlFile, setHtmlFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   // Form State
   const [certification, setCertification] = useState('CertMedAs');
   const [experience, setExperience] = useState(2);
   const [startDate, setStartDate] = useState('2025-10-13');
   const [endDate, setEndDate] = useState('2026-01-10');
-  
+
   // Processing State
   const [status, setStatus] = useState<'idle' | 'parsing' | 'saving' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [processingStats, setProcessingStats] = useState<ProcessingStats | null>(null);
-  
+
   // Data State
   const [filteredCandidates, setFilteredCandidates] = useState<Candidate[]>([]);
   const [savedCandidates, setSavedCandidates] = useState<Candidate[]>([]);
@@ -409,15 +405,15 @@ export default function CandidateOutreachAutomator() {
     emailsSent: 0,
     responses: 0
   });
-  
+
   // UI State
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [sentIndices, setSentIndices] = useState<Set<number>>(new Set());
 
   // Computed Values - Updated Subject Format
-  const emailSubject = useMemo(() => 
-    `MA Assignment – ${JOB_CONFIG.facility} | ${JOB_CONFIG.pay}`, 
-  []);
+  const emailSubject = useMemo(() =>
+    `MA Assignment – ${JOB_CONFIG.facility} | ${JOB_CONFIG.pay}`,
+    []);
 
   // Effects
   useEffect(() => {
@@ -462,14 +458,14 @@ export default function CandidateOutreachAutomator() {
         experience_years: c.experienceYears,
         status: 'email_generated'
       }));
-      
+
       const saved = await supabase.upsert(TABLE_NAME, rows);
       await loadSavedCandidates();
-      
+
       return cands.map(c => {
         const dbRecord = saved?.find((s: any) => s.email === c.email);
-        return { 
-          ...c, 
+        return {
+          ...c,
           id: dbRecord?.id,
           novaCandidateId: dbRecord?.nova_candidate_id,
           novaProfileUrl: dbRecord?.nova_profile_url
@@ -483,7 +479,7 @@ export default function CandidateOutreachAutomator() {
 
   const markEmailAsSent = async (email: GeneratedEmail, index: number) => {
     setSentIndices(prev => new Set([...prev, index]));
-    
+
     if (!email.candidateId) return;
     try {
       await supabase.update(
@@ -501,10 +497,10 @@ export default function CandidateOutreachAutomator() {
   const updateStats = (candidates: Candidate[]) => {
     setStats({
       totalCandidates: candidates.length,
-      emailsGenerated: candidates.filter(c => 
+      emailsGenerated: candidates.filter(c =>
         ['email_generated', 'email_sent', 'responded'].includes(c.status || '')
       ).length,
-      emailsSent: candidates.filter(c => 
+      emailsSent: candidates.filter(c =>
         ['email_sent', 'responded'].includes(c.status || '')
       ).length,
       responses: candidates.filter(c => c.status === 'responded').length
@@ -517,7 +513,7 @@ export default function CandidateOutreachAutomator() {
     setGeneratedEmails([]);
     setFilteredCandidates([]);
     setProcessingStats(null);
-    
+
     if (file && file.type === 'text/html') {
       setHtmlFile(file);
       setErrorMessage('');
@@ -555,7 +551,7 @@ export default function CandidateOutreachAutomator() {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
     const rows = doc.querySelectorAll('mat-row.results-row');
-    
+
     if (!rows.length) {
       throw new Error('No candidate rows found. Please ensure this is a valid Nova export.');
     }
@@ -564,17 +560,17 @@ export default function CandidateOutreachAutomator() {
     let totalProcessed = 0;
     let skippedCount = 0;
     let matchedCount = 0;
-    
+
     rows.forEach((row) => {
       totalProcessed++;
-      
+
       // Extract name and Nova profile link
       const nameAnchor = row.querySelector('.cdk-column-firstName a') as HTMLAnchorElement | null;
       const nameText = (nameAnchor?.textContent || '').trim();
       const novaHref = nameAnchor?.getAttribute('href') || '';
       const novaCandidateId = novaUtils.extractCandidateId(novaHref);
       const novaProfileUrl = novaHref ? novaUtils.buildFullUrl(novaHref) : '';
-      
+
       // Extract other fields
       const emailElement = row.querySelector('.cdk-column-email a') as HTMLAnchorElement | null;
       const email = (emailElement?.textContent || '').trim();
@@ -583,7 +579,7 @@ export default function CandidateOutreachAutomator() {
       const expertiseText = (row.querySelector('.cdk-column-expertise')?.textContent || '').trim();
 
       if (!nameText || !email) return;
-      
+
       const [firstName, ...rest] = nameText.split(' ');
       const lastName = rest.join(' ');
 
@@ -591,7 +587,7 @@ export default function CandidateOutreachAutomator() {
       let matched = false;
       let maxExp = 0;
       const certs: string[] = [];
-      
+
       for (const s of specialties) {
         const m = s.match(/(\w+)\((\d+)\)/);
         if (!m) continue;
@@ -601,15 +597,15 @@ export default function CandidateOutreachAutomator() {
         maxExp = Math.max(maxExp, yrs);
         if (cert === certification && yrs >= experience) matched = true;
       }
-      
+
       if (matched) {
         matchedCount++;
-        
+
         if (outreachLogic.shouldSkipOutreach(row)) {
           skippedCount++;
           return;
         }
-        
+
         matches.push({
           novaCandidateId,
           novaProfileUrl,
@@ -624,21 +620,21 @@ export default function CandidateOutreachAutomator() {
         });
       }
     });
-    
+
     const stats = {
       totalProcessed,
       matched: matchedCount,
       skipped: skippedCount,
       saved: matches.length
     };
-    
+
     if (!matches.length) {
-      const msg = skippedCount > 0 
+      const msg = skippedCount > 0
         ? `All ${skippedCount} matching candidates were skipped due to recent outreach.`
         : `No candidates found with ${certification} certification and ${experience}+ years experience.`;
       throw new Error(msg);
     }
-    
+
     return { candidates: matches, stats };
   };
 
@@ -668,16 +664,16 @@ export default function CandidateOutreachAutomator() {
       setStatus('error');
       return;
     }
-    
+
     setStatus('parsing');
     setGeneratedEmails([]);
-    
+
     try {
       const text = await htmlFile.text();
       const { candidates, stats } = parseHTML(text);
       setFilteredCandidates(candidates);
       setProcessingStats(stats);
-      
+
       setStatus('saving');
       const saved = await saveCandidates(candidates);
       generateEmails(saved);
@@ -727,26 +723,26 @@ export default function CandidateOutreachAutomator() {
               </div>
             </div>
           </div>
-          
+
           <nav className="flex gap-8">
-            <TabButton 
-              id="upload" 
-              label="Upload & Generate" 
-              isActive={activeTab === 'upload'} 
-              onClick={setActiveTab} 
+            <TabButton
+              id="upload"
+              label="Upload & Generate"
+              isActive={activeTab === 'upload'}
+              onClick={setActiveTab}
             />
-            <TabButton 
-              id="candidates" 
-              label="Candidates" 
-              isActive={activeTab === 'candidates'} 
+            <TabButton
+              id="candidates"
+              label="Candidates"
+              isActive={activeTab === 'candidates'}
               onClick={setActiveTab}
               count={savedCandidates.length || undefined}
             />
-            <TabButton 
-              id="analytics" 
-              label="Analytics" 
-              isActive={activeTab === 'analytics'} 
-              onClick={setActiveTab} 
+            <TabButton
+              id="analytics"
+              label="Analytics"
+              isActive={activeTab === 'analytics'}
+              onClick={setActiveTab}
             />
           </nav>
         </div>
@@ -761,21 +757,20 @@ export default function CandidateOutreachAutomator() {
                 <h2 className="text-lg font-semibold text-gray-900">Import Configuration</h2>
                 <p className="mt-1 text-sm text-gray-500">Upload Nova HTML export and configure filters</p>
               </div>
-              
+
               <div className="px-8 py-6 space-y-6">
                 {/* File Upload */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-3">
                     Nova HTML Export
                   </label>
-                  <div 
-                    className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all ${
-                      isDragging 
-                        ? 'border-blue-400 bg-blue-50' 
+                  <div
+                    className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all ${isDragging
+                        ? 'border-blue-400 bg-blue-50'
                         : htmlFile
-                        ? 'border-green-300 bg-green-50'
-                        : 'border-gray-300 hover:border-gray-400 bg-white'
-                    }`}
+                          ? 'border-green-300 bg-green-50'
+                          : 'border-gray-300 hover:border-gray-400 bg-white'
+                      }`}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
@@ -788,7 +783,7 @@ export default function CandidateOutreachAutomator() {
                       onChange={handleFileChange}
                       className="sr-only"
                     />
-                    
+
                     {htmlFile ? (
                       <div className="space-y-2">
                         <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-green-100">
@@ -922,8 +917,8 @@ export default function CandidateOutreachAutomator() {
                   <div className="flex-1 text-sm text-blue-800">
                     <p className="font-medium">Processing complete</p>
                     <p className="mt-1">
-                      Processed {processingStats.totalProcessed} candidates • 
-                      {' '}{processingStats.matched} matched filters • 
+                      Processed {processingStats.totalProcessed} candidates •
+                      {' '}{processingStats.matched} matched filters •
                       {' '}{processingStats.skipped > 0 && `${processingStats.skipped} skipped • `}
                       {processingStats.saved} ready for outreach
                     </p>
@@ -969,16 +964,15 @@ export default function CandidateOutreachAutomator() {
                     Export CSV
                   </button>
                 </div>
-                
+
                 <div className="grid gap-4">
                   {generatedEmails.map((email, idx) => (
-                    <div 
-                      key={idx} 
-                      className={`bg-white rounded-lg border transition-all ${
-                        sentIndices.has(idx) 
-                          ? 'border-green-200 shadow-sm' 
+                    <div
+                      key={idx}
+                      className={`bg-white rounded-lg border transition-all ${sentIndices.has(idx)
+                          ? 'border-green-200 shadow-sm'
                           : 'border-gray-200 hover:shadow-sm'
-                      }`}
+                        }`}
                     >
                       <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                         <div className="flex items-center gap-4">
@@ -1002,11 +996,10 @@ export default function CandidateOutreachAutomator() {
                           <NovaProfileButton url={email.novaProfileUrl} />
                           <button
                             onClick={() => copyEmailDetails(email, idx)}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border transition-all ${
-                              copiedIndex === idx
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border transition-all ${copiedIndex === idx
                                 ? 'bg-green-50 text-green-700 border-green-200'
                                 : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                            }`}
+                              }`}
                             title="Copy full email details"
                           >
                             {copiedIndex === idx ? (
@@ -1063,7 +1056,7 @@ export default function CandidateOutreachAutomator() {
                 </div>
               </div>
             </div>
-            
+
             {savedCandidates.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -1140,22 +1133,22 @@ export default function CandidateOutreachAutomator() {
           <div className="space-y-6">
             {/* Stats Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard 
-                label="Total Candidates" 
+              <StatCard
+                label="Total Candidates"
                 value={stats.totalCandidates}
               />
-              <StatCard 
-                label="Emails Generated" 
+              <StatCard
+                label="Emails Generated"
                 value={stats.emailsGenerated}
                 trend={`${Math.round((stats.emailsGenerated / Math.max(stats.totalCandidates, 1)) * 100)}% of total`}
               />
-              <StatCard 
-                label="Emails Sent" 
+              <StatCard
+                label="Emails Sent"
                 value={stats.emailsSent}
                 trend={`${Math.round((stats.emailsSent / Math.max(stats.emailsGenerated, 1)) * 100)}% of generated`}
               />
-              <StatCard 
-                label="Response Rate" 
+              <StatCard
+                label="Response Rate"
                 value={stats.emailsSent > 0 ? `${Math.round((stats.responses / stats.emailsSent) * 100)}%` : '—'}
                 trend={stats.responses > 0 ? `${stats.responses} responses` : 'No responses yet'}
               />
@@ -1180,7 +1173,7 @@ export default function CandidateOutreachAutomator() {
                     </div>
                     <div className="relative">
                       <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                        <div 
+                        <div
                           className={`${stage.color} h-full rounded-full transition-all duration-700 ease-out`}
                           style={{ width: `${stage.percentage}%` }}
                         />
@@ -1189,7 +1182,7 @@ export default function CandidateOutreachAutomator() {
                   </div>
                 ))}
               </div>
-              
+
               {stats.totalCandidates === 0 && (
                 <div className="mt-8 text-center py-8 bg-gray-50 rounded-lg">
                   <p className="text-sm text-gray-500">No data available yet</p>

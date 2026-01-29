@@ -20,13 +20,13 @@ import type {
 // ============================================================================
 
 const sanitizeInput = <T extends Record<string, any>>(data: T): T => {
-  const sanitized = { ...data };
+  const sanitized = { ...data } as any;
   Object.keys(sanitized).forEach(key => {
     if (sanitized[key] === '') {
-      sanitized[key] = null as any;
+      sanitized[key] = null;
     }
   });
-  return sanitized;
+  return sanitized as T;
 };
 
 // ============================================================================

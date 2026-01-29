@@ -8,8 +8,8 @@ interface AppContentProps {
 
 export const AppContent: React.FC<AppContentProps> = ({ view }) => {
   const ActiveComponent = view.component;
-  const isFullPageView = view.id === 'prospect';
-  
+  const isFullPageView = view.id === 'prospects';
+
   if (isFullPageView) {
     return (
       <div className="flex-1 flex flex-col bg-gradient-to-br from-gray-50 via-gray-50/50 to-white overflow-hidden">
@@ -19,7 +19,7 @@ export const AppContent: React.FC<AppContentProps> = ({ view }) => {
       </div>
     );
   }
-  
+
   return (
     <div className="flex-1 flex flex-col bg-gradient-to-br from-gray-50 via-gray-50/50 to-white">
       <Header view={view} />

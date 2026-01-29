@@ -1,4 +1,4 @@
-import type { Prospect } from '../ProspectsDashboard';
+import type { Prospect } from '../../shared/types/database';
 
 const TIFFANY_CC = 'Tiffany.Chavez@ayahealthcare.com';
 

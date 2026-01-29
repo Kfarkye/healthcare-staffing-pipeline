@@ -2,7 +2,7 @@ import React from 'react';
 import { MessageSquare, Calendar, Phone } from 'lucide-react';
 import { ACTION_ITEMS } from '../../config/constants';
 
-const ACTION_ICONS: Record<string, React.FC<{ size?: number; className?: string }>> = {
+const ACTION_ICONS: Record<string, React.ElementType> = {
   'T': MessageSquare,
   'O': Calendar,
   'R': Phone,

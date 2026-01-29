@@ -5,7 +5,7 @@ import type { JobWithFacility, JobInput, Facility, JobStatus } from '../types/sc
 import { JOB_STATUS, SPECIALTY, SHIFT_TYPE } from '../types/schema';
 import { DashboardShell } from './shared/DashboardShell';
 import { PrecisionTable } from './shared/PrecisionTable';
-import { SuccessBadge, WarningBadge, AccentBadge, DefaultBadge } from './shared/Badges';
+import { SuccessBadge, WarningBadge, AccentBadge, DefaultBadge } from '../shared/components/Badge';
 import { cn } from '../lib/utils';
 
 type ModalType = 'add' | 'edit' | 'delete' | null;

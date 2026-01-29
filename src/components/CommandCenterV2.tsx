@@ -611,7 +611,7 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
 
     return (
         <LayoutGroup>
-            <motion.div layoutId="chat" className={cn('fixed z-50 flex flex-col overflow-hidden isolate border border-white/[0.08] shadow-[0_40px_120px_-20px_rgba(0,0,0,0.9)]', SYSTEM.surface.void)} style={containerStyle} willChange="transform">
+            <motion.div layoutId="chat" className={cn('fixed z-50 flex flex-col overflow-hidden isolate border border-white/[0.08] shadow-[0_40px_120px_-20px_rgba(0,0,0,0.9)]', SYSTEM.surface.void)} style={{ ...containerStyle, willChange: 'transform' }}>
                 <FilmGrain />
                 <header className={cn('flex items-center justify-between px-8 pt-6 pb-2 shrink-0 z-20 select-none', SYSTEM.surface.glass)}>
                     <div className="flex items-center gap-3"><Zap size={16} className="text-indigo-500" /><span className={SYSTEM.type.h1}>Command Center <span className="text-white/30 font-normal ml-1">Weissach</span></span></div>

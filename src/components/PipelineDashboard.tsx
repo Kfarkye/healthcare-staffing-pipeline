@@ -16,46 +16,20 @@ import EmailTemplateModal from './prospects/EmailTemplateModal';
 import EditProspectModal from './prospects/EditProspectModal';
 import AddProspectModal from './prospects/AddProspectModal';
 
+// Import from shared types - single source of truth
+import type { Prospect as SharedProspect, ProspectStatus, ModalType } from '../shared/types/database';
+
+// Re-export for backwards compatibility
+export type { ProspectStatus as StatusId };
+export type Prospect = SharedProspect;
+export type { ModalType };
+
 // ============================================================================
 // TYPES - Matching prospects TABLE
 // ============================================================================
 
 export type VisibleColumnId = 'New' | 'Contacted' | 'Responded' | 'Final Updates' | 'Submittal Ready';
 export type ArchiveStatusId = 'Not Interested';
-export type StatusId = VisibleColumnId | ArchiveStatusId;
-export type ModalType = 'add' | 'edit' | 'email' | 'batch_reference' | 'batch_reassignment' | null;
-
-export interface Prospect {
-  id: number;
-  candidate_id: number | null;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  specialty: string | null;
-  profession: string | null;
-  status: StatusId;
-  home_state: string | null;
-  licenses: string[] | null;
-  notes: string | null;
-  rto_notes: string | null;
-  recruiter: string | null;
-  recruiter_id: string | null;
-  source: string | null;
-  priority: string | null;
-  metadata: Record<string, any> | null;
-  nova_url: string | null;
-  available_start_date: string | null;
-  last_contacted_at: string | null;
-  last_response_at: string | null;
-  next_follow_up_date: string | null;
-  created_at: string;
-  updated_at: string;
-
-  // Client-side calculated fields, not in DB
-  profile_score?: number;
-  references_verified?: number;
-  profile_complete?: boolean;
-}
 
 export interface ColumnDefinition {
   id: VisibleColumnId;
@@ -196,8 +170,8 @@ const ProspectCard: React.FC<{
                     <ExternalLink size={13} />
                   </button>
                 )}
-                 <button onClick={e => stop(e, () => onArchive('Not Interested'))} className="p-1.5 rounded text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all duration-150" aria-label="Not Interested">
-                    <UserX size={13} />
+                <button onClick={e => stop(e, () => onArchive('Not Interested'))} className="p-1.5 rounded text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all duration-150" aria-label="Not Interested">
+                  <UserX size={13} />
                 </button>
               </div>
 
@@ -238,7 +212,7 @@ const BatchReferenceModal: React.FC<{
     setSending(true);
 
     try {
-      const isDev = import.meta.env.DEV;
+      const isDev = process.env.NODE_ENV === 'development';
       const successIds: number[] = [];
 
       for (const p of valid) {
@@ -360,7 +334,7 @@ const BatchReassignModal: React.FC<{
           const subject = `Reassignment Request – ${p.name}`;
           const body = buildReassignmentEmail(p);
 
-          if (import.meta.env.DEV) {
+          if (process.env.NODE_ENV === 'development') {
             window.open(`mailto:${REASSIGNMENT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
           } else {
             const { error } = await supabase.functions.invoke('send_email', { body: { to: REASSIGNMENT_EMAIL, subject, body } });
@@ -618,18 +592,18 @@ export default function ProspectsDashboard() {
   // FIXED: handleAddProspect - Complete Schema Mapping + Field Name Mapping
   // Maps full_name→name and primary_specialty→specialty from AddProspect
   // ============================================================================
-  
+
   const handleAddProspect = async (prospectData: Partial<Prospect>) => {
     try {
       console.log('[AddProspect] Starting save operation');
       console.log('[AddProspect] Received data:', JSON.stringify(prospectData, null, 2));
-      
+
       // ========================================================================
       // STEP 1: FIELD NAME MAPPING
       // AddProspect uses different field names than the database
       // Map them here before building the insert payload
       // ========================================================================
-      
+
       const mappedData = {
         ...prospectData,
         // Map full_name → name (if present)
@@ -637,42 +611,42 @@ export default function ProspectsDashboard() {
         // Map primary_specialty → specialty (if present)
         specialty: (prospectData as any).primary_specialty || prospectData.specialty,
       };
-      
+
       // Remove old field names to keep payload clean
       delete (mappedData as any).full_name;
       delete (mappedData as any).primary_specialty;
-      
+
       console.log('[AddProspect] After field mapping:', JSON.stringify(mappedData, null, 2));
-      
+
       // ========================================================================
       // STEP 2: BUILD INSERT PAYLOAD
       // ========================================================================
-      
+
       const dataToInsert: Record<string, any> = {
         // Core identification
         candidate_id: mappedData.candidate_id,
         name: mappedData.name,  // ← Now correctly mapped from full_name
-        
+
         // Contact information
         email: mappedData.email,
         phone: mappedData.phone,
-        
+
         // Professional details
         profession: mappedData.profession,
         specialty: mappedData.specialty,  // ← Now correctly mapped from primary_specialty
         home_state: mappedData.home_state,
-        
+
         // Nova integration
         nova_url: mappedData.nova_url,
-        
+
         // Notes and metadata
         notes: mappedData.notes,
         metadata: mappedData.metadata || {},
-        
+
         // Status and priority
         status: mappedData.status || 'New',
         priority: mappedData.priority || 'Medium',
-        
+
         // Optional fields (only include if provided)
         ...(mappedData.licenses && { licenses: mappedData.licenses }),
         ...(mappedData.rto_notes && { rto_notes: mappedData.rto_notes }),
@@ -685,7 +659,7 @@ export default function ProspectsDashboard() {
       // ========================================================================
       // STEP 3: CLEAN NULL/UNDEFINED VALUES
       // ========================================================================
-      
+
       Object.keys(dataToInsert).forEach(key => {
         const value = dataToInsert[key];
         if (value === undefined || value === null || value === '') {
@@ -703,7 +677,7 @@ export default function ProspectsDashboard() {
       // ========================================================================
       // STEP 4: VALIDATE REQUIRED FIELDS
       // ========================================================================
-      
+
       if (!dataToInsert.candidate_id) {
         throw new Error('Candidate ID is required');
       }
@@ -717,7 +691,7 @@ export default function ProspectsDashboard() {
       // ========================================================================
       // STEP 5: DATABASE INSERT
       // ========================================================================
-      
+
       const { data, error } = await supabase
         .from('prospects')
         .insert([dataToInsert])
@@ -725,7 +699,7 @@ export default function ProspectsDashboard() {
 
       if (error) {
         console.error('[AddProspect] Database error:', error);
-        
+
         // Handle specific errors
         if (error.code === '23505') {
           if (error.message.includes('candidate_id')) {
@@ -733,7 +707,7 @@ export default function ProspectsDashboard() {
           }
           throw new Error('A prospect with this information already exists');
         }
-        
+
         throw new Error(error.message || 'Failed to save prospect to database');
       }
 
@@ -770,19 +744,19 @@ export default function ProspectsDashboard() {
       showToast('Failed to archive prospect', 'error');
     }
   };
-  
+
   const handleMarkReady = async (p: Prospect) => {
     try {
-        const { error } = await supabase.from('prospects').update({
-            status: 'Submittal Ready'
-        }).eq('id', p.id);
+      const { error } = await supabase.from('prospects').update({
+        status: 'Submittal Ready'
+      }).eq('id', p.id);
 
-        if (error) throw error;
-        await load();
-        showToast(`${p.name} is ready for submittal`, 'success');
+      if (error) throw error;
+      await load();
+      showToast(`${p.name} is ready for submittal`, 'success');
     } catch (error) {
-        console.error('Mark ready error:', error);
-        showToast('Failed to update prospect status', 'error');
+      console.error('Mark ready error:', error);
+      showToast('Failed to update prospect status', 'error');
     }
   };
 
@@ -845,8 +819,8 @@ export default function ProspectsDashboard() {
             <div>
               <h1 className="text-lg font-semibold text-gray-900 tracking-tight">Prospecting Dashboard</h1>
               <p className="text-xs text-gray-500 mt-1">
-                <span className="font-semibold text-gray-700 tabular-nums">{stats.total}</span> Active · 
-                <span className="font-semibold text-gray-700 tabular-nums ml-1">{stats.ready}</span> Ready · 
+                <span className="font-semibold text-gray-700 tabular-nums">{stats.total}</span> Active ·
+                <span className="font-semibold text-gray-700 tabular-nums ml-1">{stats.ready}</span> Ready ·
                 <span className="font-semibold text-gray-700 tabular-nums ml-1">{stats.notInterested}</span> Archived
               </p>
             </div>
@@ -935,11 +909,9 @@ export default function ProspectsDashboard() {
         <div
           className={cn(
             'fixed bottom-5 right-5 px-4 py-3 rounded-lg text-sm font-medium text-white shadow-xl z-50 flex items-center gap-2.5 animate-slideUp',
-            { 
-              'bg-gray-900': toast.type === 'info', 
-              'bg-green-600': toast.type === 'success', 
-              'bg-red-600': toast.type === 'error' 
-            }
+            toast.type === 'info' && 'bg-gray-900',
+            toast.type === 'success' && 'bg-green-600',
+            toast.type === 'error' && 'bg-red-600'
           )}
         >
           {toast.type === 'success' && <CheckCircle size={15} />}
@@ -951,7 +923,7 @@ export default function ProspectsDashboard() {
 
       {/* MODALS */}
       {modal === 'add' && (
-        <AddProspectModal onClose={() => setModal(null)} onSave={handleAddProspect} showToast={showToast} />
+        <AddProspectModal onClose={() => setModal(null)} onSave={async (data) => { await handleAddProspect(data); }} showToast={showToast} />
       )}
       {modal === 'edit' && selected && (
         <EditProspectModal
@@ -964,6 +936,7 @@ export default function ProspectsDashboard() {
       )}
       {modal === 'email' && selected && (
         <EmailTemplateModal
+          isOpen={true}
           prospect={selected}
           extractedData={null}
           onClose={() => setModal(null)}

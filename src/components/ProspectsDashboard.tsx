@@ -15,28 +15,18 @@ import AddProspectModal from './prospects/AddProspectModal';
 import EditProspectModal from './prospects/EditProspectModal';
 import { DashboardShell } from './shared/DashboardShell';
 import { StatCard } from './shared/StatCard';
-import { Badge } from './shared/Badges';
+import { Badge } from '../shared/components/Badge';
+
+// Import from shared types - single source of truth
+import type { Prospect } from '../shared/types/database';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
+// View-specific types (not replacing Prospect)
 type ProspectStatus = 'New' | 'Contacted' | 'Interested' | 'Stalled';
 type ViewMode = 'kanban' | 'list' | 'ranking';
-
-interface Prospect {
-  id: string | number;
-  name: string;
-  specialty: string;
-  profession: string;
-  status: ProspectStatus;
-  email?: string;
-  phone?: string;
-  home_state?: string;
-  updated_at?: string;
-  is_diamond_verified?: boolean;
-  template_extracted_data?: any;
-}
 
 // ============================================================================
 // CONSTANTS

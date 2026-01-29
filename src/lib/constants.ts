@@ -63,18 +63,18 @@ export const STATUS_BADGE_STYLES = {
   TRANSITIONING: 'bg-purple-50 text-purple-700',
   ACTIVE: 'bg-green-50 text-green-700',
   EXTENSION: 'bg-amber-50 text-amber-700',
-  
+
   // Stage types
   READY: 'bg-slate-100 text-slate-700',
   SUBMITTED: 'bg-blue-50 text-blue-700',
   OFFER: 'bg-orange-50 text-orange-700',
   PRESTART: 'bg-green-50 text-green-700',
-  
+
   // Priority types
   THIS_WEEK: 'bg-purple-50 text-purple-700',
   OFFER_OUT: 'bg-orange-50 text-orange-700',
   SIGNED: 'bg-green-50 text-green-700',
-  
+
   // Default
   DEFAULT: 'bg-slate-100 text-slate-700',
 } as const;
@@ -190,9 +190,9 @@ export const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
 // ============================================================================
 
 /**
- * Base API URL (uses Vite env variable)
+ * Base API URL (uses Next.js env variable)
  */
-export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 // ============================================================================
 // FEATURE FLAGS
