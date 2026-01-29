@@ -45,7 +45,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const MODEL_CONFIG = Object.freeze({
-    primary: 'gemini-3-flash-latest',
+    primary: 'gemini-3-flash-preview',
     fallback: 'gemini-2.0-flash-001',
     temperature: 0.7,
     maxSteps: 10,
