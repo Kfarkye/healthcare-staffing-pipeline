@@ -37,31 +37,28 @@ const INTENT_PROMPTS = {
 TASK: Draft professional outreach content
 
 FORMAT REQUIREMENTS:
-- ALWAYS include "To: [recipient_email]" on the first line if you know the recipient's email
+- ALWAYS include "To: [recipient_email]" on the first line if known
 - ALWAYS include "Subject: [subject_line]" on the next line
 - Then a blank line, then the email body
-- This format is critical for the UI to render action buttons correctly
 
-Example format:
-To: jane.doe@email.com
-Subject: Exciting RRT Opportunity | $2,100/week
-
-Hi Jane,
-[email body here]
+CTA STRUCTURE:
+- End the email with this exact call-to-action structure:
+  "To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I'll handle the upload):"
+  - Available to start [Date]?
+  - Any time-off during the contract?
+  - Is your Aya profile current?
 
 GUIDELINES:
 - Write compelling, personalized copy that drives action
-- Match tone to the audience (formal for executives, casual for peers)
-- Include clear call-to-action
-- Keep subject lines under 50 characters when applicable
-- Avoid spam trigger words
-- Structure for easy scanning (short paragraphs, bullet points for lists)
+- Lead with the opportunity/pay package details
+- Avoid filler phrases ("I hope this finds you well")
+- Reference specific details from context (facility name, pay, dates)
+- Keep tone professional yet helpful/resourceful
 
 QUALITY STANDARDS:
 - Every sentence should earn its place
-- No filler phrases ("I hope this email finds you well")
-- Specific > Generic (reference concrete details from context)
-- End with a single, clear ask`,
+- Specific > Generic
+- End with the clear 3-bullet ask described above`,
 
   [Intent.EDIT_CONTENT]: `${BASE_INSTRUCTIONS}
 
