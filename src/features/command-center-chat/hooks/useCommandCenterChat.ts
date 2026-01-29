@@ -297,8 +297,10 @@ export function useCommandCenterChat(
                 for (const line of lines) {
                     if (!line.trim()) continue;
 
-                    // DEBUG: Log raw line for troubleshooting
-                    console.debug('[Stream Parser] Line:', line.slice(0, 100));
+                    // DEBUG: Log raw line for troubleshooting (gated to avoid main-thread work)
+                    if (process.env.NODE_ENV === 'development' && typeof localStorage !== 'undefined' && localStorage.getItem('DEBUG_STREAM')) {
+                        console.debug('[Stream Parser] Line:', line.slice(0, 100));
+                    }
 
                     // Strip SSE "data: " prefix if present
                     let payload = line;

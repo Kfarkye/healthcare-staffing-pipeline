@@ -17,6 +17,7 @@
 export const Intent = Object.freeze({
   // Buffered processing (quality-first)
   DRAFT_OUTREACH: 'DRAFT_OUTREACH',
+  OFFER_DETAILS: 'OFFER_DETAILS',
   EDIT_CONTENT: 'EDIT_CONTENT',
 
   // Streaming processing (latency-first)
@@ -41,6 +42,17 @@ const QUESTION_INDICATORS = /^(what|how|why|show|describe|tell|explain|analyze|s
  * Ordered by specificity (most specific first)
  */
 const INTENT_PATTERNS = [
+  {
+    // OFFER_DETAILS must come before DRAFT_OUTREACH (more specific)
+    intent: Intent.OFFER_DETAILS,
+    patterns: [
+      /\b(offer)\s*(details|letter|email|breakdown)\b/i,
+      /\b(congratulations|congrats)\b.*\b(offer|position)\b/i,
+      /\b(draft|write|create)\b.*\b(offer|acceptance)\b.*\b(letter|email|details)\b/i,
+      /\b(offer)\b.*\b(received|accepted|got the)\b/i,
+    ],
+    requiresTools: true,
+  },
   {
     intent: Intent.DRAFT_OUTREACH,
     patterns: [

@@ -42,6 +42,7 @@ import {
 
 import { useCommandCenterChat } from '../features/command-center-chat/hooks/useCommandCenterChat';
 import { useFileUpload, type Attachment } from '../features/command-center-chat/hooks/useFileUpload';
+import { usePinnedScroll } from '../features/command-center-chat/hooks/usePinnedScroll';
 import { useLayout } from '../context/LayoutContext';
 
 // ============================================================================
@@ -280,7 +281,10 @@ const EmailCard: FC<{ to?: string; subject: string; body: string }> = memo(({ to
 
             <div className="px-5 py-4 relative group">
                 <div className={cn('flex-1 min-w-0 relative', !isExpanded && isLongBody && 'max-h-[280px] overflow-hidden')}>
-                    <div className={cn(SYSTEM.type.body, 'text-[#C4C4C4] whitespace-pre-wrap leading-relaxed selection:bg-indigo-500/30 selection:text-white')}>{formattedBody.split(REGEX_EMAIL).map((part, i) => REGEX_EMAIL.test(part) ? <span key={i} className="text-indigo-400 cursor-pointer underline hover:text-indigo-300">{part}</span> : part)}</div>
+                    {/* Render body with markdown support for proper formatting */}
+                    <div className={cn('prose prose-invert prose-sm max-w-none', 'prose-p:text-[#C4C4C4] prose-p:leading-relaxed prose-strong:text-white prose-li:text-[#C4C4C4]')}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{formattedBody}</ReactMarkdown>
+                    </div>
                     {!isExpanded && isLongBody && <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0A0A0B] to-transparent pointer-events-none" />}
                 </div>
                 {isLongBody && <button onClick={() => setIsExpanded(!isExpanded)} className="mt-3 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors">{isExpanded ? '↑ Show Less' : '↓ Show Full Email'}</button>}
@@ -571,11 +575,14 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
     const [isMinimized, setIsMinimized] = useState(false);
     const { workspaceMode, setWorkspaceMode } = useLayout();
     const [inputValue, setInputValue] = useState('');
-    const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-    const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mountedRef = useRef(true);
     const { showToast } = useToast();
+
+    // PERF: ResizeObserver + RAF scroll (eliminates forced reflow during streaming)
+    const { containerRef: scrollRef, contentRef, isPinned, scrollToBottomNow } = usePinnedScroll({
+        bottomThresholdPx: 100,
+    });
 
     useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
@@ -590,26 +597,22 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
         onUploadError: (err, file) => { console.error(`Upload error: ${file.name}`, err); showToast(`Upload failed: ${file.name}`); },
     });
 
-    // STABLE KEYS: Use msg.id instead of index for high-performance rendering
-    const history = useMemo(() => messages.map(msg => ({
-        id: msg.id || crypto.randomUUID(), // Stable ID
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content || '',
-        toolInvocations: msg.toolInvocations as ToolInvocation[]
-    })), [messages]);
+    // PERF: Stable history (frozen during streaming) + isolated streaming message
+    // This splits O(N) per-token reconciliation → O(1) by only updating the streaming bubble
+    const stableHistory = useMemo(() => {
+        // During streaming, exclude the last message (it's rendered separately)
+        const endIndex = isStreaming ? Math.max(0, messages.length - 1) : messages.length;
+        return messages.slice(0, endIndex).map(msg => ({
+            id: msg.id, // Already stable from useCommandCenterChat's generateId()
+            role: msg.role as 'user' | 'assistant',
+            content: msg.content || '',
+            toolInvocations: msg.toolInvocations as ToolInvocation[]
+        }));
+        // Only recalculate when message count changes (not on every token)
+    }, [messages.length, isStreaming]);
 
-    const handleScroll = useCallback(() => {
-        if (!scrollRef.current) return;
-        const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-        setShouldAutoScroll(scrollHeight - scrollTop - clientHeight < 100);
-    }, []);
-
-    useIsomorphicLayoutEffect(() => {
-        if (!shouldAutoScroll || !scrollRef.current) return;
-        const el = scrollRef.current;
-        if (isStreaming) el.scrollTop = el.scrollHeight;
-        else requestAnimationFrame(() => el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }));
-    }, [history, isStreaming, shouldAutoScroll]);
+    // The streaming message (updates on every token, but only this component re-renders)
+    const streamingMessage = isStreaming && messages.length > 0 ? messages[messages.length - 1] : null;
 
     // 413 PAYLOAD GUARD (Critical Fix)
     const handleSend = useCallback(async (query?: string) => {
@@ -637,7 +640,7 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
             if (links) msg = text ? `${text}\n\n${links}` : `Analyze:\n\n${links}`;
         }
 
-        setInputValue(''); clearAttachments(); setShouldAutoScroll(true); triggerHaptic();
+        setInputValue(''); clearAttachments(); scrollToBottomNow(); triggerHaptic();
         await sendMessage(msg, safeFileAttachments);
     }, [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments, showToast, totalPayloadSize]);
 
@@ -664,22 +667,50 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
                         <button onClick={() => { setIsOpen(false); setWorkspaceMode('floating'); }} className="p-2 text-zinc-600 hover:text-white transition-colors"><X size={16} /></button>
                     </div>
                 </header>
-                <div ref={scrollRef} onScroll={handleScroll} className="relative flex-1 overflow-y-auto px-6 pt-4 pb-44 scroll-smooth no-scrollbar z-10">
-                    <AnimatePresence mode="popLayout">
-                        {history.length === 0 ? (
-                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="h-full flex flex-col items-center justify-center text-center opacity-40 pt-20">
-                                <div className="w-20 h-20 rounded-[24px] border border-white/10 bg-white/5 flex items-center justify-center mb-6"><Users size={28} className="text-zinc-600" /></div>
-                                <p className={SYSTEM.type.mono}>System Ready</p><p className="text-[13px] text-zinc-600 mt-2 max-w-[280px]">Recruiting intelligence active.</p>
-                                {/* Pulse Grid for "Alive" Feel */}
-                                <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none" />
-                            </motion.div>
-                        ) : (history.map((msg) => <MessageBubble key={msg.id} role={msg.role} content={msg.content} isStreaming={isStreaming && msg === history[history.length - 1] && msg.role === 'assistant'} toolInvocations={msg.toolInvocations} />))}
-                    </AnimatePresence>
+                <div ref={scrollRef} className="relative flex-1 overflow-y-auto px-6 pt-4 pb-44 scroll-smooth no-scrollbar z-10">
+                    <div ref={contentRef}>
+                        <AnimatePresence mode="popLayout">
+                            {stableHistory.length === 0 && !streamingMessage ? (
+                                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="h-full flex flex-col items-center justify-center text-center opacity-40 pt-20">
+                                    <div className="w-20 h-20 rounded-[24px] border border-white/10 bg-white/5 flex items-center justify-center mb-6"><Users size={28} className="text-zinc-600" /></div>
+                                    <p className={SYSTEM.type.mono}>System Ready</p><p className="text-[13px] text-zinc-600 mt-2 max-w-[280px]">Recruiting intelligence active.</p>
+                                    {/* Pulse Grid for "Alive" Feel */}
+                                    <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none" />
+                                </motion.div>
+                            ) : (
+                                <>
+                                    {/* Stable history: frozen during streaming (O(1) reconciliation) */}
+                                    {stableHistory.map((msg) => (
+                                        <MessageBubble key={msg.id} role={msg.role} content={msg.content} isStreaming={false} toolInvocations={msg.toolInvocations} />
+                                    ))}
+                                    {/* Streaming message: only this component updates per token */}
+                                    {streamingMessage && (
+                                        <MessageBubble
+                                            key={streamingMessage.id}
+                                            role={streamingMessage.role as 'user' | 'assistant'}
+                                            content={streamingMessage.content || ''}
+                                            isStreaming={true}
+                                            toolInvocations={streamingMessage.toolInvocations as ToolInvocation[]}
+                                        />
+                                    )}
+                                </>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                    {/* Jump to bottom button when user scrolls up */}
+                    {!isPinned && (stableHistory.length > 0 || streamingMessage) && (
+                        <button
+                            onClick={scrollToBottomNow}
+                            className="absolute bottom-4 right-4 z-20 flex items-center gap-2 px-3 py-2 rounded-full bg-black/80 border border-white/10 text-xs text-zinc-300 backdrop-blur-md hover:bg-black/90 transition-all"
+                        >
+                            Jump to latest
+                        </button>
+                    )}
                 </div>
                 <footer className={cn('absolute bottom-0 left-0 right-0 z-30 px-5 pt-20 pb-[max(2rem,env(safe-area-inset-bottom,0.5rem))] bg-gradient-to-t from-[#030303] via-[#030303]/95 to-transparent pointer-events-none')}>
                     <div className="pointer-events-auto relative">
                         <AnimatePresence>{isLoading && <ThinkingPill onStop={stop} status={isStreaming ? 'streaming' : 'thinking'} />}</AnimatePresence>
-                        <AnimatePresence>{history.length < 2 && !isLoading && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mb-4"><SmartChips onSelect={handleSend} /></motion.div>}</AnimatePresence>
+                        <AnimatePresence>{stableHistory.length < 2 && !streamingMessage && !isLoading && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mb-4"><SmartChips onSelect={handleSend} /></motion.div>}</AnimatePresence>
                         <InputDeck value={inputValue} onChange={setInputValue} onSend={() => handleSend()} onStop={stop} isProcessing={isLoading} inputRef={inputRef} attachments={attachments} onRemoveAttachment={removeFile} isDragActive={isDragActive} isUploading={isUploading} dragHandlers={dragHandlers} handlePaste={handlePaste} triggerFileSelect={triggerFileSelect} fileInputRef={fileInputRef} onFilesSelected={(files) => files && addFiles(files)} />
                         {error && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-3 px-4 py-2 bg-rose-500/10 border border-rose-500/20 rounded-lg"><span className="text-[12px] text-rose-400">Error: {error}</span></motion.div>}
                     </div>

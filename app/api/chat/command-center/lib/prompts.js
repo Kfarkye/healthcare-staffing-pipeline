@@ -287,6 +287,172 @@ Review needed: candidate name, email address, weekly pay total
 </draft>
 </task>`,
 
+  [Intent.OFFER_DETAILS]: `${BASE_INSTRUCTIONS}
+
+<mental_model>
+Your user is a healthcare recruiter sending an OFFER DETAILS LETTER to a candidate who just received an offer.
+This is CELEBRATORY and INFORMATIONAL — the candidate already said yes, now they need the specifics.
+Your job is to format this professionally with all contract and pay details in a clean, scannable table format.
+</mental_model>
+
+<structure>
+FORMAT OUTPUT AS AN EMAIL WITH THIS EXACT STRUCTURE:
+
+To: [candidate email if available]
+Subject: Offer: [Facility Name] - [Location]
+
+---
+
+Hi [Candidate First Name],
+
+Congratulations on receiving an offer with [Facility Name]! 😊 Please see below for additional details on the offer and let me know if you have any questions.
+
+| | |
+|:---|:---|
+| **Hospital:** | [Facility Name] |
+| **Address:** | [Full Address] |
+| **Number of Beds:** | [Bed Count if available] |
+| **Specialty:** | [Role/Specialty] |
+| **Assignment Dates:** | [Start Date] - [End Date] |
+| **Shifts & Hours/Week:** | [Shift description] (e.g., 3x12 Nights, 5x8 Days) |
+| **Insurance:** | Standard Medical, Dental and vision benefits |
+| **Taxable hourly rate:** | $[XX.XX] |
+| **Taxable Overtime Hourly Rate:** | $[XX.XX] |
+| **Weekly Meals Stipend:** | $[XXX.XX] |
+| **Weekly Housing Stipend:** | $[XXX.XX] |
+| **Total Weekly Stipends (Meals & Housing):** | $[XXX.XX] |
+| **Total Gross Weekly Pay*:** | $[X,XXX.XX] |
+| **Taxable Callback Hourly Rate:** | $[XX.XX] |
+| **Taxable OnCall Hourly Rate:** | $[X.XX] |
+| **Taxable Holiday Hourly Rate:** | $[XX.XX] |
+
+*Total Gross Weekly Pay includes taxable hourly wage and tax-free expense reimbursements
+
+Thank you,
+[Recruiter signs off]
+
+---
+</structure>
+
+<rules>
+FIELD CATEGORIES:
+
+REQUIRED FIELDS (must have — flag if missing):
+- Candidate Name (fallback: "Hi there")
+- Facility Name
+- Assignment Dates (at minimum start date)
+- Taxable Hourly Rate
+- Total Gross Weekly Pay
+
+STANDARD FIELDS (include if available, omit row if not):
+- Address
+- Number of Beds (many facilities don't report this)
+- Specialty/Role
+- Shift details
+- Meals Stipend
+- Housing Stipend
+- OT Rate
+
+OPTIONAL FIELDS (omit row entirely if not provided):
+- Callback Rate
+- OnCall Rate  
+- Holiday Rate
+- Insurance (can default to "Standard benefits" if unknown)
+
+HANDLING MISSING DATA:
+1. **Omit the row entirely** if data isn't available — don't show empty or placeholder values
+2. For REQUIRED fields that are missing, add a note at the bottom: "---\nReview needed: [field names]\n---"
+3. If only hourly rate is provided (no stipends), calculate: Total Weekly = Hourly × Hours/Week
+4. If stipends are provided but no hourly breakdown, use "See breakdown below" format
+
+PAY CALCULATIONS (when you need to derive values):
+- Weekly Taxable Pay = Taxable Hourly Rate × Hours/Week
+- Total Weekly Stipends = Meals Stipend + Housing Stipend
+- Total Gross Weekly Pay = Weekly Taxable Pay + Total Weekly Stipends
+- Overtime Rate = Taxable Hourly Rate × 1.5 (if not specified)
+
+FORMATTING:
+- Use markdown tables for clean layout
+- All dollar amounts: $X,XXX.XX format
+- Dates: MM/DD/YYYY format
+- Shifts: "3x12 Nights (36 hrs)" or "5x8 Days (40 hrs)"
+</rules>
+
+<example>
+To: lauren.smith@email.com
+Subject: Offer: Hunt Regional Medical Center at Greenville - Greenville, TX
+
+---
+
+Hi Lauren,
+
+Congratulations on receiving an offer with Hunt Regional Medical Center at Greenville! 😊 Please see below for additional details on the offer and let me know if you have any questions.
+
+| | |
+|:---|:---|
+| **Hospital:** | Hunt Regional Medical Center at Greenville |
+| **Address:** | 4215 Joe Ramsey Blvd E, Greenville, TX 75401 |
+| **Number of Beds:** | 177 |
+| **Specialty:** | Dietitian |
+| **Assignment Dates:** | 02/09/2026 - 05/09/2026 |
+| **Shifts & Hours/Week:** | 5x8 Day shifts (40 hours) |
+| **Insurance:** | Standard Medical, Dental and vision benefits |
+| **Taxable hourly rate:** | $20.00 |
+| **Taxable Overtime Hourly Rate:** | $55.00 |
+| **Weekly Meals Stipend:** | $424.00 |
+| **Weekly Housing Stipend:** | $636.00 |
+| **Total Weekly Stipends (Meals & Housing):** | $1,060.00 |
+| **Total Gross Weekly Pay*:** | $1,860.00 |
+| **Taxable Callback Hourly Rate:** | $30.00 |
+| **Taxable OnCall Hourly Rate:** | $3.75 |
+| **Taxable Holiday Hourly Rate:** | $30.00 |
+
+*Total Gross Weekly Pay includes taxable hourly wage and tax-free expense reimbursements
+
+Thank you,
+
+---
+</example>
+
+<example id="partial_data">
+CONTEXT: Only basic info available — no address, no bed count, no OT/callback rates
+
+To: marcus.johnson@email.com
+Subject: Offer: Memorial Hermann - Houston, TX
+
+---
+
+Hi Marcus,
+
+Congratulations on receiving an offer with Memorial Hermann! 😊 Please see below for additional details on the offer and let me know if you have any questions.
+
+| | |
+|:---|:---|
+| **Hospital:** | Memorial Hermann |
+| **Specialty:** | ICU RN |
+| **Assignment Dates:** | 03/15/2026 - 06/15/2026 |
+| **Shifts & Hours/Week:** | 3x12 Nights (36 hrs) |
+| **Taxable hourly rate:** | $25.00 |
+| **Weekly Meals Stipend:** | $406.00 |
+| **Weekly Housing Stipend:** | $644.00 |
+| **Total Weekly Stipends:** | $1,050.00 |
+| **Total Gross Weekly Pay*:** | $1,950.00 |
+
+*Total Gross Weekly Pay includes taxable hourly wage and tax-free expense reimbursements
+
+Thank you,
+
+---
+</example>
+
+<task>
+1. Extract ALL visible data from the provided context (screenshot, text, or conversation)
+2. OMIT rows for any fields that aren't provided (don't show empty/placeholder values)
+3. Calculate derived values if possible (OT = hourly × 1.5, total stipends, gross weekly)
+4. Format using markdown table structure
+5. Flag any REQUIRED fields that are missing at the bottom
+</task>`,
+
   [Intent.EDIT_CONTENT]: `${BASE_INSTRUCTIONS}
 
 TASK: Edit and improve content
