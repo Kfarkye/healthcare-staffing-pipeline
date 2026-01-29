@@ -72,10 +72,10 @@ const INTENT_PATTERNS = [
       /\b(add|create|insert|save|store)\b.*\b(contact|lead|candidate|record)\b/i,
       /\b(update|modify|change)\b.*\b(contact|lead|candidate|record|status)\b/i,
       /\b(delete|remove)\b.*\b(contact|lead|candidate|record)\b/i,
-      // Nova/CRM specific lookups
-      /\bnova\s*(link|url|profile)\b/i,
-      /\b(link|url|profile)\b.*\b(for|to)\b.*[a-z]{2,}/i,
-      /\bcan\s+i\s+(have|get)\b.*\b(link|url|profile|nova)\b/i,
+      // Nova/CRM specific lookups - simplified patterns
+      /\bnova\b/i, // Any mention of "nova" triggers database lookup
+      /\b(link|url|profile)\b.*\bto\b/i, // "link to [name]", "profile to [name]"
+      /\bcan\s*i\s*(have|get)\b/i, // "can i have/get" + anything = likely a lookup request
     ],
     requiresTools: true,
   },
