@@ -18,15 +18,15 @@ export const Intent = Object.freeze({
   // Buffered processing (quality-first)
   DRAFT_OUTREACH: 'DRAFT_OUTREACH',
   EDIT_CONTENT: 'EDIT_CONTENT',
-  
+
   // Streaming processing (latency-first)
   GENERAL_CHAT: 'GENERAL_CHAT',
   SEARCH_QUERY: 'SEARCH_QUERY',
-  
+
   // Tool-intensive operations
   DATABASE_ACTION: 'DATABASE_ACTION',
   CAMPAIGN_WORKFLOW: 'CAMPAIGN_WORKFLOW',
-  
+
   // Fallback
   UNKNOWN: 'UNKNOWN',
 });
@@ -42,6 +42,12 @@ const INTENT_PATTERNS = [
       /\b(draft|write|compose|create)\b.*\b(email|message|outreach|letter|proposal)\b/i,
       /\b(email|message)\b.*\b(template|draft)\b/i,
       /\bgenerate\b.*\b(copy|content|text)\b/i,
+      // Healthcare staffing specific patterns
+      /\bpay\s*package\b.*\b(outreach|email)\b/i,
+      /\b(outreach|email)\b.*\bpay\s*package\b/i,
+      // Image-based drafting
+      /\b(draft|write|compose|create)\b.*\b(using|from|with)\b.*\b(attached|screenshot|image)\b/i,
+      /\b(attached|screenshot|image)\b.*\b(draft|write|email|outreach)\b/i,
     ],
     requiresTools: true,
   },
@@ -96,7 +102,7 @@ const INTENT_PATTERNS = [
 export function classify({ message, history = [] }) {
   // Normalize input
   const normalizedMessage = (message ?? '').toLowerCase().trim();
-  
+
   // Empty or very short messages default to general chat
   if (normalizedMessage.length < 3) {
     return {
@@ -155,8 +161,8 @@ function analyzeHistoryContext(history) {
     .slice(-2);
 
   for (const msg of recentAssistant) {
-    const content = typeof msg.content === 'string' 
-      ? msg.content 
+    const content = typeof msg.content === 'string'
+      ? msg.content
       : msg.content?.find((p) => p.type === 'text')?.text ?? '';
 
     // If assistant recently drafted something, user might be editing
