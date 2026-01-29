@@ -511,9 +511,12 @@ export async function POST(request) {
         }, TIMEOUT_CONFIG.soft);
 
         try {
-            const isBufferedIntent = [Intent.DRAFT_OUTREACH, Intent.EDIT_CONTENT].includes(
+            const isBufferedIntent = [Intent.EDIT_CONTENT].includes(
                 classification.intent
             );
+
+            // Template contract applies to DRAFT_OUTREACH even in streaming path
+            const needsTemplateContract = classification.intent === Intent.DRAFT_OUTREACH;
 
             if (isBufferedIntent) {
                 logger.info('strategy_buffered');
@@ -620,9 +623,26 @@ export async function POST(request) {
             // STREAMING PATH
             logger.info('strategy_streaming');
 
+            // Template contract for DRAFT_OUTREACH (even in streaming)
+            let streamingSystemPrompt = systemPrompt;
+            if (needsTemplateContract) {
+                const templateName = TEMPLATE_BY_INTENT[classification.intent];
+                if (templateName) {
+                    const template = await fetchTemplate(supabase, templateName);
+                    if (template) {
+                        logger.info('template_fetched', { name: templateName });
+                        const templateContract = buildTemplateContract(template);
+                        streamingSystemPrompt = systemPrompt + '\n\n' + templateContract;
+                        logger.info('template_contract_injected_streaming', { templateName });
+                    } else {
+                        logger.warn('template_not_found', { name: templateName });
+                    }
+                }
+            }
+
             const result = streamText({
                 model: google(MODEL_CONFIG.primary),
-                system: systemPrompt,
+                system: streamingSystemPrompt,
                 messages: normalizedMessages,
                 tools,
                 toolChoice,
@@ -640,11 +660,23 @@ export async function POST(request) {
                     recordSuccess();
 
                     const validation = validate(text);
+                    const issues = Array.isArray(validation?.issues) ? validation.issues : [];
+
+                    // Log detailed validation result for debugging
+                    if (issues.length > 0) {
+                        logger.info('validation_result', {
+                            valid: !!validation?.valid,
+                            issue_count: issues.length,
+                            issue_ids: issues.map(i => i?.id).filter(Boolean).slice(0, 20),
+                            issue_samples: issues.slice(0, 3),
+                        });
+                    }
+
                     logAudit(supabase, traceId, classification.intent, inputText, validation);
 
                     logger.info('stream_finish', {
                         finishReason,
-                        validation_issues: validation.issues?.length ?? 0,
+                        validation_issues: issues.length,
                         text_length: text?.length ?? 0,
                         tokens: usage?.totalTokens,
                     });
