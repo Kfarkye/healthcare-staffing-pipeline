@@ -5,8 +5,12 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Next.js environment pattern - provide fallbacks for static generation
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+// Next.js environment pattern - provide fallbacks for static generation
+const rawSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseUrl = rawSupabaseUrl.trim().replace(/^["']|["']$/g, '');
+
+const rawSupabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseAnonKey = rawSupabaseAnonKey.trim().replace(/^["']|["']$/g, '');
 
 // Create client - handle missing env vars during SSG gracefully
 function getSupabaseClient(): SupabaseClient {
