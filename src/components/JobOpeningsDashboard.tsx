@@ -5,14 +5,11 @@ import {
     CheckCircle, AlertCircle, Zap, Sparkles, DollarSign, Users
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 
 // ============================================================================
-// SUPABASE CLIENT
+// SUPABASE CLIENT - Using shared resilient client
 // ============================================================================
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ============================================================================
 // CONSTANTS
@@ -965,8 +962,8 @@ export default function JobOpeningsDashboard({
                                                 key={job.job_id}
                                                 ref={isSelected ? selectedRowRef : null}
                                                 className={`transition-colors ${isSelected
-                                                        ? 'bg-blue-50 hover:bg-blue-100'
-                                                        : 'hover:bg-gray-50/50'
+                                                    ? 'bg-blue-50 hover:bg-blue-100'
+                                                    : 'hover:bg-gray-50/50'
                                                     }`}
                                             >
                                                 <td className="px-6 py-4">
