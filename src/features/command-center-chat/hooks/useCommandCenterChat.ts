@@ -257,14 +257,23 @@ export function useCommandCenterChat(
                     // DEBUG: Log raw line for troubleshooting
                     console.debug('[Stream Parser] Line:', line.slice(0, 100));
 
-                    // Try UI Message Stream protocol first (JSON objects)
-                    if (line.startsWith('{')) {
+                    // Strip SSE "data: " prefix if present
+                    let payload = line;
+                    if (line.startsWith('data: ')) {
+                        payload = line.slice(6); // Remove "data: " prefix
+                    }
+
+                    // Skip SSE control messages
+                    if (payload === '[DONE]') continue;
+
+                    // Try parsing as JSON (UI Message Stream format)
+                    if (payload.startsWith('{')) {
                         try {
-                            const event = JSON.parse(line);
+                            const event = JSON.parse(payload);
                             if (event.type === 'text-delta' && typeof event.delta === 'string') {
                                 accumulatedText += event.delta;
                             }
-                            // text-start, text-end, data-* events are ignored (metadata)
+                            // text-start, text-end, start-step, finish-step, etc. are ignored
                             continue;
                         } catch {
                             // Not valid JSON, try data-stream protocol
@@ -272,22 +281,22 @@ export function useCommandCenterChat(
                     }
 
                     // Fallback: Data-Stream Protocol ("CHANNEL:PAYLOAD")
-                    const colonIndex = line.indexOf(':');
+                    const colonIndex = payload.indexOf(':');
                     if (colonIndex === -1) continue;
 
-                    const channel = line.slice(0, colonIndex);
-                    const payload = line.slice(colonIndex + 1);
+                    const channel = payload.slice(0, colonIndex);
+                    const dataPayload = payload.slice(colonIndex + 1);
 
                     // Channel 0 = Text content (what we display)
                     if (channel === '0') {
                         try {
-                            const text = JSON.parse(payload);
+                            const text = JSON.parse(dataPayload);
                             if (typeof text === 'string') {
                                 accumulatedText += text;
                             }
                         } catch {
                             // If not valid JSON, use raw (fallback for plain text)
-                            accumulatedText += payload;
+                            accumulatedText += dataPayload;
                         }
                     }
                     // Channel 2 = Metadata, Channel 9 = Error — ignore for display
