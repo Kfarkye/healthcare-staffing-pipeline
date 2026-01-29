@@ -3,16 +3,16 @@
  * COMMAND CENTER CHAT — ELITE PRODUCTION SERVICE
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * STATUS: PRODUCTION MASTER v3.4.1
+ * STATUS: PRODUCTION MASTER v3.6.1
  * PLATFORM: Vercel / Next.js (Serverless Optimized)
  *
  * CHANGELOG:
- * - CORE: "Omni-Parser" merges experimental_attachments, parts, and content arrays
- * - FIX: "Deep Search" joins all text inputs (Prevents "Input Length 0" errors)
- * - ARCHITECTURE: Nested Try/Catch blocks prevent ReferenceErrors during fallback
- * - RESILIENCE: Restored Fallback Model (Gemini 2.0 Flash) for 429/503 errors
- * - CONTRACTS: Enhanced Template Logic with Example Output (from v3.3.1)
- * - ROUTING: Smart Fallback ("Draft email using image") for image-only requests
+ * - FEATURE: "One-Click Outreach" UI (Auto-generates Mailto/Gmail deep links)
+ * - ARCHITECTURE: Promoted DRAFT_OUTREACH to Buffered Intent (Enables Deep Links)
+ * - PERF: Activated "Fast Path" for Outreach (0ms latency for fully-contextual drafts)
+ * - RESTORED: Enhanced Template Contract with Example Output
+ * - RESTORED: Smart Image Routing ("Draft pay package email using this image")
+ * - CORE: "Omni-Parser" + "Deep Search" + Nested Resilience maintained
  */
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -228,8 +228,31 @@ function renderTemplate(templateStr, vars = {}) {
 }
 
 /**
- * Enhanced Template Contract (v3.3.1 merged)
- * Includes example output for few-shot guidance
+ * One-Click Outreach: Parses email draft and appends deep links (Mailto/Gmail)
+ */
+function appendOutreachLinks(text) {
+    const subjectMatch = text.match(/^Subject:\s*(.+)$/m);
+    if (!subjectMatch) return text;
+
+    const subject = subjectMatch[1].trim();
+    const body = text.replace(/^Subject:.*$/m, '').trim();
+
+    const encSub = encodeURIComponent(subject);
+    const encBody = encodeURIComponent(body);
+
+    const gmail = `https://mail.google.com/mail/?view=cm&fs=1&su=${encSub}&body=${encBody}`;
+    const mailto = `mailto:?subject=${encSub}&body=${encBody}`;
+
+    return `${text}
+
+---
+🚀 **ONE-CLICK OUTREACH**
+
+[✉️ Open Mail App](${mailto})  •  [📧 Open Gmail](${gmail})`;
+}
+
+/**
+ * Enhanced Template Contract (with example output for few-shot guidance)
  */
 function buildTemplateContract(template) {
     return `
@@ -341,7 +364,7 @@ function createBufferedUIResponse(text, { traceId, status, issues } = {}) {
 
 /**
  * Omni-Parser: Universal Message Normalizer
- * Merges Vercel `experimental_attachments` + Google `parts`.
+ * Merges Vercel `experimental_attachments` + Google `parts`
  */
 function normalizeMessages(messages) {
     if (!Array.isArray(messages)) return [];
@@ -351,7 +374,6 @@ function normalizeMessages(messages) {
     return messages.map((msg, index) => {
         let parts = [];
 
-        // 1. Consolidate all inputs into a single parts array
         if (typeof msg.content === 'string') {
             parts.push({ type: 'text', text: msg.content });
         } else if (Array.isArray(msg.content)) {
@@ -360,7 +382,7 @@ function normalizeMessages(messages) {
             parts.push(...msg.parts);
         }
 
-        // 2. Merge Attachments (Crucial for Vercel AI SDK Multimodal)
+        // Merge experimental_attachments (Vercel AI SDK)
         if (Array.isArray(msg.experimental_attachments)) {
             parts.push(...msg.experimental_attachments.map(a => ({
                 type: a.contentType?.startsWith('image/') ? 'image' : 'file',
@@ -376,44 +398,31 @@ function normalizeMessages(messages) {
             })));
         }
 
-        // 3. Process & Validate Parts
         const content = parts.map((part) => {
             if (!part) return null;
-
-            // TEXT: Accept if type is 'text' OR if type is missing but text property exists
             if (part.type === 'text' || (!part.type && typeof part.text === 'string')) {
                 return { type: 'text', text: part.text ?? '' };
             }
 
-            // IMAGE: Check all possible flags
             const isImage = part.type === 'image' ||
                 (part.type === 'file' && part.mimeType?.startsWith('image/')) ||
                 part.contentType?.startsWith('image/');
 
             if (isImage) {
-                // Optimization: Prune images from previous turns to save tokens
                 if (index !== lastIndex) return { type: 'text', text: '[Image from previous turn]' };
-
-                // Handle URL (OpenAI style vs Google style)
                 if (typeof part.url === 'string') return { type: 'image', image: new URL(part.url) };
                 if (typeof part.image === 'string') {
                     if (part.image.startsWith('http')) return { type: 'image', image: new URL(part.image) };
                     return { type: 'image', image: part.image };
                 }
-
-                // Handle Base64
                 if (part.data) {
                     const mime = part.mimeType ?? part.contentType ?? 'image/jpeg';
                     const prefix = part.data.startsWith('data:') ? '' : `data:${mime};base64,`;
                     return { type: 'image', image: `${prefix}${part.data}` };
                 }
-
-                // Handle image_url object (OpenAI compat)
                 if (part.image_url?.url) return { type: 'image', image: new URL(part.image_url.url) };
-
                 return { type: 'text', text: '[Image]' };
             }
-
             return null;
         }).filter(Boolean);
 
@@ -514,12 +523,9 @@ export async function POST(request) {
         const normalizedMessages = normalizeMessages(messages);
         const lastUserMsg = normalizedMessages.findLast(m => m.role === 'user');
 
-        // FIX: Combine ALL text parts to ensure we don't miss the prompt
+        // Deep Search: Combine ALL text parts
         const rawInputText = Array.isArray(lastUserMsg?.content)
-            ? lastUserMsg.content
-                .filter(p => p.type === 'text')
-                .map(p => p.text)
-                .join('\n')
+            ? lastUserMsg.content.filter(p => p.type === 'text').map(p => p.text).join('\n')
             : lastUserMsg?.content ?? '';
 
         const inputText = String(rawInputText).replace(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, "");
@@ -547,7 +553,9 @@ export async function POST(request) {
 
         const shouldProvideTools = classification.requiresTools && classification.intent !== Intent.DRAFT_OUTREACH;
         const tools = shouldProvideTools ? createCommandCenterTools(supabase) : undefined;
-        const isBuffered = classification.intent === Intent.EDIT_CONTENT;
+
+        // BUFFERING STRATEGY: DRAFT_OUTREACH is buffered to enable deep link injection
+        const isBuffered = classification.intent === Intent.EDIT_CONTENT || classification.intent === Intent.DRAFT_OUTREACH;
         const needsTemplate = classification.intent === Intent.DRAFT_OUTREACH;
         let activeSystemPrompt = systemPrompt;
 
@@ -559,13 +567,15 @@ export async function POST(request) {
                 const vars = context || {};
                 const missingVars = template.variables.filter(v => !vars[v]);
 
-                // FAST PATH: Direct Render (skip LLM if all vars present)
-                if (missingVars.length === 0 && isBuffered) {
+                // FAST PATH: Direct Render + Deep Link Injection (0ms LLM latency)
+                if (missingVars.length === 0) {
                     const output = `Subject: ${renderTemplate(template.subject, vars)}\n\n${renderTemplate(template.body, vars)}`;
+                    const finalOutput = appendOutreachLinks(output);
+
                     clearTimeout(softTimeout);
                     const validation = validate(output, { autoFix: true });
                     waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
-                    return createBufferedUIResponse(validation.text, { traceId, status: 'template_direct' });
+                    return createBufferedUIResponse(finalOutput, { traceId, status: 'template_direct' });
                 }
 
                 // LLM PATH: Inject template contract
@@ -574,7 +584,7 @@ export async function POST(request) {
             }
         }
 
-        // 7. BUFFERED EXECUTION (Edit / Template)
+        // 7. BUFFERED EXECUTION (Edit / Template / Outreach)
         if (isBuffered) {
             try {
                 const result = await generateText({
@@ -592,14 +602,20 @@ export async function POST(request) {
                 clearTimeout(softTimeout);
                 globalBreaker.recordSuccess();
 
-                const text = result.text || (result.toolCalls?.length ? 'Tools used.' : 'No output.');
+                let text = result.text || (result.toolCalls?.length ? 'Tools used.' : 'No output.');
+
+                // One-Click Outreach: Append deep links
+                if (classification.intent === Intent.DRAFT_OUTREACH) {
+                    text = appendOutreachLinks(text);
+                }
+
                 const validation = validate(text, { autoFix: true });
                 waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
 
                 return createBufferedUIResponse(validation.text, { traceId, status: 'valid', issues: validation.issues });
 
             } catch (error) {
-                // NESTED FALLBACK: activeSystemPrompt stays in scope!
+                // NESTED FALLBACK: activeSystemPrompt stays in scope
                 if (isRetryableError(error)) {
                     logger.warn('fallback_triggered_buffered', { error: error.message });
                     const fallback = await generateText({
@@ -610,7 +626,12 @@ export async function POST(request) {
                     });
 
                     clearTimeout(softTimeout);
-                    const text = fallback.text || 'Fallback response.';
+                    let text = fallback.text || 'Fallback response.';
+
+                    if (classification.intent === Intent.DRAFT_OUTREACH) {
+                        text = appendOutreachLinks(text);
+                    }
+
                     waitUntil(performAuditLog(supabase, traceId, 'FALLBACK', inputText, { text, valid: true }));
 
                     return createBufferedUIResponse(text, { traceId, status: 'fallback' });
@@ -644,7 +665,7 @@ export async function POST(request) {
             return asChatResponse(result, { headers: { 'x-trace-id': traceId } });
 
         } catch (error) {
-            // NESTED FALLBACK: activeSystemPrompt stays in scope!
+            // NESTED FALLBACK: activeSystemPrompt stays in scope
             if (isRetryableError(error)) {
                 logger.warn('fallback_triggered_stream', { error: error.message });
                 const fallback = await generateText({
