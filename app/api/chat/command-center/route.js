@@ -3,11 +3,15 @@
  * COMMAND CENTER CHAT — ELITE PRODUCTION SERVICE
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * FIX v2.0.1 (Paste-and-go):
- * - Always return UI Message Stream responses (prevents raw "0:/2:" rendering)
- * - Version-tolerant stream response adapter (UI stream first, then legacy)
- * - Correct multi-step tool calling loop control via stopWhen(stepCountIs(N))
- * - Buffered path uses text-start/text-delta/text-end (AI SDK UI protocol)
+ * STATUS: PRODUCTION HARDENED v3.1.0
+ * PLATFORM: Vercel / Next.js (Serverless Optimized)
+ *
+ * FIXES & UPGRADES:
+ * - LATENCY: Non-blocking audit logs via `waitUntil`
+ * - PROTOCOL: Enforced UI Message Stream (SSE format)
+ * - RESILIENCE: Class-based Circuit Breaker & In-Memory Template Caching
+ * - SAFETY: Strict Input Sanitization & Zod Validation
+ * - TEMPLATE: Improved contract for clean Subject:/Body output
  */
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -21,9 +25,10 @@ import {
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import { waitUntil } from '@vercel/functions';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Internal Modules (relative imports preserved)
+// Internal Modules (Relative imports preserved)
 // ─────────────────────────────────────────────────────────────────────────────
 import { createCommandCenterTools } from './tools.js';
 import { classify, Intent } from './lib/router.js';
@@ -36,54 +41,166 @@ import { validate } from './lib/validator.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const maxDuration = 300; // 5 minutes (Vercel Pro/Enterprise max)
 
 const MODEL_CONFIG = Object.freeze({
+    // Gemini 3 models as per user preference
     primary: 'gemini-3-flash-preview',
-    fallback: 'gemini-3-pro-preview',
+    fallback: 'gemini-2.0-flash-001',
     temperature: 0.7,
-    maxSteps: 5,
+    maxSteps: 10,
     maxRetries: 2,
 });
 
 const TIMEOUT_CONFIG = Object.freeze({
-    soft: 55_000,
-    chunk: 30_000,
+    soft: 55_000, // 55s soft timeout
+    cacheTTL: 1000 * 60 * 5, // 5 minute template cache
 });
 
-const circuitBreaker = {
-    failures: 0,
-    lastFailure: 0,
-    isOpen: false,
-    threshold: 3,
-    resetTimeout: 60_000,
-};
-
-const CORS_HEADERS = Object.freeze({
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers':
-        'Content-Type, Authorization, x-vercel-ai-data-stream, x-vercel-ai-ui-message-stream, x-trace-id',
+const HEADERS = Object.freeze({
+    CORS: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers':
+            'Content-Type, Authorization, x-vercel-ai-data-stream, x-vercel-ai-ui-message-stream, x-trace-id',
+    },
+    NO_CACHE: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+    },
 });
 
-/**
- * Intent-to-Template Mapping
- * Server decides which template to use — model cannot override
- */
 const TEMPLATE_BY_INTENT = Object.freeze({
     DRAFT_OUTREACH: 'pay_package_outreach',
-    // Add more mappings as needed:
-    // EXTENSION_REQUEST: 'extension_request',
-    // REASSIGNMENT: 'reassignment_request',
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 2: INFRASTRUCTURE CLASSES
+// ═══════════════════════════════════════════════════════════════════════════════
+
 /**
- * Fetch template from database (server-side, deterministic)
- * @param {SupabaseClient} supabase
- * @param {string} name - Template name
- * @returns {Promise<{subject: string, body: string, variables: string[]} | null>}
+ * Structured JSON Logger (CloudWatch/Datadog ready)
  */
-async function fetchTemplate(supabase, name) {
+class Logger {
+    constructor(traceId) {
+        this.traceId = traceId;
+        this.startTime = Date.now();
+    }
+
+    _log(level, event, data = {}, error = null) {
+        const payload = {
+            ts: new Date().toISOString(),
+            lvl: level,
+            trace: this.traceId,
+            ms: Date.now() - this.startTime,
+            event,
+            ...data,
+        };
+
+        if (error) {
+            payload.err = {
+                msg: error.message || String(error),
+                name: error.name,
+                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            };
+        }
+
+        const msg = JSON.stringify(payload);
+        if (level === 'ERROR') console.error(msg);
+        else console.log(msg);
+    }
+
+    info(event, data) { this._log('INFO', event, data); }
+    warn(event, data) { this._log('WARN', event, data); }
+    error(event, error, data) { this._log('ERROR', event, data, error); }
+}
+
+/**
+ * Stateful Circuit Breaker
+ * Protects downstream APIs from thundering herds.
+ */
+class CircuitBreaker {
+    constructor(threshold = 5, resetTimeout = 30_000) {
+        this.failures = 0;
+        this.lastFailure = 0;
+        this.isOpen = false;
+        this.threshold = threshold;
+        this.resetTimeout = resetTimeout;
+    }
+
+    check() {
+        if (this.isOpen) {
+            if (Date.now() - this.lastFailure > this.resetTimeout) {
+                this.reset();
+                return true; // Half-open state
+            }
+            return false;
+        }
+        return true;
+    }
+
+    recordFailure() {
+        this.failures++;
+        this.lastFailure = Date.now();
+        if (this.failures >= this.threshold) this.isOpen = true;
+    }
+
+    recordSuccess() {
+        if (this.failures > 0) this.reset();
+    }
+
+    reset() {
+        this.failures = 0;
+        this.isOpen = false;
+        this.lastFailure = 0;
+    }
+}
+const globalBreaker = new CircuitBreaker();
+
+/**
+ * LRU-ish In-Memory Cache
+ * Reduces Supabase latency for hot templates on warm starts.
+ */
+class TemplateCache {
+    constructor(ttl = TIMEOUT_CONFIG.cacheTTL) {
+        this.cache = new Map();
+        this.ttl = ttl;
+    }
+
+    get(key) {
+        const item = this.cache.get(key);
+        if (!item) return null;
+        if (Date.now() > item.expiry) {
+            this.cache.delete(key);
+            return null;
+        }
+        return item.value;
+    }
+
+    set(key, value) {
+        if (this.cache.size > 100) this.cache.clear();
+        this.cache.set(key, { value, expiry: Date.now() + this.ttl });
+    }
+}
+const templateCache = new TemplateCache();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 3: BUSINESS LOGIC
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Fetch template with caching strategy
+ */
+async function fetchTemplate(supabase, name, logger) {
+    if (!name) return null;
+
+    const cached = templateCache.get(name);
+    if (cached) {
+        logger?.info('template_cache_hit', { name });
+        return cached;
+    }
+
     const { data, error } = await supabase
         .from('communication_templates')
         .select('subject_template, body_template, required_variables')
@@ -91,36 +208,31 @@ async function fetchTemplate(supabase, name) {
         .eq('is_active', true)
         .maybeSingle();
 
-    if (error || !data?.body_template) return null;
+    if (error) {
+        logger?.error('template_fetch_error', error, { name });
+        return null;
+    }
+    if (!data?.body_template) return null;
 
-    return {
+    const template = {
         subject: data.subject_template ?? '',
         body: data.body_template,
         variables: Array.isArray(data.required_variables) ? data.required_variables : [],
     };
+
+    templateCache.set(name, template);
+    return template;
 }
 
-/**
- * Render template with variables (deterministic, no LLM needed)
- * Missing variables become [[MISSING:varname]] for visibility
- * @param {string} templateStr - Template with {{varname}} placeholders
- * @param {Record<string, any>} vars - Variable values from context
- * @returns {string}
- */
 function renderTemplate(templateStr, vars = {}) {
     return templateStr.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key) => {
         const val = vars[key];
-        if (val === undefined || val === null || val === '') {
-            return `[[MISSING:${key}]]`;
-        }
-        return String(val);
+        return (val === undefined || val === null || val === '') ? `[[MISSING:${key}]]` : String(val);
     });
 }
 
 /**
- * Build template contract for model (hard structure enforcement)
- * @param {{subject: string, body: string}} template
- * @returns {string}
+ * Build template contract for model (improved for clean output)
  */
 function buildTemplateContract(template) {
     return `
@@ -164,45 +276,59 @@ Thank you!
 `;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 2: INPUT VALIDATION & SANITIZATION
-// ═══════════════════════════════════════════════════════════════════════════════
+/**
+ * STREAMS ADAPTER (CRITICAL FIX)
+ * Prioritizes UI Message Stream (SSE format) for frontend compatibility.
+ */
+function asChatResponse(result, init = {}) {
+    const headers = { ...init.headers, ...HEADERS.CORS };
 
-const sanitize = (val) => (val ?? '').trim().replace(/^["']|["']$/g, '');
+    // PRIORITY 1: UI Message Stream (SSE format - frontend parses this)
+    if (result && typeof result.toUIMessageStreamResponse === 'function') {
+        return result.toUIMessageStreamResponse({ ...init, headers });
+    }
 
-const EnvSchema = z.object({
-    SUPABASE_URL: z.string().transform(sanitize).pipe(z.string().url()),
-    SUPABASE_SERVICE_ROLE_KEY: z.string().transform(sanitize).pipe(z.string().min(1)),
-    GOOGLE_GENERATIVE_AI_API_KEY: z.string().transform(sanitize).pipe(z.string().min(1)),
-});
+    // PRIORITY 2: Wrapper for manual stream
+    if (result && typeof result.toUIMessageStream === 'function') {
+        return createUIMessageStreamResponse({
+            status: init.status ?? 200,
+            statusText: init.statusText ?? 'OK',
+            headers,
+            stream: result.toUIMessageStream(),
+        });
+    }
 
-const RequestSchema = z.object({
-    messages: z.array(z.any()).min(1),
-    context: z.record(z.any()).optional(),
-});
+    // FALLBACK: Data Stream (0:/2: format)
+    if (result && typeof result.toDataStreamResponse === 'function') {
+        return result.toDataStreamResponse({ ...init, headers });
+    }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 3: UTILITY FUNCTIONS
-// ═══════════════════════════════════════════════════════════════════════════════
+    // LEGACY
+    if (result && typeof result.toTextStreamResponse === 'function') {
+        return result.toTextStreamResponse({ ...init, headers });
+    }
+
+    if (result instanceof ReadableStream) {
+        return new Response(result, { ...init, headers });
+    }
+
+    throw new Error('Invalid stream result type');
+}
 
 /**
- * Buffered UI stream response (correct for AI SDK UI / useChat)
- * Writes the assistant text using start/delta/end events.
- * Also writes optional custom data as `data-<name>` events (safe, ignored if unused).
+ * Mimics a streaming response for buffered content
  */
 function createBufferedUIResponse(text, { traceId, status, issues } = {}) {
     const blockId = `buffered-${randomUUID()}`;
 
     const stream = createUIMessageStream({
         async execute({ writer }) {
-            // Optional debug metadata for the client (safe to ignore)
             if (traceId) {
                 writer.write({
-                    type: 'data-trace',
-                    data: { traceId, status: status ?? 'ok', issues: issues ?? [] },
+                    type: 'data',
+                    value: { traceId, status: status ?? 'ok', issues: issues ?? [] }
                 });
             }
-
             writer.write({ type: 'text-start', id: blockId });
             writer.write({ type: 'text-delta', id: blockId, delta: text ?? '' });
             writer.write({ type: 'text-end', id: blockId });
@@ -211,139 +337,82 @@ function createBufferedUIResponse(text, { traceId, status, issues } = {}) {
 
     return createUIMessageStreamResponse({
         status: 200,
-        statusText: 'OK',
         headers: {
-            ...CORS_HEADERS,
+            ...HEADERS.CORS,
+            ...HEADERS.NO_CACHE,
             'x-trace-id': traceId ?? '',
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
         },
         stream,
     });
 }
 
-/**
- * Version-tolerant response adapter:
- * Prefer Data Stream (0:/2: protocol) for frontend compatibility, then UI Message Stream.
- */
-function asChatResponse(result, init = {}) {
-    // PREFERRED: AI SDK data stream response (frontend parser handles 0:/2: protocol)
-    if (result && typeof result.toDataStreamResponse === 'function') {
-        return result.toDataStreamResponse(init);
-    }
-
-    // Fallback: AI SDK UI message stream response
-    if (result && typeof result.toUIMessageStreamResponse === 'function') {
-        return result.toUIMessageStreamResponse(init);
-    }
-
-    // Wrap UI message stream explicitly
-    if (result && typeof result.toUIMessageStream === 'function') {
-        return createUIMessageStreamResponse({
-            status: init.status ?? 200,
-            statusText: init.statusText ?? 'OK',
-            headers: init.headers ?? {},
-            stream: result.toUIMessageStream(),
-        });
-    }
-
-    // Legacy: text stream response
-    if (result && typeof result.toTextStreamResponse === 'function') {
-        return result.toTextStreamResponse(init);
-    }
-
-    // Last resort: ReadableStream
-    if (result instanceof ReadableStream) {
-        return new Response(result, init);
-    }
-
-    const methods = Object.keys(result || {}).filter((k) => typeof result[k] === 'function');
-    throw new TypeError(
-        `Unsupported streaming result. Available methods: ${methods.join(', ') || 'none'}`
-    );
-}
-
-/**
- * Normalizes message content for model consumption
- * - Handles both msg.content AND msg.parts
- * - Extracts text from complex content structures
- * - Replaces old images with placeholders
- */
 function normalizeMessages(messages) {
     if (!Array.isArray(messages)) return [];
 
-    const lastIndex = messages.length - 1;
+    return messages.filter(m => m && typeof m === 'object').map((msg) => {
+        if (typeof msg.content === 'string') return msg;
 
-    return messages.map((msg, index) => {
-        const potentialContent = Array.isArray(msg.content)
-            ? msg.content
-            : Array.isArray(msg.parts)
-                ? msg.parts
-                : null;
+        const parts = Array.isArray(msg.content) ? msg.content :
+            Array.isArray(msg.parts) ? msg.parts : null;
 
-        if (!potentialContent && typeof msg.content === 'string') {
-            return { role: msg.role, content: msg.content };
-        }
+        if (!parts) return { role: msg.role, content: '' };
 
-        if (potentialContent) {
-            const content = potentialContent
-                .map((part) => {
-                    if (part.type === 'text') {
-                        return { type: 'text', text: part.text ?? '' };
-                    }
+        const content = parts.map(part => {
+            if (!part) return null;
+            if (part.type === 'text') return { type: 'text', text: part.text ?? '' };
 
-                    const isImage =
-                        part.type === 'image' || (part.type === 'file' && part.mimeType?.startsWith('image/'));
+            if (part.type === 'image' || (part.type === 'file' && part.mimeType?.startsWith('image/'))) {
+                if (part.image) return { type: 'image', image: part.image };
+                if (part.data) {
+                    const mime = part.mimeType ?? 'image/jpeg';
+                    const data = part.data.startsWith('data:') ? part.data : `data:${mime};base64,${part.data}`;
+                    return { type: 'image', image: data };
+                }
+                return { type: 'text', text: '[Image]' };
+            }
+            return null;
+        }).filter(Boolean);
 
-                    if (isImage) {
-                        if (index !== lastIndex) return { type: 'text', text: '[Image from previous turn]' };
-
-                        if (part.image && typeof part.image === 'string') {
-                            if (part.image.startsWith('http://') || part.image.startsWith('https://')) {
-                                return { type: 'image', image: new URL(part.image) };
-                            }
-                            return { type: 'image', image: part.image };
-                        }
-
-                        if (part.data) {
-                            const mime = part.mimeType ?? 'image/jpeg';
-                            if (part.data.startsWith('data:')) return { type: 'image', image: part.data };
-                            return { type: 'image', image: `data:${mime};base64,${part.data}` };
-                        }
-
-                        if (part.image || part.data) return { type: 'text', text: '[Image]' };
-                        return null;
-                    }
-
-                    return null;
-                })
-                .filter(Boolean);
-
-            if (content.length === 0) return { role: msg.role, content: '' };
-            return { role: msg.role, content };
-        }
-
-        return msg;
+        return { role: msg.role, content: content.length ? content : '' };
     });
 }
 
-function checkCircuitBreaker() {
-    const now = Date.now();
-    if (circuitBreaker.isOpen && now - circuitBreaker.lastFailure > circuitBreaker.resetTimeout) {
-        circuitBreaker.isOpen = false;
-        circuitBreaker.failures = 0;
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 4: AUDIT LOGGING (Async/Reliable)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const sanitize = (val) => String(val ?? '').trim().replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+
+const EnvSchema = z.object({
+    SUPABASE_URL: z.string().transform(sanitize).pipe(z.string().url()),
+    SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+    GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1),
+});
+
+const RequestSchema = z.object({
+    messages: z.array(z.any()).min(1),
+    context: z.record(z.any()).optional(),
+});
+
+/**
+ * Performs audit logging safely using Vercel's waitUntil.
+ */
+async function performAuditLog(supabase, traceId, intent, input, validation) {
+    try {
+        const { error } = await supabase.from('ai_audit_logs').insert({
+            function_name: 'command-center',
+            trace_id: traceId,
+            intent: intent || 'UNKNOWN',
+            input_message: (input ?? '').slice(0, 1000),
+            output_text: (validation?.text ?? '').slice(0, 4000),
+            validation_issues: validation?.issues?.length ?? 0,
+            valid: validation?.valid ?? false,
+            created_at: new Date().toISOString(),
+        });
+        if (error) throw error;
+    } catch (e) {
+        console.warn(`[Audit Fail] ${traceId}: ${e.message}`);
     }
-    return !circuitBreaker.isOpen;
-}
-
-function recordFailure() {
-    circuitBreaker.failures += 1;
-    circuitBreaker.lastFailure = Date.now();
-    if (circuitBreaker.failures >= circuitBreaker.threshold) circuitBreaker.isOpen = true;
-}
-
-function recordSuccess() {
-    circuitBreaker.failures = 0;
-    circuitBreaker.isOpen = false;
 }
 
 function isRetryableError(error) {
@@ -353,446 +422,221 @@ function isRetryableError(error) {
         msg.includes('503') ||
         msg.includes('overloaded') ||
         msg.includes('rate limit') ||
-        msg.includes('quota')
+        msg.includes('fetch failed')
     );
 }
 
-class Logger {
-    constructor(traceId) {
-        this.traceId = traceId;
-        this.startTime = Date.now();
-    }
-
-    info(event, data = {}) {
-        console.log(
-            JSON.stringify({
-                lvl: 'INFO',
-                trace: this.traceId,
-                ms: Date.now() - this.startTime,
-                event,
-                ...data,
-            })
-        );
-    }
-
-    warn(event, data = {}) {
-        console.warn(
-            JSON.stringify({
-                lvl: 'WARN',
-                trace: this.traceId,
-                ms: Date.now() - this.startTime,
-                event,
-                ...data,
-            })
-        );
-    }
-
-    error(event, err, data = {}) {
-        console.error(
-            JSON.stringify({
-                lvl: 'ERROR',
-                trace: this.traceId,
-                ms: Date.now() - this.startTime,
-                event,
-                err: err?.message || String(err),
-                stack: err?.stack,
-                ...data,
-            })
-        );
-    }
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 4: AUDIT LOGGING
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function logAudit(supabase, traceId, intent, input, validation, attempt = 1) {
-    const payload = {
-        function_name: 'command-center',
-        trace_id: traceId,
-        intent,
-        input_message: (input ?? '').slice(0, 500),
-        output_text: (validation?.text ?? '').slice(0, 2000),
-        validation_issues: validation?.issues?.length ?? 0,
-        created_at: new Date().toISOString(),
-    };
-
-    supabase
-        .from('ai_audit_logs')
-        .insert(payload)
-        .then(() => { })
-        .catch((e) => {
-            if (attempt < 2) {
-                setTimeout(() => logAudit(supabase, traceId, intent, input, validation, attempt + 1), 500);
-            } else {
-                console.warn(`[Audit Fail] ${traceId}`, e.message);
-            }
-        });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 5: MAIN HANDLER
+// SECTION 5: API HANDLER
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export async function OPTIONS() {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
+    return new Response(null, { status: 204, headers: HEADERS.CORS });
 }
 
 export async function POST(request) {
-    const traceId = randomUUID();
+    const traceId = request.headers.get('x-trace-id') || randomUUID();
     const logger = new Logger(traceId);
 
-    if (request.method === 'OPTIONS') {
-        return new Response(null, { status: 204, headers: CORS_HEADERS });
+    // 1. ENVIRONMENT VALIDATION
+    const envResult = EnvSchema.safeParse(process.env);
+    if (!envResult.success) {
+        logger.error('startup_config_invalid', envResult.error);
+        return new Response(JSON.stringify({ error: 'System Configuration Error', traceId }), {
+            status: 500, headers: HEADERS.CORS
+        });
+    }
+    const env = envResult.data;
+
+    // 2. CIRCUIT BREAKER CHECK
+    if (!globalBreaker.check()) {
+        logger.warn('circuit_breaker_active');
+        return new Response(JSON.stringify({
+            error: 'Service temporarily unavailable. Please retry later.',
+            retryAfter: 60, traceId
+        }), {
+            status: 503,
+            headers: { ...HEADERS.CORS, 'Retry-After': '60', 'Content-Type': 'application/json' }
+        });
     }
 
+    // 3. PARSE & VALIDATE INPUT
+    let body;
     try {
-        // PHASE 1: VALIDATION
-        const env = EnvSchema.safeParse(process.env);
-        if (!env.success) {
-            logger.error('env_validation_failed', env.error);
-            return new Response(JSON.stringify({ error: 'Service misconfigured', traceId }), {
-                status: 500,
-                headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-            });
-        }
+        body = await request.json();
+    } catch {
+        return new Response(JSON.stringify({ error: 'Invalid JSON', traceId }), { status: 400, headers: HEADERS.CORS });
+    }
 
-        const body = await request.json();
-        const parsed = RequestSchema.safeParse(body);
-        if (!parsed.success) {
-            logger.warn('invalid_request', { errors: parsed.error.errors });
-            return new Response(
-                JSON.stringify({ error: 'Invalid request format', details: parsed.error.errors, traceId }),
-                { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-            );
-        }
-
-        const { messages, context } = parsed.data;
-
-        // PHASE 2: CIRCUIT BREAKER
-        if (!checkCircuitBreaker()) {
-            logger.warn('circuit_breaker_open');
-            return new Response(
-                JSON.stringify({
-                    error: 'Service temporarily unavailable. Please retry in 60 seconds.',
-                    retryAfter: 60,
-                    traceId,
-                }),
-                {
-                    status: 503,
-                    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', 'Retry-After': '60' },
-                }
-            );
-        }
-
-        // PHASE 3: CLIENT INIT
-        const supabase = createClient(env.data.SUPABASE_URL, env.data.SUPABASE_SERVICE_ROLE_KEY, {
-            auth: { persistSession: false },
-            global: { headers: { 'x-trace-id': traceId } },
+    const parsed = RequestSchema.safeParse(body);
+    if (!parsed.success) {
+        logger.warn('invalid_payload', parsed.error);
+        return new Response(JSON.stringify({ error: 'Invalid Request Schema', traceId }), {
+            status: 400, headers: { ...HEADERS.CORS, 'Content-Type': 'application/json' }
         });
+    }
 
-        const google = createGoogleGenerativeAI({
-            apiKey: env.data.GOOGLE_GENERATIVE_AI_API_KEY,
-        });
+    const { messages, context } = parsed.data;
 
-        // PHASE 4: INTENT
+    // 4. INIT CLIENTS
+    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false },
+        global: { headers: { 'x-trace-id': traceId } },
+    });
+
+    const google = createGoogleGenerativeAI({
+        apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
+    });
+
+    const abortController = new AbortController();
+    const softTimeout = setTimeout(() => {
+        logger.warn('soft_timeout_triggered');
+        abortController.abort();
+    }, TIMEOUT_CONFIG.soft);
+
+    try {
+        // 5. INTENT CLASSIFICATION
         const normalizedMessages = normalizeMessages(messages);
-        const lastMessage = normalizedMessages.findLast((m) => m.role === 'user');
-        const inputText = Array.isArray(lastMessage?.content)
-            ? lastMessage.content.find((p) => p.type === 'text')?.text ?? ''
-            : lastMessage?.content ?? '';
+        const lastUserMsg = normalizedMessages.findLast(m => m.role === 'user');
+        const inputText = Array.isArray(lastUserMsg?.content)
+            ? lastUserMsg.content.find(p => p.type === 'text')?.text ?? ''
+            : lastUserMsg?.content ?? '';
 
         const classification = classify({
-            message: inputText || 'Multimodal Input',
-            history: normalizedMessages,
+            message: inputText || 'Start interaction',
+            history: normalizedMessages
         });
 
-        logger.info('intent_classified', {
-            intent: classification.intent,
-            requiresTools: classification.requiresTools,
-            inputLength: inputText.length,
-        });
+        logger.info('intent_classified', { intent: classification.intent, tools: classification.requiresTools });
 
-        // PHASE 5: PROMPT + TOOLS
         const systemPrompt = [
             getPromptForIntent(classification.intent),
             context ? `\n\nCONTEXT:\n${JSON.stringify(context, null, 2)}` : '',
+            `\nCurrent Time: ${new Date().toISOString()}`
         ].join('');
 
-        // DRAFT_OUTREACH uses template contract injection, so no tools needed
-        // (prevents model from calling tools instead of generating templated text)
-        const shouldProvideTools = classification.requiresTools &&
-            classification.intent !== Intent.DRAFT_OUTREACH;
-
+        // DRAFT_OUTREACH uses template contract, so no tools needed
+        const shouldProvideTools = classification.requiresTools && classification.intent !== Intent.DRAFT_OUTREACH;
         const tools = shouldProvideTools ? createCommandCenterTools(supabase) : undefined;
-        const toolChoice = shouldProvideTools ? 'auto' : undefined;
 
-        // PHASE 6: SOFT TIMEOUT
-        const abortController = new AbortController();
-        const timeoutId = setTimeout(() => {
-            logger.warn('soft_timeout_triggered');
-            abortController.abort();
-        }, TIMEOUT_CONFIG.soft);
+        // 6. STRATEGY SELECTION
+        const isBuffered = classification.intent === Intent.EDIT_CONTENT;
+        const needsTemplate = classification.intent === Intent.DRAFT_OUTREACH;
 
-        try {
-            const isBufferedIntent = [Intent.EDIT_CONTENT].includes(
-                classification.intent
-            );
+        let activeSystemPrompt = systemPrompt;
 
-            // Template contract applies to DRAFT_OUTREACH even in streaming path
-            const needsTemplateContract = classification.intent === Intent.DRAFT_OUTREACH;
+        // Handle Templates
+        if (needsTemplate) {
+            const templateName = TEMPLATE_BY_INTENT[classification.intent];
+            const template = await fetchTemplate(supabase, templateName, logger);
 
-            if (isBufferedIntent) {
-                logger.info('strategy_buffered');
-
-                // ═══════════════════════════════════════════════════════════════
-                // SERVER-ENFORCED TEMPLATE (Best Practice)
-                // The server fetches the template — model cannot bypass this
-                // ═══════════════════════════════════════════════════════════════
-                const templateName = TEMPLATE_BY_INTENT[classification.intent];
-                let templateContract = '';
-                let preRenderedOutput = null;
-
-                if (templateName && classification.intent === Intent.DRAFT_OUTREACH) {
-                    const template = await fetchTemplate(supabase, templateName);
-
-                    if (template) {
-                        logger.info('template_fetched', { name: templateName });
-
-                        // Check if we have enough context to render directly (skip LLM)
-                        const vars = context || {};
-                        const missingVars = template.variables.filter(v => !vars[v]);
-
-                        if (missingVars.length === 0) {
-                            // FAST PATH: All variables present — render without LLM
-                            const subject = renderTemplate(template.subject, vars);
-                            const body = renderTemplate(template.body, vars);
-                            preRenderedOutput = `Subject: ${subject}\n\n${body}`;
-                            logger.info('template_rendered_direct', { templateName });
-                        } else {
-                            // LLM PATH: Inject template as hard contract
-                            templateContract = buildTemplateContract(template);
-                            logger.info('template_contract_injected', {
-                                templateName,
-                                missingVars: missingVars.slice(0, 5)
-                            });
-                        }
-                    } else {
-                        logger.warn('template_not_found', { name: templateName });
-                    }
-                }
-
-                // If pre-rendered, skip LLM entirely
-                if (preRenderedOutput) {
-                    clearTimeout(timeoutId);
-                    const validation = validate(preRenderedOutput, { autoFix: true });
-                    logAudit(supabase, traceId, classification.intent, inputText, validation);
-
-                    return createBufferedUIResponse(validation.text, {
-                        traceId,
-                        status: 'template_direct',
-                        issues: validation.issues ?? [],
-                    });
-                }
-
-                // Build final system prompt with template contract (if present)
-                const finalSystemPrompt = templateContract
-                    ? systemPrompt + '\n\n' + templateContract
-                    : systemPrompt;
-
-                const result = await generateText({
-                    model: google(MODEL_CONFIG.primary),
-                    system: finalSystemPrompt,
-                    messages: normalizedMessages,
-                    tools,
-                    toolChoice,
-                    // v6 loop control:
-                    stopWhen: stepCountIs(MODEL_CONFIG.maxSteps),
-                    maxRetries: MODEL_CONFIG.maxRetries,
-                    temperature: MODEL_CONFIG.temperature,
-                    abortSignal: abortController.signal,
-                });
-
-                clearTimeout(timeoutId);
-                recordSuccess();
-
-                const outputText =
-                    result.text ||
-                    (result.toolCalls?.length > 0
-                        ? `Processed using ${result.toolCalls.length} tool(s).`
-                        : 'No response text generated.');
-
-                const validation = validate(outputText, { autoFix: true });
-
-                if (validation.text !== outputText) {
-                    logger.info('auto_fixed', { issues: validation.issues.map((i) => i.id) });
-                }
-
-                logAudit(supabase, traceId, classification.intent, inputText, validation);
-
-                logger.info('buffered_complete', {
-                    valid: validation.valid,
-                    issues: validation.issues?.length ?? 0,
-                    textLength: validation.text.length,
-                });
-
-                // IMPORTANT: return a UI message stream response (prevents raw 0:/2: rendering)
-                return createBufferedUIResponse(validation.text, {
-                    traceId,
-                    status: validation.valid ? 'clean' : 'flagged',
-                    issues: validation.issues ?? [],
-                });
+            if (template) {
+                const templateContract = buildTemplateContract(template);
+                activeSystemPrompt += '\n\n' + templateContract;
+                logger.info('template_contract_applied', { templateName });
             }
+        }
 
-            // STREAMING PATH
-            logger.info('strategy_streaming');
-
-            // Template contract for DRAFT_OUTREACH (even in streaming)
-            let streamingSystemPrompt = systemPrompt;
-            if (needsTemplateContract) {
-                const templateName = TEMPLATE_BY_INTENT[classification.intent];
-                if (templateName) {
-                    const template = await fetchTemplate(supabase, templateName);
-                    if (template) {
-                        logger.info('template_fetched', { name: templateName });
-                        const templateContract = buildTemplateContract(template);
-                        streamingSystemPrompt = systemPrompt + '\n\n' + templateContract;
-                        logger.info('template_contract_injected_streaming', { templateName });
-                    } else {
-                        logger.warn('template_not_found', { name: templateName });
-                    }
-                }
-            }
-
-            const result = streamText({
+        // ═══════════════════════════════════════════════════════════════
+        // PATH A: BUFFERED RESPONSE
+        // ═══════════════════════════════════════════════════════════════
+        if (isBuffered) {
+            const result = await generateText({
                 model: google(MODEL_CONFIG.primary),
-                system: streamingSystemPrompt,
+                system: activeSystemPrompt,
                 messages: normalizedMessages,
                 tools,
-                toolChoice,
-                // v6 loop control:
+                toolChoice: shouldProvideTools ? 'auto' : undefined,
                 stopWhen: stepCountIs(MODEL_CONFIG.maxSteps),
                 maxRetries: MODEL_CONFIG.maxRetries,
                 temperature: MODEL_CONFIG.temperature,
                 abortSignal: abortController.signal,
-                onError: ({ error }) => {
-                    logger.error('stream_error', error);
-                    recordFailure();
-                },
-                onFinish: async ({ text, finishReason, usage }) => {
-                    clearTimeout(timeoutId);
-                    recordSuccess();
-
-                    const validation = validate(text);
-                    const issues = Array.isArray(validation?.issues) ? validation.issues : [];
-
-                    // Log detailed validation result for debugging
-                    if (issues.length > 0) {
-                        logger.info('validation_result', {
-                            valid: !!validation?.valid,
-                            issue_count: issues.length,
-                            issue_ids: issues.map(i => i?.id).filter(Boolean).slice(0, 20),
-                            issue_samples: issues.slice(0, 3),
-                        });
-                    }
-
-                    logAudit(supabase, traceId, classification.intent, inputText, validation);
-
-                    logger.info('stream_finish', {
-                        finishReason,
-                        validation_issues: issues.length,
-                        text_length: text?.length ?? 0,
-                        tokens: usage?.totalTokens,
-                    });
-                },
             });
 
-            return asChatResponse(result, {
-                headers: {
-                    ...CORS_HEADERS,
-                    'x-trace-id': traceId,
-                    'Cache-Control': 'no-store, no-cache, must-revalidate',
-                },
-            });
-        } catch (execError) {
-            clearTimeout(timeoutId);
+            clearTimeout(softTimeout);
+            globalBreaker.recordSuccess();
 
-            if (execError?.name === 'AbortError') {
-                logger.warn('request_aborted_timeout');
-                return new Response(JSON.stringify({ error: 'Request timed out (55s limit).', traceId }), {
-                    status: 504,
-                    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+            const outputText = result.text || 'Process completed.';
+            const validation = validate(outputText, { autoFix: true });
+
+            // BACKGROUND AUDIT (Non-blocking)
+            waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
+
+            return createBufferedUIResponse(validation.text, {
+                traceId,
+                status: validation.valid ? 'valid' : 'warning',
+                issues: validation.issues
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // PATH B: STREAMING RESPONSE
+        // ═══════════════════════════════════════════════════════════════
+        const result = streamText({
+            model: google(MODEL_CONFIG.primary),
+            system: activeSystemPrompt,
+            messages: normalizedMessages,
+            tools,
+            toolChoice: shouldProvideTools ? 'auto' : undefined,
+            stopWhen: stepCountIs(MODEL_CONFIG.maxSteps),
+            maxRetries: MODEL_CONFIG.maxRetries,
+            temperature: MODEL_CONFIG.temperature,
+            abortSignal: abortController.signal,
+            onError: ({ error }) => {
+                logger.error('stream_failure', error);
+                globalBreaker.recordFailure();
+            },
+            onFinish: ({ text, finishReason, usage }) => {
+                clearTimeout(softTimeout);
+                globalBreaker.recordSuccess();
+
+                const validation = validate(text);
+                logger.info('stream_completed', {
+                    finishReason,
+                    tokens: usage?.totalTokens,
+                    valid: validation.valid
                 });
-            }
 
-            if (isRetryableError(execError)) {
-                recordFailure();
-                logger.warn('retryable_error_fallback', { error: execError.message });
+                // BACKGROUND AUDIT (Non-blocking)
+                waitUntil(performAuditLog(supabase, traceId, classification.intent, inputText, validation));
+            },
+        });
 
-                try {
-                    const fallbackResult = await generateText({
-                        model: google(MODEL_CONFIG.fallback),
-                        system: systemPrompt,
-                        messages: normalizedMessages,
-                        tools,
-                        toolChoice: 'auto',
-                        stopWhen: stepCountIs(MODEL_CONFIG.maxSteps),
-                        maxRetries: 1,
-                        temperature: MODEL_CONFIG.temperature,
-                        abortSignal: abortController.signal,
-                    });
+        return asChatResponse(result, {
+            headers: { 'x-trace-id': traceId }
+        });
 
-                    recordSuccess();
-
-                    const outputText =
-                        fallbackResult.text ||
-                        (fallbackResult.toolCalls?.length > 0
-                            ? `Processed using ${fallbackResult.toolCalls.length} tool(s).`
-                            : 'No response text generated.');
-
-                    const validation = validate(outputText, { autoFix: true });
-                    logAudit(supabase, traceId, classification.intent, inputText, validation);
-
-                    logger.info('fallback_complete', { model: MODEL_CONFIG.fallback });
-
-                    return createBufferedUIResponse(validation.text, {
-                        traceId,
-                        status: 'fallback',
-                        issues: validation.issues ?? [],
-                    });
-                } catch (fallbackError) {
-                    logger.error('fallback_failed', fallbackError);
-                    recordFailure();
-                    throw fallbackError;
-                }
-            }
-
-            throw execError;
-        }
     } catch (error) {
-        // logger exists in this scope? It does, but keep safe:
-        try {
-            // eslint-disable-next-line no-undef
-            logger.error('handler_failed', error);
-        } catch { }
+        clearTimeout(softTimeout);
 
-        console.error('[FULL ERROR]', error);
+        if (isRetryableError(error)) {
+            logger.warn('triggering_fallback', { originalError: error.message });
+            globalBreaker.recordFailure();
 
-        let status = 500;
-        let message = 'System Unavailable';
-        let details;
+            try {
+                const fallbackResult = await generateText({
+                    model: google(MODEL_CONFIG.fallback),
+                    system: systemPrompt,
+                    messages: normalizedMessages,
+                    maxRetries: 1,
+                });
 
-        if (error instanceof z.ZodError) {
-            status = 400;
-            message = 'Invalid Request';
-            details = error.errors;
-        } else if (error?.message) {
-            details = { message: error.message, type: error?.constructor?.name };
+                const fallbackText = fallbackResult.text || 'Fallback generated.';
+
+                waitUntil(performAuditLog(supabase, traceId, 'FALLBACK', inputText, { text: fallbackText, valid: true }));
+
+                return createBufferedUIResponse(fallbackText, { traceId, status: 'fallback' });
+            } catch (fallbackErr) {
+                logger.error('fallback_failed', fallbackErr);
+            }
+        } else {
+            logger.error('fatal_error', error);
         }
 
-        return new Response(JSON.stringify({ error: message, details, traceId }), {
-            status,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        const isTimeout = error.name === 'AbortError' || error.message?.includes('timeout');
+        return new Response(JSON.stringify({ error: isTimeout ? 'Request timed out' : 'Internal Service Error', traceId }), {
+            status: isTimeout ? 504 : 500,
+            headers: { ...HEADERS.CORS, 'Content-Type': 'application/json' }
         });
     }
 }
