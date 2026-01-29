@@ -125,20 +125,41 @@ function renderTemplate(templateStr, vars = {}) {
 function buildTemplateContract(template) {
     return `
 ═══════════════════════════════════════════════════════════════════════════════
-MANDATORY OUTPUT CONTRACT — TEMPLATE-FIRST ENFORCEMENT
+MANDATORY OUTPUT CONTRACT — EMAIL TEMPLATE
 ═══════════════════════════════════════════════════════════════════════════════
 
-You MUST use EXACTLY this template structure. Do not invent headings, reorder sections, or improvise.
-Fill placeholders only. If data is missing, leave placeholder as [[MISSING:field_name]].
+Generate an email using EXACTLY this structure. Fill the {{placeholders}} with values from the image or context.
 
-TEMPLATE SUBJECT:
+SUBJECT LINE FORMAT:
 ${template.subject}
 
-TEMPLATE BODY:
+EMAIL BODY FORMAT:
 ${template.body}
 
 ═══════════════════════════════════════════════════════════════════════════════
-OUTPUT FORMAT: Return the filled template exactly as structured above.
+OUTPUT RULES:
+1. Start your response with "Subject: " followed by the filled subject line
+2. Then a blank line, then the email body
+3. Keep ALL formatting (line breaks, bullet points with "-", spacing)
+4. Do NOT include labels like "SUBJECT LINE FORMAT" or "EMAIL BODY FORMAT" in output
+5. If any data is missing, use [[MISSING:field_name]]
+═══════════════════════════════════════════════════════════════════════════════
+
+EXAMPLE OUTPUT FORMAT:
+Subject: RRT - ABC Hospital | $2,000/week
+
+Hi John,
+
+I came across your profile...
+
+Pay Package:
+- Taxable Hourly Rate: $25/hr
+- Meals & Housing Stipend: $1,100/week
+- Total Gross Weekly Pay: $2,000
+
+...
+
+Thank you!
 ═══════════════════════════════════════════════════════════════════════════════
 `;
 }
