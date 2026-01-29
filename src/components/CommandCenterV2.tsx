@@ -377,25 +377,32 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
             if (attachments.length > 0) { const txt = content.replace(REGEX_ATTACHMENT, '').trim(); return <>{txt && <p className={cn(SYSTEM.type.body, 'text-[#1a1a1a]')}>{txt}</p>}{attachments.map((a, i) => <UserAttachment key={i} filename={a.filename} url={a.url} />)}</>; }
         }
 
+        // Pre-process: If content is wrapped in <draft> tags (Chain of Thought), extract it.
+        let processedContent = content;
+        const draftMatch = content.match(/<draft>([\s\S]*?)<\/draft>/i);
+        if (draftMatch) {
+            processedContent = draftMatch[1].trim();
+        }
+
         // Enhanced Email Parsing (Permissive)
         // If header is present OR if we see To/Subject lines, we render the card.
-        const emailMatch = content.match(REGEX_EMAIL_HEADER);
-        const hasEmailFields = REGEX_EMAIL_TO.test(content) || REGEX_EMAIL_SUBJECT.test(content);
+        const emailMatch = processedContent.match(REGEX_EMAIL_HEADER);
+        const hasEmailFields = REGEX_EMAIL_TO.test(processedContent) || REGEX_EMAIL_SUBJECT.test(processedContent);
 
         if (emailMatch || hasEmailFields) {
-            const to = content.match(REGEX_EMAIL_TO)?.[1].trim();
-            const sub = content.match(REGEX_EMAIL_SUBJECT)?.[1].trim();
+            const to = processedContent.match(REGEX_EMAIL_TO)?.[1].trim();
+            const sub = processedContent.match(REGEX_EMAIL_SUBJECT)?.[1].trim();
 
             // Body extraction: Try --- delimiters first, fallback to everything after Subject line
             let body = '';
-            const bodyMatch = content.match(REGEX_EMAIL_BODY);
+            const bodyMatch = processedContent.match(REGEX_EMAIL_BODY);
             if (bodyMatch) {
                 body = bodyMatch[1].trim();
             } else {
                 // Fallback: everything after Subject: line
-                const subjectIdx = content.search(/Subject:[^\n]*/i);
+                const subjectIdx = processedContent.search(/Subject:[^\n]*/i);
                 if (subjectIdx !== -1) {
-                    const afterSubject = content.slice(subjectIdx).replace(/Subject:[^\n]*\n?/i, '');
+                    const afterSubject = processedContent.slice(subjectIdx).replace(/Subject:[^\n]*\n?/i, '');
                     body = afterSubject.trim();
                 }
             }
