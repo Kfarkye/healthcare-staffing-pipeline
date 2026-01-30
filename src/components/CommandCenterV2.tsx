@@ -521,38 +521,118 @@ interface InputDeckProps {
 
 const InputDeck: FC<InputDeckProps> = memo(({ value, onChange, onSend, onStop, isProcessing, inputRef, attachments, onRemoveAttachment, isDragActive, isUploading, dragHandlers, handlePaste, triggerFileSelect, fileInputRef, onFilesSelected }) => {
     useAutoResizeTextArea(inputRef, value);
+    const [lightboxImage, setLightboxImage] = useState<{ url: string; name: string } | null>(null);
+
     const handleKeyDown = (e: ReactKeyboardEvent) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if ((value.trim() || attachments.length > 0) && !isUploading) onSend(); } if (e.key === 'Escape' && isProcessing) { e.preventDefault(); onStop(); } };
     const canSend = (!!value.trim() || attachments.length > 0) && !isUploading;
-    return (
-        <motion.div layout className={cn('flex flex-col p-1.5 relative overflow-hidden transition-all duration-300 will-change-transform', SYSTEM.geo.input, 'bg-[#0A0A0B] shadow-2xl', SYSTEM.surface.milled, 'focus-within:border-indigo-500/30', isDragActive && 'border-indigo-500/50 scale-[1.01]')} transition={SYSTEM.anim.fluid} {...dragHandlers}>
-            <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf,.doc,.docx" className="hidden" onChange={(e) => onFilesSelected(e.target.files)} />
-            <AnimatePresence>
-                {attachments.length > 0 && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="px-2 pt-2">
-                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide relative">
-                            {/* Gradient Masks for horizontal scroll cue */}
-                            <div className="absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-[#0A0A0B] to-transparent pointer-events-none z-10" />
-                            <div className="absolute right-0 top-0 bottom-0 w-4 bg-gradient-to-l from-[#0A0A0B] to-transparent pointer-events-none z-10" />
 
-                            {attachments.map((att) => (
-                                <div key={att.id} className={cn("relative group flex-shrink-0 w-14 h-14 rounded-xl bg-white/5 border overflow-hidden", att.skippedAnalysis ? "border-amber-500/50" : "border-white/10")}>
-                                    {att.previewUrl ? <img src={att.previewUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt="" /> : <div className="w-full h-full flex items-center justify-center"><FileText size={20} className="text-zinc-500" /></div>}
-                                    {att.isUploading && <div className="absolute inset-0 bg-black/60 flex items-center justify-center"><Loader2 size={16} className="animate-spin text-indigo-400" /></div>}
-                                    {att.skippedAnalysis && !att.isUploading && <div className="absolute bottom-0 left-0 right-0 bg-amber-500/90 text-[8px] font-bold text-black text-center py-0.5">LINK ONLY</div>}
-                                    <button onClick={() => onRemoveAttachment(att.id)} className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><X size={16} className="text-white" /></button>
-                                </div>
-                            ))}
-                        </div>
+    // Close lightbox on Escape
+    useEffect(() => {
+        if (!lightboxImage) return;
+        const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightboxImage(null); };
+        window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [lightboxImage]);
+
+    return (
+        <>
+            {/* Lightbox Modal */}
+            <AnimatePresence>
+                {lightboxImage && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[9999] bg-black/90 backdrop-blur-md flex items-center justify-center p-8"
+                        onClick={() => setLightboxImage(null)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.9, opacity: 0 }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                            className="relative max-w-[90vw] max-h-[90vh]"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <img
+                                src={lightboxImage.url}
+                                alt={lightboxImage.name}
+                                className="max-w-full max-h-[85vh] rounded-xl shadow-2xl object-contain"
+                            />
+                            <div className="absolute -bottom-10 left-0 right-0 text-center text-sm text-zinc-400 truncate px-4">
+                                {lightboxImage.name}
+                            </div>
+                            <button
+                                onClick={() => setLightboxImage(null)}
+                                className="absolute -top-3 -right-3 p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white shadow-lg transition-colors"
+                            >
+                                <X size={16} />
+                            </button>
+                        </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
-            <div className="flex items-end gap-2">
-                <button onClick={triggerFileSelect} disabled={isProcessing} className="p-3.5 rounded-[18px] transition-colors text-zinc-500 hover:text-white hover:bg-white/5 disabled:opacity-50" aria-label="Attach"><Paperclip size={18} strokeWidth={1.5} /></button>
-                <textarea ref={inputRef} value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={handleKeyDown} onPaste={handlePaste} placeholder={isDragActive ? 'Drop files here...' : 'Message Command Center...'} rows={1} disabled={isProcessing} className={cn('flex-1 bg-transparent border-none outline-none resize-none py-4 min-h-[52px] max-h-[160px]', SYSTEM.type.body, 'text-white placeholder:text-zinc-500 disabled:opacity-50', isDragActive && 'placeholder:text-indigo-400')} />
-                <motion.button initial={{ scale: 0.9 }} animate={{ scale: 1 }} whileTap={{ scale: 0.92 }} onClick={() => isProcessing ? onStop() : onSend()} disabled={!isProcessing && !canSend} className={cn('p-3 rounded-[18px] transition-all duration-300', canSend || isProcessing ? 'bg-white text-black' : 'bg-white/5 text-zinc-600 cursor-not-allowed')}>{isProcessing ? <Square size={18} className="animate-pulse" /> : isUploading ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} strokeWidth={2.5} />}</motion.button>
-            </div>
-            <AnimatePresence>{isDragActive && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-indigo-500/5 border-2 border-dashed border-indigo-500/30 rounded-[24px] pointer-events-none flex items-center justify-center backdrop-blur-sm"><div className="flex items-center gap-2 text-indigo-400"><Paperclip size={20} /><span className="text-[13px] font-medium">Drop to attach</span></div></motion.div>}</AnimatePresence>
-        </motion.div>
+
+            {/* Input Deck */}
+            <motion.div layout className={cn('flex flex-col p-1.5 relative overflow-hidden transition-all duration-300 will-change-transform', SYSTEM.geo.input, 'bg-[#0A0A0B] shadow-2xl', SYSTEM.surface.milled, 'focus-within:border-indigo-500/30', isDragActive && 'border-indigo-500/50 scale-[1.01]')} transition={SYSTEM.anim.fluid} {...dragHandlers}>
+                <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf,.doc,.docx" className="hidden" onChange={(e) => onFilesSelected(e.target.files)} />
+                <AnimatePresence>
+                    {attachments.length > 0 && (
+                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="px-2 pt-2">
+                            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide relative">
+                                {/* Gradient Masks for horizontal scroll cue */}
+                                <div className="absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-[#0A0A0B] to-transparent pointer-events-none z-10" />
+                                <div className="absolute right-0 top-0 bottom-0 w-4 bg-gradient-to-l from-[#0A0A0B] to-transparent pointer-events-none z-10" />
+
+                                {attachments.map((att) => (
+                                    <div
+                                        key={att.id}
+                                        className={cn(
+                                            "relative group flex-shrink-0 w-20 h-20 rounded-xl bg-white/5 border overflow-hidden cursor-pointer transition-all hover:scale-105 hover:border-indigo-500/50",
+                                            att.skippedAnalysis ? "border-amber-500/50" : "border-white/10"
+                                        )}
+                                    >
+                                        {att.previewUrl ? (
+                                            <img
+                                                src={att.previewUrl}
+                                                className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
+                                                alt={att.fileName || 'Attachment'}
+                                                onClick={() => setLightboxImage({ url: att.previewUrl!, name: att.fileName || 'Attachment' })}
+                                            />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center">
+                                                <FileText size={24} className="text-zinc-500" />
+                                            </div>
+                                        )}
+                                        {att.isUploading && <div className="absolute inset-0 bg-black/60 flex items-center justify-center"><Loader2 size={18} className="animate-spin text-indigo-400" /></div>}
+                                        {att.skippedAnalysis && !att.isUploading && <div className="absolute bottom-0 left-0 right-0 bg-amber-500/90 text-[8px] font-bold text-black text-center py-0.5">LINK ONLY</div>}
+                                        {/* Remove button - top right corner on hover */}
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onRemoveAttachment(att.id); }}
+                                            className="absolute top-1 right-1 p-1 rounded-full bg-black/70 hover:bg-red-500/90 opacity-0 group-hover:opacity-100 transition-all"
+                                        >
+                                            <X size={12} className="text-white" />
+                                        </button>
+                                        {/* Expand indicator */}
+                                        {att.previewUrl && (
+                                            <div className="absolute bottom-1 right-1 p-1 rounded bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <Maximize2 size={10} className="text-white/80" />
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+                <div className="flex items-end gap-2">
+                    <button onClick={triggerFileSelect} disabled={isProcessing} className="p-3.5 rounded-[18px] transition-colors text-zinc-500 hover:text-white hover:bg-white/5 disabled:opacity-50" aria-label="Attach"><Paperclip size={18} strokeWidth={1.5} /></button>
+                    <textarea ref={inputRef} value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={handleKeyDown} onPaste={handlePaste} placeholder={isDragActive ? 'Drop files here...' : 'Message Command Center...'} rows={1} disabled={isProcessing} className={cn('flex-1 bg-transparent border-none outline-none resize-none py-4 min-h-[52px] max-h-[160px]', SYSTEM.type.body, 'text-white placeholder:text-zinc-500 disabled:opacity-50', isDragActive && 'placeholder:text-indigo-400')} />
+                    <motion.button initial={{ scale: 0.9 }} animate={{ scale: 1 }} whileTap={{ scale: 0.92 }} onClick={() => isProcessing ? onStop() : onSend()} disabled={!isProcessing && !canSend} className={cn('p-3 rounded-[18px] transition-all duration-300', canSend || isProcessing ? 'bg-white text-black' : 'bg-white/5 text-zinc-600 cursor-not-allowed')}>{isProcessing ? <Square size={18} className="animate-pulse" /> : isUploading ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} strokeWidth={2.5} />}</motion.button>
+                </div>
+                <AnimatePresence>{isDragActive && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-indigo-500/5 border-2 border-dashed border-indigo-500/30 rounded-[24px] pointer-events-none flex items-center justify-center backdrop-blur-sm"><div className="flex items-center gap-2 text-indigo-400"><Paperclip size={20} /><span className="text-[13px] font-medium">Drop to attach</span></div></motion.div>}</AnimatePresence>
+            </motion.div>
+        </>
     );
 });
 InputDeck.displayName = 'InputDeck';
