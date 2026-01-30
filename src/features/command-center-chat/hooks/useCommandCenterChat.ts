@@ -1,14 +1,14 @@
 /**
  * Command Center Chat Hook
- * 
+ *
  * Elite Production Implementation:
  * - 60fps Render Throttling (prevents UI freeze)
- * - Deep Comparison for Context Stability
+ * - Stable Deep Compare for Context (prevents dependency thrash)
  * - Ref-based State Management (prevents stale closures)
- * - Native Text Stream Parsing
- * - Multimodal Vision Support (base64 images)
- * 
- * @version 4.0.0 - Added vision/multimodal support
+ * - Dual Protocol Stream Parsing (AI SDK data-stream + JSON event stream)
+ * - Multimodal Support (base64 files: images/PDFs/text)
+ *
+ * @version 4.0.1 - Fixes: finishReason error surfacing, reload w/ attachments, stronger dedupe, safer deep compare
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -19,33 +19,27 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 
 /**
  * File attachment for multimodal messages (images, PDFs, text files)
- * Gemini 1.5 supports native document understanding
+ * Base64 encoded file data (without data: prefix)
  */
 export interface FileAttachment {
-    /** Base64 encoded file data (without data: prefix) */
     base64: string;
-    /** MIME type (e.g., 'image/png', 'application/pdf', 'text/plain') */
     mimeType: string;
-    /** Optional filename for display purposes */
     fileName?: string;
 }
 
 /** @deprecated Use FileAttachment instead */
 export type ImageAttachment = FileAttachment;
 
-/**
- * Content part for multimodal messages
- */
 export type MessagePart =
     | { type: 'text'; text: string }
-    | { type: 'file'; mimeType: string; data: string };
+    | { type: 'file'; mimeType: string; data: string; fileName?: string };
 
 export interface CommandCenterMessage {
     id: string;
     role: 'user' | 'assistant';
     /** Text content for display (always string for UI rendering) */
     content: string;
-    /** Multimodal parts sent to API (includes images) */
+    /** Multimodal parts sent to API (includes files) */
     parts?: MessagePart[];
     createdAt?: Date;
     toolInvocations?: any[];
@@ -66,7 +60,6 @@ export interface UseCommandCenterChatReturn {
     isLoading: boolean;
     isStreaming: boolean;
     error: string | null;
-    /** Send a message with optional image attachments */
     sendMessage: (content: string, attachments?: ImageAttachment[]) => Promise<void>;
     clearChat: () => void;
     stop: () => void;
@@ -79,47 +72,105 @@ export interface UseCommandCenterChatReturn {
 // ============================================================================
 
 function generateId(): string {
-    return typeof crypto !== 'undefined'
-        ? crypto.randomUUID()
-        : Math.random().toString(36).substring(2, 15);
+    return typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
 }
 
 /**
- * FNV-1a hash for payload deduplication (prevents double-send)
+ * FNV-1a hash (fast, deterministic) for payload fingerprinting.
  */
-function hashPayload(content: string, attachmentCount: number): string {
-    const s = `${content}|${attachmentCount}`;
+function fnv1a32(input: string): string {
     let h = 2166136261;
-    for (let i = 0; i < s.length; i++) {
-        h ^= s.charCodeAt(i);
+    for (let i = 0; i < input.length; i++) {
+        h ^= input.charCodeAt(i);
         h = Math.imul(h, 16777619);
     }
     return String(h >>> 0);
 }
 
 /**
- * Custom hook to memoize context objects using deep equality.
- * Prevents infinite loops when consumers pass inline objects.
+ * Safer stable serialization:
+ * - sorts object keys (deterministic)
+ * - handles cycles
+ * - preserves Dates
+ * - marks functions/undefined (so equality matches intent)
  */
-function useDeepCompareMemoize(value: any) {
-    const ref = useRef<any>(null);
-    if (JSON.stringify(value) !== JSON.stringify(ref.current)) {
-        ref.current = value;
+function stableSerialize(value: any): string {
+    const seen = new WeakSet<object>();
+
+    const walk = (v: any): any => {
+        if (v === null) return null;
+
+        const t = typeof v;
+
+        if (t === 'string' || t === 'number' || t === 'boolean') return v;
+        if (t === 'bigint') return { $bigint: String(v) };
+        if (t === 'undefined') return { $undefined: true };
+        if (t === 'function') return { $function: true };
+        if (t === 'symbol') return { $symbol: true };
+
+        if (v instanceof Date) return { $date: v.toISOString() };
+
+        if (Array.isArray(v)) return v.map(walk);
+
+        if (t === 'object') {
+            if (seen.has(v)) return { $circular: true };
+            seen.add(v);
+
+            const keys = Object.keys(v).sort();
+            const out: Record<string, any> = {};
+            for (const k of keys) out[k] = walk(v[k]);
+            return out;
+        }
+
+        return v;
+    };
+
+    return JSON.stringify(walk(value));
+}
+
+/**
+ * Deep-compare memoization to stabilize inline objects (context).
+ * Uses stable serialization; avoids infinite loops and dependency thrash.
+ */
+function useDeepCompareMemoize<T>(value: T): T {
+    const ref = useRef<{ serialized: string; value: T } | null>(null);
+    const serialized = stableSerialize(value);
+
+    if (!ref.current || ref.current.serialized !== serialized) {
+        ref.current = { serialized, value };
     }
-    return ref.current;
+
+    return ref.current.value;
+}
+
+/**
+ * Stronger payload fingerprint:
+ * - includes text
+ * - includes attachment metadata + size + short head/tail sample to differentiate same-count files
+ */
+function fingerprintPayload(content: string, attachments?: ImageAttachment[]): string {
+    const text = content.trim();
+    const atts = attachments ?? [];
+    const attSig = atts
+        .map((a) => {
+            const head = a.base64.slice(0, 24);
+            const tail = a.base64.slice(-24);
+            return `${a.mimeType}|${a.fileName ?? ''}|len=${a.base64.length}|h=${head}|t=${tail}`;
+        })
+        .join('||');
+
+    return fnv1a32(`${text}||count=${atts.length}||${attSig}`);
 }
 
 // ============================================================================
 // HOOK
 // ============================================================================
 
-export function useCommandCenterChat(
-    options: UseCommandCenterChatOptions = {}
-): UseCommandCenterChatReturn {
-    const { context, onError, onToolCall: _onToolCall } = options;
+export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}): UseCommandCenterChatReturn {
+    const { context, onError /* onToolCall reserved */ } = options;
 
     // Stabilize context to prevent dependency thrashing
-    const stableContext = useDeepCompareMemoize(context);
+    const stableContext = useDeepCompareMemoize(context ?? {});
 
     const [messages, setMessages] = useState<CommandCenterMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -129,15 +180,13 @@ export function useCommandCenterChat(
     // Refs ensure we always access the latest state inside async closures
     const abortControllerRef = useRef<AbortController | null>(null);
     const messagesRef = useRef<CommandCenterMessage[]>([]);
-    const inFlightRef = useRef(false);        // Hard gate for in-flight requests
-    const lastPayloadHashRef = useRef<string | null>(null);  // Duplicate payload detection
+    const inFlightRef = useRef(false);
+    const lastPayloadHashRef = useRef<string | null>(null);
 
-    // Sync ref with state automatically
     useEffect(() => {
         messagesRef.current = messages;
     }, [messages]);
 
-    // Cleanup on unmount
     useEffect(() => {
         return () => abortControllerRef.current?.abort();
     }, []);
@@ -146,312 +195,271 @@ export function useCommandCenterChat(
     // SEND MESSAGE
     // ========================================================================
 
-    const sendMessage = useCallback(async (content: string, attachments?: ImageAttachment[]) => {
-        // Allow sending if there's text OR attachments
-        if (!content.trim() && (!attachments || attachments.length === 0)) return;
+    const sendMessage = useCallback(
+        async (content: string, attachments?: ImageAttachment[]) => {
+            const hasText = Boolean(content.trim());
+            const hasAtts = Boolean(attachments && attachments.length > 0);
+            if (!hasText && !hasAtts) return;
 
-        // ═══════════════════════════════════════════════════════════════════
-        // DOUBLE-SEND PREVENTION (3 Guards)
-        // ═══════════════════════════════════════════════════════════════════
+            // Guard 1: hard in-flight gate
+            if (inFlightRef.current) {
+                console.warn('[CommandCenterChat] BLOCKED: Request already in flight');
+                return;
+            }
 
-        // Guard 1: Hard in-flight gate (survives React state transitions)
-        if (inFlightRef.current) {
-            console.warn('[CommandCenterChat] BLOCKED: Request already in flight');
-            return;
-        }
+            // Guard 2: stronger duplicate fingerprint
+            const payloadHash = fingerprintPayload(content, attachments);
+            if (lastPayloadHashRef.current === payloadHash) {
+                console.warn('[CommandCenterChat] BLOCKED: Duplicate payload detected');
+                return;
+            }
 
-        // Guard 2: Duplicate payload detection (prevents double-click/double-effect)
-        const payloadHash = hashPayload(content, attachments?.length ?? 0);
-        if (lastPayloadHashRef.current === payloadHash) {
-            console.warn('[CommandCenterChat] BLOCKED: Duplicate payload detected');
-            return;
-        }
+            inFlightRef.current = true;
+            lastPayloadHashRef.current = payloadHash;
 
-        // Lock immediately before any async work
-        inFlightRef.current = true;
-        lastPayloadHashRef.current = payloadHash;
+            abortControllerRef.current = new AbortController();
+            const signal = abortControllerRef.current.signal;
 
-        // Create new abort controller for this request
-        abortControllerRef.current = new AbortController();
-        const signal = abortControllerRef.current.signal;
+            const requestId = generateId();
+            console.log(`[CommandCenterChat] Request ${requestId} starting (hash: ${payloadHash})`);
 
-        // Generate request ID for tracing
-        const requestId = generateId();
-        console.log(`[CommandCenterChat] Request ${requestId} starting (hash: ${payloadHash})`);
+            // Build multimodal parts for API
+            const parts: MessagePart[] = [];
 
-        // 2. Build multimodal parts for API
-        const parts: MessagePart[] = [];
+            if (hasText) {
+                parts.push({ type: 'text', text: content });
+            }
 
-        // Add text part if present
-        if (content.trim()) {
-            parts.push({ type: 'text', text: content });
-        }
+            if (hasAtts) {
+                for (const att of attachments!) {
+                    parts.push({
+                        type: 'file',
+                        mimeType: att.mimeType,
+                        data: att.base64,
+                        fileName: att.fileName,
+                    });
+                }
+            }
 
-        // Add file parts (images, PDFs, documents)
-        if (attachments && attachments.length > 0) {
-            for (const att of attachments) {
-                parts.push({
-                    type: 'file',
-                    mimeType: att.mimeType,
-                    data: att.base64,
+            // Build display content (keep UI readable; keep parts for true payload)
+            let displayContent = content;
+            if (hasAtts) {
+                const attachmentNames = attachments!.map((a) => a.fileName || 'Attachment').join(', ');
+                displayContent = hasText ? `${content}\n\n📎 ${attachmentNames}` : `📎 ${attachmentNames}`;
+            }
+
+            const userMessage: CommandCenterMessage = {
+                id: generateId(),
+                role: 'user',
+                content: displayContent,
+                parts,
+                createdAt: new Date(),
+            };
+
+            const assistantMessage: CommandCenterMessage = {
+                id: generateId(),
+                role: 'assistant',
+                content: '',
+                createdAt: new Date(),
+            };
+
+            // Optimistic update
+            const newHistory = [...messagesRef.current, userMessage, assistantMessage];
+            setMessages(newHistory);
+
+            setIsLoading(true);
+            setIsStreaming(false);
+            setError(null);
+
+            let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
+            try {
+                // TRUNCATE: message-count based (add byte-cap on server for true safety)
+                const MAX_HISTORY_MESSAGES = 40;
+                const historyForApi = newHistory.slice(0, -1); // exclude placeholder assistant
+                const truncatedHistory =
+                    historyForApi.length > MAX_HISTORY_MESSAGES ? historyForApi.slice(-MAX_HISTORY_MESSAGES) : historyForApi;
+
+                const requestMessages = truncatedHistory.map((m) => {
+                    if (m.parts && m.parts.length > 0) {
+                        return { role: m.role, parts: m.parts };
+                    }
+                    return { role: m.role, content: m.content };
                 });
-            }
-        }
 
-        // 3. Build display content (text + attachment indicators)
-        let displayContent = content;
-        if (attachments && attachments.length > 0) {
-            const attachmentNames = attachments
-                .map(a => a.fileName || 'Attachment')
-                .join(', ');
-            displayContent = content
-                ? `${content}\n\n📎 ${attachmentNames}`
-                : `📎 ${attachmentNames}`;
-        }
+                const response = await fetch('/api/chat/command-center', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-request-id': requestId,
+                    },
+                    body: JSON.stringify({
+                        messages: requestMessages,
+                        context: stableContext,
+                    }),
+                    signal,
+                });
 
-        const userMessage: CommandCenterMessage = {
-            id: generateId(),
-            role: 'user',
-            content: displayContent,
-            parts, // Include multimodal parts
-            createdAt: new Date(),
-        };
-
-        const assistantMessage: CommandCenterMessage = {
-            id: generateId(),
-            role: 'assistant',
-            content: '',
-            createdAt: new Date(),
-        };
-
-        // 4. Optimistic Update
-        const newHistory = [...messagesRef.current, userMessage, assistantMessage];
-        setMessages(newHistory);
-
-        setIsLoading(true);
-        setIsStreaming(false);
-        setError(null);
-
-        try {
-            // 5. Build API request with multimodal support
-            // TRUNCATE: Keep only the last N messages to prevent 413 errors
-            // Keep ~20 back-and-forth exchanges (40 messages) max
-            const MAX_HISTORY_MESSAGES = 40;
-            const historyForApi = newHistory.slice(0, -1); // Exclude placeholder assistant message
-            const truncatedHistory = historyForApi.length > MAX_HISTORY_MESSAGES
-                ? historyForApi.slice(-MAX_HISTORY_MESSAGES)
-                : historyForApi;
-
-            const requestMessages = truncatedHistory.map(m => {
-                // If message has parts (multimodal), send parts
-                if (m.parts && m.parts.length > 0) {
-                    return {
-                        role: m.role,
-                        parts: m.parts,
-                    };
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `Request failed: ${response.status}`);
                 }
-                // Otherwise send simple content
-                return {
-                    role: m.role,
-                    content: m.content,
-                };
-            });
 
-            console.debug(`[CommandCenterChat] Starting request ${requestId}`);
-            const response = await fetch('/api/chat/command-center', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-request-id': requestId,
-                },
-                body: JSON.stringify({
-                    messages: requestMessages,
-                    context: stableContext,
-                }),
-                signal,
-            });
+                if (!response.body) throw new Error('No response body');
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `Request failed: ${response.status}`);
-            }
+                setIsStreaming(true);
 
-            if (!response.body) throw new Error('No response body');
+                reader = response.body.getReader();
+                const decoder = new TextDecoder();
 
-            setIsStreaming(true);
+                let accumulatedText = '';
+                let buffer = '';
+                let lastRenderTime = 0;
+                const RENDER_THROTTLE_MS = 16;
 
-            // 3. Dual Protocol Parser — handles both AI SDK formats
-            // - Data-Stream Protocol: "0:..." = text, "2:..." = metadata
-            // - UI Message Stream: {"type":"text-delta","delta":"..."} JSON objects
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done || signal.aborted) break;
 
-            let accumulatedText = '';
-            let buffer = ''; // Buffer for incomplete lines
-            let lastRenderTime = 0;
-            const RENDER_THROTTLE_MS = 16; // Cap at ~60fps
+                    buffer += decoder.decode(value, { stream: true });
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done || signal.aborted) break;
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
 
-                // Decode chunk and add to buffer
-                buffer += decoder.decode(value, { stream: true });
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
 
-                // Process complete lines (both protocols use newline delimiters)
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+                        let payload = line.startsWith('data: ') ? line.slice(6) : line;
 
-                for (const line of lines) {
-                    if (!line.trim()) continue;
+                        if (payload === '[DONE]') continue;
 
-                    // DEBUG: Log raw line for troubleshooting (gated to avoid main-thread work)
-                    if (process.env.NODE_ENV === 'development' && typeof localStorage !== 'undefined' && localStorage.getItem('DEBUG_STREAM')) {
-                        console.debug('[Stream Parser] Line:', line.slice(0, 100));
-                    }
-
-                    // Strip SSE "data: " prefix if present
-                    let payload = line;
-                    if (line.startsWith('data: ')) {
-                        payload = line.slice(6); // Remove "data: " prefix
-                    }
-
-                    // Skip SSE control messages
-                    if (payload === '[DONE]') continue;
-
-                    // Try parsing as JSON (UI Message Stream format)
-                    if (payload.startsWith('{')) {
-                        try {
-                            const event = JSON.parse(payload);
-                            if (event.type === 'text-delta' && typeof event.delta === 'string') {
-                                accumulatedText += event.delta;
+                        // JSON event stream: parse ONLY parse errors, never swallow intentional throws
+                        if (payload.startsWith('{')) {
+                            let event: any | null = null;
+                            try {
+                                event = JSON.parse(payload);
+                            } catch {
+                                event = null;
                             }
-                            // CRITICAL: Detect error finish reason from server
-                            if (event.type === 'finish' && event.finishReason === 'error') {
-                                console.error(`[CommandCenterChat] Server returned finishReason: error`);
-                                throw new Error('Server stream failed with error');
+
+                            if (event) {
+                                if (event.type === 'text-delta' && typeof event.delta === 'string') {
+                                    accumulatedText += event.delta;
+                                }
+
+                                if (event.type === 'finish' && event.finishReason === 'error') {
+                                    throw new Error('Server stream failed with error');
+                                }
+
+                                // Ignore non-text events
+                                continue;
                             }
-                            // text-start, text-end, start-step, finish-step, etc. are ignored
-                            continue;
-                        } catch (parseErr) {
-                            // Re-throw if it's our intentional error
-                            if (parseErr instanceof Error && parseErr.message.includes('finishReason')) {
-                                throw parseErr;
+                            // If JSON parse failed, fall through to data-stream protocol
+                        }
+
+                        // Data-stream protocol: "CHANNEL:PAYLOAD"
+                        const colonIndex = payload.indexOf(':');
+                        if (colonIndex === -1) continue;
+
+                        const channel = payload.slice(0, colonIndex);
+                        const dataPayload = payload.slice(colonIndex + 1);
+
+                        if (channel === '0') {
+                            // Text payload
+                            try {
+                                const text = JSON.parse(dataPayload);
+                                if (typeof text === 'string') accumulatedText += text;
+                            } catch {
+                                accumulatedText += dataPayload;
                             }
-                            // Not valid JSON, try data-stream protocol
+                        } else if (channel === '9') {
+                            // Error channel (if used)
+                            try {
+                                const errMsg = JSON.parse(dataPayload);
+                                if (typeof errMsg === 'string' && errMsg.trim()) {
+                                    throw new Error(errMsg);
+                                }
+                            } catch {
+                                if (dataPayload.trim()) throw new Error(dataPayload);
+                            }
                         }
                     }
 
-                    // Fallback: Data-Stream Protocol ("CHANNEL:PAYLOAD")
-                    const colonIndex = payload.indexOf(':');
-                    if (colonIndex === -1) continue;
+                    const now = Date.now();
+                    if (now - lastRenderTime > RENDER_THROTTLE_MS) {
+                        setMessages((prev) => {
+                            const lastIdx = prev.length - 1;
+                            if (lastIdx < 0 || prev[lastIdx].role !== 'assistant') return prev;
+                            if (prev[lastIdx].content === accumulatedText) return prev;
 
-                    const channel = payload.slice(0, colonIndex);
-                    const dataPayload = payload.slice(colonIndex + 1);
+                            const updated = [...prev];
+                            updated[lastIdx] = { ...updated[lastIdx], content: accumulatedText };
+                            return updated;
+                        });
 
-                    // Channel 0 = Text content (what we display)
-                    if (channel === '0') {
-                        try {
-                            const text = JSON.parse(dataPayload);
-                            if (typeof text === 'string') {
-                                accumulatedText += text;
-                            }
-                        } catch {
-                            // If not valid JSON, use raw (fallback for plain text)
-                            accumulatedText += dataPayload;
-                        }
+                        lastRenderTime = now;
                     }
-                    // Channel 2 = Metadata, Channel 9 = Error — ignore for display
                 }
 
-                // Throttle React state updates (optimized to minimize allocations)
-                if (Date.now() - lastRenderTime > RENDER_THROTTLE_MS) {
-                    setMessages(prev => {
-                        const lastIdx = prev.length - 1;
-                        if (lastIdx < 0 || prev[lastIdx].role !== 'assistant') return prev;
+                // Final sync (no dropped tail)
+                if (!signal.aborted) {
+                    if (!accumulatedText.trim()) {
+                        setError('No response received. Please try again.');
+                        setMessages((prev) => {
+                            const last = prev[prev.length - 1];
+                            if (last?.role === 'assistant' && !last.content) return prev.slice(0, -1);
+                            return prev;
+                        });
+                        return;
+                    }
 
-                        // Skip update if content hasn't changed
-                        if (prev[lastIdx].content === accumulatedText) return prev;
-
-                        // Only create new array when content changed
+                    setMessages((prev) => {
                         const updated = [...prev];
-                        updated[lastIdx] = {
-                            ...updated[lastIdx],
-                            content: accumulatedText,
-                        };
+                        const lastIdx = updated.length - 1;
+                        if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
+                            updated[lastIdx] = { ...updated[lastIdx], content: accumulatedText };
+                        }
                         return updated;
                     });
-                    lastRenderTime = Date.now();
                 }
-            }
+            } catch (err: any) {
+                if (err?.name === 'AbortError') return;
 
-            // Final sync to ensure no dropped content
-            if (!signal.aborted) {
-                // Detect empty responses (API returned but with no content)
-                if (!accumulatedText.trim()) {
-                    console.warn('[CommandCenterChat] Empty stream response - no content received');
-                    setError('No response received. Please try again.');
-                    // Rollback empty assistant message
-                    setMessages(prev => {
-                        const last = prev[prev.length - 1];
-                        if (last?.role === 'assistant' && !last.content) {
-                            return prev.slice(0, -1);
-                        }
-                        return prev;
-                    });
-                    return;
-                }
+                console.error('[CommandCenterChat] Error:', err);
+                setError(err?.message || 'An error occurred');
+                onError?.(err);
 
-                setMessages(prev => {
-                    const updated = [...prev];
-                    const lastIdx = updated.length - 1;
-                    if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
-                        updated[lastIdx] = {
-                            ...updated[lastIdx],
-                            content: accumulatedText,
-                        };
-                    }
-                    return updated;
+                setMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (last?.role === 'assistant' && !last.content) return prev.slice(0, -1);
+                    return prev;
                 });
-            }
-
-        } catch (err: any) {
-            if (err.name === 'AbortError') return;
-
-            console.error('[CommandCenterChat] Error:', err);
-            setError(err.message || 'An error occurred');
-            onError?.(err);
-
-            // Rollback empty assistant message
-            setMessages(prev => {
-                const last = prev[prev.length - 1];
-                if (last?.role === 'assistant' && !last.content) {
-                    return prev.slice(0, -1);
+            } finally {
+                // Release reader resources
+                try {
+                    await reader?.cancel();
+                } catch {
+                    // ignore
                 }
-                return prev;
-            });
-        } finally {
-            // ═══════════════════════════════════════════════════════════════════
-            // RELEASE ALL GUARDS
-            // ═══════════════════════════════════════════════════════════════════
-            inFlightRef.current = false;
-            abortControllerRef.current = null;
 
-            // Allow resending same payload after short delay (for legitimate retries)
-            const currentHash = lastPayloadHashRef.current;
-            setTimeout(() => {
-                if (lastPayloadHashRef.current === currentHash) {
-                    lastPayloadHashRef.current = null;
-                }
-            }, 300);
+                inFlightRef.current = false;
+                abortControllerRef.current = null;
 
-            if (!signal.aborted) {
+                // Allow resend after short delay (legit retries)
+                const currentHash = lastPayloadHashRef.current;
+                setTimeout(() => {
+                    if (lastPayloadHashRef.current === currentHash) lastPayloadHashRef.current = null;
+                }, 300);
+
+                // Always reset UI flags (stop() already does this, but keep invariant)
                 setIsLoading(false);
                 setIsStreaming(false);
+
+                console.log('[CommandCenterChat] Request completed');
             }
-            console.log(`[CommandCenterChat] Request ${requestId} completed`);
-        }
-    }, [stableContext, onError]);
+        },
+        [stableContext, onError]
+    );
 
     // ========================================================================
     // ACTIONS
@@ -461,6 +469,8 @@ export function useCommandCenterChat(
         abortControllerRef.current?.abort();
         setMessages([]);
         setError(null);
+        setIsLoading(false);
+        setIsStreaming(false);
     }, []);
 
     const stop = useCallback(() => {
@@ -471,19 +481,48 @@ export function useCommandCenterChat(
 
     const reload = useCallback(() => {
         const history = messagesRef.current;
-        const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
-        if (lastUserMsg) {
-            const keepIdx = history.findIndex(m => m.id === lastUserMsg.id);
-            if (keepIdx !== -1) {
-                setMessages(history.slice(0, keepIdx));
-                sendMessage(lastUserMsg.content);
-            }
-        }
+        const lastUserMsg = [...history].reverse().find((m) => m.role === 'user');
+        if (!lastUserMsg) return;
+
+        const keepIdx = history.findIndex((m) => m.id === lastUserMsg.id);
+        if (keepIdx === -1) return;
+
+        // Reconstruct original input from parts (preserves attachments)
+        const textPart = lastUserMsg.parts?.find((p) => p.type === 'text') as { type: 'text'; text: string } | undefined;
+
+        const fileParts =
+            lastUserMsg.parts?.filter((p) => p.type === 'file') as
+            | Array<{ type: 'file'; mimeType: string; data: string; fileName?: string }>
+            | undefined;
+
+        const reconstructedText = textPart?.text ?? '';
+        const reconstructedAttachments: ImageAttachment[] | undefined = fileParts?.length
+            ? fileParts.map((p) => ({ mimeType: p.mimeType, base64: p.data, fileName: p.fileName }))
+            : undefined;
+
+        setMessages(history.slice(0, keepIdx));
+        void sendMessage(reconstructedText, reconstructedAttachments);
     }, [sendMessage]);
 
-    const status = error ? 'error' : isStreaming ? 'streaming' : isLoading ? 'loading' : 'idle';
+    const status: UseCommandCenterChatReturn['status'] = error
+        ? 'error'
+        : isStreaming
+            ? 'streaming'
+            : isLoading
+                ? 'loading'
+                : 'idle';
 
-    return { messages, isLoading, isStreaming, error, sendMessage, clearChat, stop, reload, status };
+    return {
+        messages,
+        isLoading,
+        isStreaming,
+        error,
+        sendMessage,
+        clearChat,
+        stop,
+        reload,
+        status,
+    };
 }
 
 export default useCommandCenterChat;
