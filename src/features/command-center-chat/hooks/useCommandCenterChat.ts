@@ -387,6 +387,21 @@ export function useCommandCenterChat(
 
             // Final sync to ensure no dropped content
             if (!signal.aborted) {
+                // Detect empty responses (API returned but with no content)
+                if (!accumulatedText.trim()) {
+                    console.warn('[CommandCenterChat] Empty stream response - no content received');
+                    setError('No response received. Please try again.');
+                    // Rollback empty assistant message
+                    setMessages(prev => {
+                        const last = prev[prev.length - 1];
+                        if (last?.role === 'assistant' && !last.content) {
+                            return prev.slice(0, -1);
+                        }
+                        return prev;
+                    });
+                    return;
+                }
+
                 setMessages(prev => {
                     const updated = [...prev];
                     const lastIdx = updated.length - 1;
