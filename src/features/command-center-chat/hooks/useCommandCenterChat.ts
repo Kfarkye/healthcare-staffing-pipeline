@@ -274,7 +274,8 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
 
             setIsLoading(true);
             setIsStreaming(false);
-            setError(null);
+            // NOTE: Don't clear error here - let it persist until we get a successful response
+            // This ensures user sees the error before it disappears on retry
 
             let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
@@ -317,6 +318,7 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                 if (!response.body) throw new Error('No response body');
 
                 setIsStreaming(true);
+                setError(null); // Clear error only on successful stream start
 
                 reader = response.body.getReader();
                 const decoder = new TextDecoder();
