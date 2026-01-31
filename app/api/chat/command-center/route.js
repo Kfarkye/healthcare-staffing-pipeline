@@ -524,16 +524,24 @@ export async function POST(request) {
             hasImage
         });
 
-        // SMART ROUTING: Use template-specific prompt if image but no text
+        // Extract hidden mode context from pre-draft chips (not shown in transcript)
+        const { systemContext } = parsed.data;
+
+        // SMART ROUTING: Include mode context in classification so chips route correctly
+        // Mode context like "Internal Reassignment Request" should trigger REASSIGNMENT_REQUEST intent
+        const classificationMessage = [
+            inputText,
+            systemContext,
+            hasImage && !inputText && !systemContext ? 'Draft a pay package outreach email using this image' : ''
+        ].filter(Boolean).join(' ') || 'Start interaction';
+
         const classification = classify({
-            message: inputText || (hasImage ? 'Draft a pay package outreach email using this image' : 'Start interaction'),
+            message: classificationMessage,
             history: normalizedMessages
         });
 
-        logger.info('intent_classified', { intent: classification.intent, tools: classification.requiresTools });
+        logger.info('intent_classified', { intent: classification.intent, tools: classification.requiresTools, modeContext: systemContext });
 
-        // Extract hidden mode context from pre-draft chips (not shown in transcript)
-        const { systemContext } = parsed.data;
         const modeContextBlock = systemContext?.trim()
             ? `\n\nMODE CONTEXT (Hidden from user):\nThe user has selected: "${systemContext}"\nTailor your response appropriately for this mode.\n`
             : '';
