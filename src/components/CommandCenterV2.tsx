@@ -66,6 +66,20 @@ const REGEX_EMAIL_TO = /(?:\*\*|__)?To:(?:\*\*|__)?\s*([^\r\n]+)/i;
 const REGEX_EMAIL_SUBJECT = /(?:\*\*|__)?Subject:(?:\*\*|__)?\s*([^\r\n]+)/i;
 const REGEX_EMAIL_BODY = /---[\r\n]+([\s\S]+?)(?:[\r\n]+---[\r\n]*(?:$|[\r\n])|$)/;
 
+// New format: [SUBJECT]...[/SUBJECT] [BODY]...[/BODY] (from AI system)
+const REGEX_TAG_SUBJECT = /\[SUBJECT\]([\s\S]*?)\[\/SUBJECT\]/i;
+const REGEX_TAG_BODY = /\[BODY\]([\s\S]*?)\[\/BODY\]/i;
+
+// Defaults (recruiting workflow standard)
+const DEFAULT_CC = 'Tiffany.Chavez@ayahealthcare.com';
+
+// Robust email extraction: handles "Name <email>" formats, strips mailto: garbage
+function extractFirstEmail(input?: string): string | undefined {
+    if (!input) return undefined;
+    const m = input.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    return m?.[1];
+}
+
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg', 'heic']);
 const PDF_EXTENSION = 'pdf';
 
@@ -76,6 +90,47 @@ const STATUS_STYLES: Record<string, string> = {
     rose: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
     purple: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
     zinc: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30',
+};
+
+// ============================================================================
+// SHARED AUDIO ENGINE (created once, reused on user gestures)
+// ============================================================================
+let sharedAudioContext: AudioContext | null = null;
+
+const ensureAudioContext = (): AudioContext | null => {
+    if (typeof window === 'undefined') return null;
+    if (!sharedAudioContext) {
+        try {
+            sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        } catch {
+            return null;
+        }
+    }
+    // Resume if suspended (happens after page load until first user gesture)
+    if (sharedAudioContext.state === 'suspended') {
+        sharedAudioContext.resume().catch(() => { });
+    }
+    return sharedAudioContext;
+};
+
+// Audio Cue: 200ms elegant tone - ONLY call on user gesture (click)
+const playDraftReadyCue = () => {
+    const ctx = ensureAudioContext();
+    if (!ctx || ctx.state !== 'running') return;
+    try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 880; // A5 - clean, professional
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.2);
+    } catch {
+        // Silent fallback
+    }
 };
 
 const RECRUITING_PHASES = ['SEARCHING DATABASE', 'ANALYZING MATCH', 'CALCULATING PACKAGE', 'DRAFTING RESPONSE'] as const;
@@ -205,74 +260,140 @@ const ThinkingPill: FC<{ onStop?: () => void; status?: 'thinking' | 'streaming' 
 });
 ThinkingPill.displayName = 'ThinkingPill';
 
-const SmartChips: FC<{ onSelect: (query: string) => void }> = memo(({ onSelect }) => (
+// MODE_CHIPS: Set hidden context flags (not sent as visible text in transcript)
+const MODE_CHIPS = [
+    { label: 'Working Traveler', context: 'Working Traveler' },
+    { label: 'Re-Engaged Traveler', context: 'Re-Engaged Traveler' },
+    { label: 'Pay Package Email', context: 'Pay Package Email' },
+    { label: 'Reassignment', context: 'Internal Reassignment Request' },
+    { label: 'Licensing', context: 'Licensing Request' },
+    { label: 'Extension Request', context: 'Extension Request' },
+    { label: 'Screen Resume', context: 'Screen Resume' },
+] as const;
+
+const ModeChips: FC<{ value: string; onChange: (v: string) => void }> = memo(({ value, onChange }) => (
     <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide px-1">
-        {[
-            { label: 'Find Candidates', query: 'Find candidates for this position.' },
-            { label: 'Screen Resume', query: 'Screen this resume and provide assessment.' },
-            { label: 'Analyze Pay', query: 'Calculate competitive pay package for this role.' },
-            { label: 'Pay Package Email', query: 'Draft a pay package outreach email using the attached screenshot.' },
-            { label: 'Reassignment Email', query: 'Draft a reassignment request email.' },
-            { label: 'Extension Request', query: 'Draft an extension request email.' },
-        ].map((chip, index) => (
-            <motion.button key={chip.label} onClick={() => { triggerHaptic(); onSelect(chip.query); }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04, ...SYSTEM.anim.fluid }} whileHover={{ scale: 1.02, y: -1, backgroundColor: 'rgba(255,255,255,0.06)' }} whileTap={{ scale: 0.98 }} className={cn('flex-shrink-0 px-3.5 py-2 bg-white/[0.03] border border-white/[0.08] transition-all backdrop-blur-sm', SYSTEM.geo.pill)}><span className="text-[10px] font-medium text-zinc-300 tracking-wide uppercase">{chip.label}</span></motion.button>
-        ))}
+        {MODE_CHIPS.map((chip, index) => {
+            const active = value === chip.context;
+            return (
+                <motion.button
+                    key={chip.label}
+                    onClick={() => { triggerHaptic(); onChange(chip.context); }}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.04, ...SYSTEM.anim.fluid }}
+                    whileHover={{ scale: 1.02, y: -1, backgroundColor: 'rgba(255,255,255,0.06)' }}
+                    whileTap={{ scale: 0.98 }}
+                    className={cn(
+                        'flex-shrink-0 px-3.5 py-2 border transition-all backdrop-blur-sm',
+                        SYSTEM.geo.pill,
+                        active
+                            ? 'bg-indigo-500/15 border-indigo-500/30 text-indigo-200'
+                            : 'bg-white/[0.03] border-white/[0.08] text-zinc-300'
+                    )}
+                >
+                    <span className="text-[10px] font-medium tracking-wide uppercase">{chip.label}</span>
+                </motion.button>
+            );
+        })}
     </div>
 ));
-SmartChips.displayName = 'SmartChips';
+ModeChips.displayName = 'ModeChips';
 
 // ============================================================================
 // 4. EMAIL & ATTACHMENT HANDLING (ENHANCED OUTLOOK DEEP LINK)
 // ============================================================================
 
-const EmailCard: FC<{ to?: string; subject: string; body: string }> = memo(({ to, subject, body }) => {
+const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string }> = memo(({ to, cc = DEFAULT_CC, subject, body }) => {
     const [copiedField, setCopiedField] = useState<string | null>(null);
     const [isExpanded, setIsExpanded] = useState(false);
     const { showToast } = useToast();
 
+    // Premium copy: clipboard + audio cue + haptic (user gesture required)
+    const handleQuickCopyAll = useCallback(async () => {
+        const fullDraft = `Subject: ${subject}\n\n${body}`;
+        const success = await systemCopyToClipboard(fullDraft);
+        if (success) {
+            setCopiedField('all');
+            playDraftReadyCue(); // Audio cue only on user gesture
+            triggerHaptic();
+            setTimeout(() => setCopiedField(null), 2500);
+        } else {
+            showToast('Clipboard access blocked. Try manual copy.');
+        }
+    }, [subject, body, showToast]);
+
     const handleCopy = useCallback(async (text: string, field: string) => {
-        await systemCopyToClipboard(text);
-        setCopiedField(field);
-        triggerHaptic();
-        setTimeout(() => setCopiedField(null), 2000);
+        const success = await systemCopyToClipboard(text);
+        if (success) {
+            setCopiedField(field);
+            triggerHaptic();
+            setTimeout(() => setCopiedField(null), 2000);
+        }
     }, []);
 
     const formattedBody = useMemo(() => body.replace(/  \n/g, '\n').replace(/^---\s*$/gm, '').trim(), [body]);
     const isLongBody = formattedBody.length > 600 || formattedBody.split('\n').length > 15;
 
-    // Outlook Deep Link Generator (Robust CRLF & Length Guard)
+    // Outlook Deep Link Generator (Robust CRLF & Length Guard + CC support)
     const handleOpenOutlook = useCallback(() => {
         triggerHaptic();
+        playDraftReadyCue(); // Audio cue on mail action too
 
         // Outlook requires \r\n for line breaks
         const outlookBody = normalizeBodyForMailto(formattedBody);
         const safeSubject = encodeURIComponent(subject);
         const safeBody = encodeURIComponent(outlookBody);
+        const safeCc = cc ? `&cc=${encodeURIComponent(cc)}` : '';
 
         // Use standard mailto. It works best for system default clients (Outlook Desktop/Mac Mail)
-        const mailtoLink = `mailto:${to || ''}?subject=${safeSubject}&body=${safeBody}`;
+        const mailtoLink = `mailto:${to || ''}?subject=${safeSubject}${safeCc}&body=${safeBody}`;
 
         // Guard against URL length limits (approx 2000 chars is safe)
         if (mailtoLink.length > 2000) {
             handleCopy(formattedBody, 'all');
             showToast("Draft too long for link. Content copied to clipboard.");
-            // Fallback: Open mail client with just subject/to
-            window.open(`mailto:${to || ''}?subject=${safeSubject}`, '_blank');
+            // Fallback: Open mail client with just subject/to/cc
+            window.open(`mailto:${to || ''}?subject=${safeSubject}${safeCc}`, '_blank');
         } else {
             window.open(mailtoLink, '_blank');
         }
-    }, [to, subject, formattedBody, handleCopy, showToast]);
+    }, [to, cc, subject, formattedBody, handleCopy, showToast]);
 
     return (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={SYSTEM.anim.fluid} className={cn('rounded-[20px] overflow-hidden bg-white/[0.02] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_-8px_rgba(0,0,0,0.4)]')}>
-            {/* Header - Clean, minimal */}
-            <div className="flex items-center px-5 py-3 border-b border-white/[0.06] bg-white/[0.02]">
+            {/* Header with Quick Copy All button */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] bg-white/[0.02]">
                 <div className="flex items-center gap-2.5">
                     <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center border border-indigo-500/20">
                         <FileText size={14} className="text-indigo-400" />
                     </div>
                     <span className={cn(SYSTEM.type.mono, 'text-indigo-400')}>Email Draft</span>
                 </div>
+                {/* Premium Quick Copy All button */}
+                <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleQuickCopyAll}
+                    className={cn(
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all text-[11px] font-medium',
+                        copiedField === 'all'
+                            ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
+                            : 'bg-gradient-to-r from-indigo-500/15 to-purple-500/15 border border-indigo-500/20 text-indigo-300 hover:from-indigo-500/25 hover:to-purple-500/25'
+                    )}
+                >
+                    {copiedField === 'all' ? (
+                        <>
+                            <Check size={12} />
+                            <span>COPIED</span>
+                        </>
+                    ) : (
+                        <>
+                            <Zap size={12} />
+                            <span>QUICK COPY</span>
+                        </>
+                    )}
+                </motion.button>
             </div>
 
             {/* Content */}
@@ -300,11 +421,13 @@ const EmailCard: FC<{ to?: string; subject: string; body: string }> = memo(({ to
                     whileTap={{ scale: 0.98 }}
                     onClick={() => {
                         triggerHaptic();
-                        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1${to ? `&to=${encodeURIComponent(to)}` : ''}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(formattedBody)}`;
+                        playDraftReadyCue();
+                        const ccParam = cc ? `&cc=${encodeURIComponent(cc)}` : '';
+                        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1${to ? `&to=${encodeURIComponent(to)}` : ''}${ccParam}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(formattedBody)}`;
                         if (gmailUrl.length > 2000) {
                             handleCopy(formattedBody, 'all');
                             showToast("Draft too long for link. Content copied to clipboard.");
-                            window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(subject)}`, '_blank');
+                            window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(subject)}${ccParam}`, '_blank');
                         } else {
                             window.open(gmailUrl, '_blank');
                         }
@@ -322,6 +445,37 @@ const EmailCard: FC<{ to?: string; subject: string; body: string }> = memo(({ to
 });
 EmailCard.displayName = 'EmailCard';
 
+// Post-Draft Modifier Chips - one-tap adjustments
+const POST_DRAFT_MODIFIERS = [
+    { label: '+ Certs', query: 'Also ask them to send their certifications.' },
+    { label: '+ Time-off?', query: 'Also ask about any time-off requests for this contract.' },
+    { label: '+ Update Aya', query: 'Also ask them to update their profile in the Aya app.' },
+    { label: '+ Match tone', query: 'Rewrite this to better match their casual/friendly energy.' },
+    { label: '+ Shorter', query: 'Make this more concise - cut the fluff.' },
+] as const;
+
+const PostDraftModifiers: FC<{ onModify: (modifier: string) => void }> = memo(({ onModify }) => (
+    <motion.div
+        initial={{ opacity: 0, y: 5 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3, ...SYSTEM.anim.fluid }}
+        className="flex flex-wrap gap-1.5 mt-3"
+    >
+        <span className={cn(SYSTEM.type.mono, 'text-zinc-600 text-[9px] mr-1 self-center')}>ADJUST:</span>
+        {POST_DRAFT_MODIFIERS.map((mod) => (
+            <motion.button
+                key={mod.label}
+                whileHover={{ scale: 1.03, backgroundColor: 'rgba(99,102,241,0.15)' }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => { triggerHaptic(); onModify(mod.query); }}
+                className="px-2 py-1 rounded-md bg-white/[0.03] border border-white/[0.08] text-[10px] text-zinc-400 hover:text-indigo-300 hover:border-indigo-500/30 transition-all"
+            >
+                {mod.label}
+            </motion.button>
+        ))}
+    </motion.div>
+));
+
 const UserAttachment: FC<{ filename: string; url: string }> = memo(({ filename, url }) => {
     const isImage = /\.(png|jpg|jpeg|gif|webp|heic)$/i.test(filename);
     return (
@@ -337,9 +491,15 @@ UserAttachment.displayName = 'UserAttachment';
 // 5. MESSAGE BUBBLE
 // ============================================================================
 
-interface MessageBubbleProps { role: 'user' | 'assistant'; content: string; isStreaming?: boolean; toolInvocations?: ToolInvocation[]; }
-const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming, toolInvocations }) => {
+interface MessageBubbleProps { role: 'user' | 'assistant'; content: string; isStreaming?: boolean; toolInvocations?: ToolInvocation[]; onModify?: (modifier: string) => void; isLatest?: boolean; }
+const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming, toolInvocations, onModify, isLatest }) => {
     const isUser = role === 'user';
+    // Detect if this message contains an email draft (for showing modifier chips)
+    const hasEmailDraft = !isUser && !isStreaming && (
+        REGEX_TAG_SUBJECT.test(content) ||
+        REGEX_EMAIL_SUBJECT.test(content) ||
+        REGEX_EMAIL_HEADER.test(content)
+    );
     const components: Components = useMemo(() => ({
         p: ({ children }) => <p className={cn(SYSTEM.type.body, isUser ? 'text-[#1a1a1a]' : 'text-[#A1A1AA]', 'mb-4 last:mb-0')}>{children}</p>,
         strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
@@ -388,13 +548,34 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
             processedContent = draftMatch[1].trim();
         }
 
+        // NEW FORMAT: [SUBJECT]...[/SUBJECT] [BODY]...[/BODY] (from AI system prompt)
+        const tagSubjectMatch = processedContent.match(REGEX_TAG_SUBJECT);
+        const tagBodyMatch = processedContent.match(REGEX_TAG_BODY);
+        if (tagSubjectMatch && tagBodyMatch) {
+            const tagSubject = tagSubjectMatch[1].trim();
+            const tagBody = tagBodyMatch[1].trim();
+            // Prefer explicit To: if present, otherwise first email found (using robust extraction)
+            const rawTo = processedContent.match(REGEX_EMAIL_TO)?.[1]?.trim();
+            const tagTo = extractFirstEmail(rawTo) || extractFirstEmail(processedContent);
+            // Remove the tags from content for any remaining text
+            const remainder = processedContent
+                .replace(REGEX_TAG_SUBJECT, '')
+                .replace(REGEX_TAG_BODY, '')
+                .trim();
+            return <>
+                <EmailCard to={tagTo} cc={DEFAULT_CC} subject={tagSubject} body={tagBody} />
+                {remainder && <div className="mt-4"><ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{remainder}</ReactMarkdown></div>}
+            </>;
+        }
+
         // Enhanced Email Parsing (Permissive)
         // If header is present OR if we see To/Subject lines, we render the card.
         const emailMatch = processedContent.match(REGEX_EMAIL_HEADER);
         const hasEmailFields = REGEX_EMAIL_TO.test(processedContent) || REGEX_EMAIL_SUBJECT.test(processedContent);
 
         if (emailMatch || hasEmailFields) {
-            const to = processedContent.match(REGEX_EMAIL_TO)?.[1].trim();
+            const rawTo = processedContent.match(REGEX_EMAIL_TO)?.[1]?.trim();
+            const toEmail = extractFirstEmail(rawTo); // Robust: handles "Name <email>" format
             const sub = processedContent.match(REGEX_EMAIL_SUBJECT)?.[1].trim();
 
             // Body extraction: Try --- delimiters first, fallback to everything after Subject line
@@ -411,17 +592,14 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                 }
             }
 
-            // If no explicit To: line, try to extract first email from content
-            let recipientEmail = to;
-            if (!recipientEmail) {
-                const emailInContent = content.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-                if (emailInContent) recipientEmail = emailInContent[1];
-            }
-
-            const rem = content.split('---').slice(1).join('---')?.replace(/^IMPORTANT[\s\S]*/, '').trim() || '';
+            // Final recipient email: explicit To: email wins; fallback = first email in content
+            const recipientEmail = toEmail || extractFirstEmail(processedContent);
 
             // Render card if we have at least a subject or 'to' field
-            if (sub || recipientEmail) return <><EmailCard to={recipientEmail} subject={sub || '(No Subject)'} body={body} />{rem && <div className="mt-4"><ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{rem}</ReactMarkdown></div>}</>;
+            // Avoid duplicate rendering: do not attempt to render a "remainder" for header-style drafts
+            if (sub || recipientEmail) {
+                return <EmailCard to={recipientEmail} cc={DEFAULT_CC} subject={sub || '(No Subject)'} body={body} />;
+            }
         }
 
         const verdictMatch = content.match(REGEX_VERDICT); if (verdictMatch) return <CandidateVerdict verdict={verdictMatch[1].toUpperCase() as any} details={content.replace(verdictMatch[0], '').trim()} />;
@@ -438,6 +616,8 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                 {!isUser && !isStreaming && content && <div className="absolute -right-8 top-0 opacity-0 group-hover:opacity-100 transition-opacity delay-75"><CopyButton content={content} /></div>}
             </div>
             {toolInvocations?.map((tool, idx) => <ToolResultCard key={tool.toolCallId || idx} toolName={tool.toolName} result={tool.result} state={tool.state} />)}
+            {/* Post-draft modifier chips - only show on latest assistant message with email */}
+            {hasEmailDraft && isLatest && onModify && <PostDraftModifiers onModify={onModify} />}
         </motion.div>
     );
 });
@@ -655,6 +835,7 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
     const [isMinimized, setIsMinimized] = useState(false);
     const { workspaceMode, setWorkspaceMode } = useLayout();
     const [inputValue, setInputValue] = useState('');
+    const [modeContext, setModeContext] = useState(''); // Hidden mode context from chips
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mountedRef = useRef(true);
     const { showToast } = useToast();
@@ -676,6 +857,26 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
     const { attachments, isDragActive, isUploading, addFiles, removeFile, clearAll: clearAttachments, dragHandlers, handlePaste, fileInputRef, triggerFileSelect, totalPayloadSize } = useFileUpload({
         onUploadError: (err, file) => { console.error(`Upload error: ${file.name}`, err); showToast(`Upload failed: ${file.name}`); },
     });
+
+    // PATCH 2: Document-level paste capture (single paste target)
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const onPasteCapture = (e: Event) => {
+            const clipboardEvent = e as globalThis.ClipboardEvent;
+            const items = clipboardEvent.clipboardData?.items;
+            if (!items) return;
+
+            const hasImage = Array.from(items).some(i => i.type?.startsWith('image/'));
+            if (!hasImage) return; // allow normal text paste
+
+            // Intercept image paste
+            handlePaste(clipboardEvent as unknown as React.ClipboardEvent);
+        };
+
+        document.addEventListener('paste', onPasteCapture, true);
+        return () => document.removeEventListener('paste', onPasteCapture, true);
+    }, [isOpen, handlePaste]);
 
     // PERF: Stable history (frozen during streaming) + isolated streaming message
     // This splits O(N) per-token reconciliation → O(1) by only updating the streaming bubble
@@ -721,8 +922,8 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
         }
 
         setInputValue(''); clearAttachments(); scrollToBottomNow(); triggerHaptic();
-        await sendMessage(msg, safeFileAttachments);
-    }, [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments, showToast, totalPayloadSize]);
+        await sendMessage(msg, safeFileAttachments, { systemContext: modeContext });
+    }, [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments, showToast, totalPayloadSize, modeContext]);
 
     const containerStyle = useMemo(() => {
         if (isMinimized) return { height: 48, width: 200, bottom: 32, right: 32, borderRadius: 9999 };
@@ -741,7 +942,15 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
                 <header className={cn('flex items-center justify-between px-8 pt-6 pb-2 shrink-0 z-20 select-none', SYSTEM.surface.glass)}>
                     <div className="flex items-center gap-3"><Zap size={16} className="text-indigo-500" /><span className={SYSTEM.type.h1}>Command Center <span className="text-white/30 font-normal ml-1">Weissach</span></span></div>
                     <div className="flex items-center gap-2">
-                        <button onClick={clearChat} className="px-3 py-1.5 text-zinc-600 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all text-[11px] font-medium">Clear</button>
+                        {/* PATCH 3: Only show Clear when session has state */}
+                        {(messages.length > 0 || attachments.length > 0) && (
+                            <button
+                                onClick={() => { clearChat(); clearAttachments(); setModeContext(''); }}
+                                className="px-3 py-1.5 text-zinc-600 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all text-[11px] font-medium"
+                            >
+                                Clear
+                            </button>
+                        )}
                         <button onClick={() => setWorkspaceMode(workspaceMode === 'floating' ? 'split' : 'floating')} className="p-2 text-zinc-600 hover:text-white transition-colors">{workspaceMode === 'floating' ? <Maximize2 size={16} /> : <Minimize2 size={16} />}</button>
                         <button onClick={() => setIsMinimized(true)} className="p-2 text-zinc-600 hover:text-white transition-colors"><Minimize2 size={16} /></button>
                         <button onClick={() => { setIsOpen(false); setWorkspaceMode('floating'); }} className="p-2 text-zinc-600 hover:text-white transition-colors"><X size={16} /></button>
@@ -760,8 +969,16 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
                             ) : (
                                 <>
                                     {/* Stable history: frozen during streaming (O(1) reconciliation) */}
-                                    {stableHistory.map((msg) => (
-                                        <MessageBubble key={msg.id} role={msg.role} content={msg.content} isStreaming={false} toolInvocations={msg.toolInvocations} />
+                                    {stableHistory.map((msg, idx) => (
+                                        <MessageBubble
+                                            key={msg.id}
+                                            role={msg.role}
+                                            content={msg.content}
+                                            isStreaming={false}
+                                            toolInvocations={msg.toolInvocations}
+                                            onModify={handleSend}
+                                            isLatest={idx === stableHistory.length - 1 && !streamingMessage}
+                                        />
                                     ))}
                                     {/* Streaming message: only this component updates per token */}
                                     {streamingMessage && (
@@ -771,6 +988,8 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
                                             content={streamingMessage.content || ''}
                                             isStreaming={true}
                                             toolInvocations={streamingMessage.toolInvocations as ToolInvocation[]}
+                                            onModify={handleSend}
+                                            isLatest={true}
                                         />
                                     )}
                                 </>
@@ -790,7 +1009,26 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
                 <footer className={cn('absolute bottom-0 left-0 right-0 z-30 px-5 pt-20 pb-[max(2rem,env(safe-area-inset-bottom,0.5rem))] bg-gradient-to-t from-[#030303] via-[#030303]/95 to-transparent pointer-events-none')}>
                     <div className="pointer-events-auto relative">
                         <AnimatePresence>{isLoading && <ThinkingPill onStop={stop} status={isStreaming ? 'streaming' : 'thinking'} />}</AnimatePresence>
-                        <AnimatePresence>{stableHistory.length < 2 && !streamingMessage && !isLoading && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mb-4"><SmartChips onSelect={handleSend} /></motion.div>}</AnimatePresence>
+                        {/* Mode Pill: Shows selected mode with clear button */}
+                        {modeContext && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="mb-3 flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.08]"
+                            >
+                                <span className={cn(SYSTEM.type.mono, 'text-[10px] text-zinc-400')}>
+                                    Mode: {modeContext}
+                                </span>
+                                <button
+                                    onClick={() => setModeContext('')}
+                                    className="p-1 rounded-md text-zinc-500 hover:text-white hover:bg-white/5 transition"
+                                    aria-label="Clear mode"
+                                >
+                                    <X size={14} />
+                                </button>
+                            </motion.div>
+                        )}
+                        <AnimatePresence>{stableHistory.length < 2 && !streamingMessage && !isLoading && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mb-4"><ModeChips value={modeContext} onChange={setModeContext} /></motion.div>}</AnimatePresence>
                         <InputDeck value={inputValue} onChange={setInputValue} onSend={() => handleSend()} onStop={stop} isProcessing={isLoading} inputRef={inputRef} attachments={attachments} onRemoveAttachment={removeFile} isDragActive={isDragActive} isUploading={isUploading} dragHandlers={dragHandlers} handlePaste={handlePaste} triggerFileSelect={triggerFileSelect} fileInputRef={fileInputRef} onFilesSelected={(files) => files && addFiles(files)} />
                         {error && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-3 px-4 py-2 bg-rose-500/10 border border-rose-500/20 rounded-lg"><span className="text-[12px] text-rose-400">Error: {error}</span></motion.div>}
                     </div>

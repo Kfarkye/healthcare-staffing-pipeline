@@ -193,6 +193,48 @@ Best,
     }),
   },
   {
+    id: 'working_traveler_interest',
+    name: '📧 EMAIL: Working Traveler – Interested Click',
+    generateContent: (d) => ({
+      subject: `${d.specialty} – ${d.facility} | ${currency(d.grossWeeklyPay)}/week`,
+      body: `Hi ${d.name.split(' ')[0] || ''},
+
+I saw you clicked interested on this one — here are the details:
+
+Facility: ${d.facility}
+Location: ${d.city}, ${d.state}
+Dates: ${shortDate(d.startDate)} - ${shortDate(d.endDate)}
+Shift: ${d.shiftType} (${d.weeklyHours} hrs/wk)
+
+Pay: ${currency(d.taxableRate)}/hr + ${currency(d.weeklyStipend)}/wk stipends = ${currency(d.grossWeeklyPay)}/wk
+
+Let me know if you have any time-off needs and I'll get you submitted!
+
+Thank you!`,
+    }),
+  },
+  {
+    id: 'reengaged_traveler_interest',
+    name: '📧 EMAIL: Re-Engaged Traveler – Interested Click',
+    generateContent: (d) => ({
+      subject: `${d.specialty} – ${d.facility} | ${currency(d.grossWeeklyPay)}/week`,
+      body: `Hi ${d.name.split(' ')[0] || ''},
+
+I hope you're doing well! I saw you clicked interested on this one — here are the details:
+
+Facility: ${d.facility}
+Location: ${d.city}, ${d.state}
+Dates: ${shortDate(d.startDate)} - ${shortDate(d.endDate)}
+Shift: ${d.shiftType} (${d.weeklyHours} hrs/wk)
+
+Pay: ${currency(d.taxableRate)}/hr + ${currency(d.weeklyStipend)}/wk stipends = ${currency(d.grossWeeklyPay)}/wk
+
+Let me know if you have any time-off needs and I'll get you submitted. Happy to jump on a quick call if you'd like to chat through anything!
+
+Thank you!`,
+    }),
+  },
+  {
     id: 'competitive_offer',
     name: '📧 EMAIL: Competitive Counter Offer',
     generateContent: (d) => {

@@ -20,6 +20,10 @@ export const Intent = Object.freeze({
   OFFER_DETAILS: 'OFFER_DETAILS',
   EDIT_CONTENT: 'EDIT_CONTENT',
 
+  // Specialized recruiter workflows (buffered)
+  LICENSING_REQUEST: 'LICENSING_REQUEST',
+  REASSIGNMENT_REQUEST: 'REASSIGNMENT_REQUEST',
+
   // Streaming processing (latency-first)
   GENERAL_CHAT: 'GENERAL_CHAT',
   SEARCH_QUERY: 'SEARCH_QUERY',
@@ -42,6 +46,28 @@ const QUESTION_INDICATORS = /^(what|how|why|show|describe|tell|explain|analyze|s
  * Ordered by specificity (most specific first)
  */
 const INTENT_PATTERNS = [
+  {
+    // LICENSING_REQUEST: Must come early (very specific patterns)
+    intent: Intent.LICENSING_REQUEST,
+    patterns: [
+      /\b(licensing|license)\s*(request|info|information)\b/i,
+      /\b(request|need|get)\b.*\blicensing\b/i,
+      /\blicensing\b.*\b(specialty|state)\b/i,
+      /\bcan\s*i\s*(have|get)\s*licensing\b/i,
+    ],
+    requiresTools: false, // Template-based, no tools needed
+  },
+  {
+    // REASSIGNMENT_REQUEST: Must come early (very specific patterns)
+    intent: Intent.REASSIGNMENT_REQUEST,
+    patterns: [
+      /\b(reassign|reassignment)\b.*\b(request|candidate)\b/i,
+      /\b(please|can you)\s*reassign\b/i,
+      /\breassign\b.*\b[A-Z][a-z]+\b/i, // "reassign" followed by a name
+      /\binternal\s*reassign/i,
+    ],
+    requiresTools: true, // Needs tool to fetch Nova link
+  },
   {
     // OFFER_DETAILS must come before DRAFT_OUTREACH (more specific)
     intent: Intent.OFFER_DETAILS,

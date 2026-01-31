@@ -192,6 +192,7 @@ const EnvSchema = z.object({
 const RequestSchema = z.object({
     messages: z.array(z.any()).min(1),
     context: z.record(z.any()).optional(),
+    systemContext: z.string().optional(), // Hidden mode context from pre-draft chips
 });
 
 async function fetchTemplate(supabase, name, logger) {
@@ -531,8 +532,15 @@ export async function POST(request) {
 
         logger.info('intent_classified', { intent: classification.intent, tools: classification.requiresTools });
 
+        // Extract hidden mode context from pre-draft chips (not shown in transcript)
+        const { systemContext } = parsed.data;
+        const modeContextBlock = systemContext?.trim()
+            ? `\n\nMODE CONTEXT (Hidden from user):\nThe user has selected: "${systemContext}"\nTailor your response appropriately for this mode.\n`
+            : '';
+
         const systemPrompt = [
             getPromptForIntent(classification.intent),
+            modeContextBlock,
             context ? `\n\nCONTEXT:\n${JSON.stringify(context, null, 2)}` : '',
             `\nCurrent Time: ${new Date().toISOString()}`
         ].join('');
@@ -540,8 +548,13 @@ export async function POST(request) {
         const shouldProvideTools = classification.intent !== Intent.DRAFT_OUTREACH;
         const tools = shouldProvideTools ? createCommandCenterTools(supabase) : undefined;
 
-        // BUFFERING STRATEGY: DRAFT_OUTREACH is buffered to enable deep link injection
-        const isBuffered = classification.intent === Intent.EDIT_CONTENT || classification.intent === Intent.DRAFT_OUTREACH;
+        // BUFFERING STRATEGY: Quality-critical intents are buffered for validation
+        const isBuffered = [
+            Intent.EDIT_CONTENT,
+            Intent.DRAFT_OUTREACH,
+            Intent.LICENSING_REQUEST,
+            Intent.REASSIGNMENT_REQUEST,
+        ].includes(classification.intent);
         const needsTemplate = classification.intent === Intent.DRAFT_OUTREACH;
         let activeSystemPrompt = systemPrompt;
 

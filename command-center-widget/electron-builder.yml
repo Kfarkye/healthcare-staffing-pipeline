@@ -1,0 +1,27 @@
+appId: com.pipeline.commandcenter
+productName: Command Center
+directories:
+  output: dist-packages
+files:
+  - dist/**/*
+  - assets/**/*
+asar: true
+
+protocols:
+  name: Command Center
+  schemes:
+    - commandcenter
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+
+win:
+  target:
+    - nsis
+
+linux:
+  target:
+    - AppImage

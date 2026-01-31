@@ -55,12 +55,17 @@ export interface UseCommandCenterChatOptions {
     onToolCall?: (toolName: string, args: any) => void;
 }
 
+export interface SendMessageOptions {
+    /** Hidden system context (e.g., mode chip) - sent to API but not shown in transcript */
+    systemContext?: string;
+}
+
 export interface UseCommandCenterChatReturn {
     messages: CommandCenterMessage[];
     isLoading: boolean;
     isStreaming: boolean;
     error: string | null;
-    sendMessage: (content: string, attachments?: ImageAttachment[]) => Promise<void>;
+    sendMessage: (content: string, attachments?: ImageAttachment[], options?: SendMessageOptions) => Promise<void>;
     clearChat: () => void;
     stop: () => void;
     reload: () => void;
@@ -196,7 +201,7 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
     // ========================================================================
 
     const sendMessage = useCallback(
-        async (content: string, attachments?: ImageAttachment[]) => {
+        async (content: string, attachments?: ImageAttachment[], options?: SendMessageOptions) => {
             const hasText = Boolean(content.trim());
             const hasAtts = Boolean(attachments && attachments.length > 0);
             if (!hasText && !hasAtts) return;
@@ -287,6 +292,9 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                     return { role: m.role, content: m.content };
                 });
 
+                // Extract hidden system context (mode chips set this)
+                const systemContext = options?.systemContext?.trim() || '';
+
                 const response = await fetch('/api/chat/command-center', {
                     method: 'POST',
                     headers: {
@@ -294,6 +302,7 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                         'x-request-id': requestId,
                     },
                     body: JSON.stringify({
+                        systemContext,
                         messages: requestMessages,
                         context: stableContext,
                     }),

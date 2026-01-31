@@ -1,0 +1,40 @@
+{
+    "name": "command-center-widget",
+    "private": true,
+    "version": "0.2.1",
+    "type": "module",
+    "description": "Command Center Widget (Electron) - screenshot → draft → auto-copy",
+    "main": "dist/electron/main.cjs",
+    "license": "UNLICENSED",
+    "scripts": {
+        "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && tsup && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+        "build": "vite build && tsup && electron-builder -c electron-builder.yml",
+        "build:mac": "vite build && tsup && electron-builder -c electron-builder.yml --mac",
+        "build:win": "vite build && tsup && electron-builder -c electron-builder.yml --win",
+        "build:linux": "vite build && tsup && electron-builder -c electron-builder.yml --linux",
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "dependencies": {
+        "@supabase/supabase-js": "^2.49.1",
+        "electron-store": "^8.2.0",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1"
+    },
+    "optionalDependencies": {
+        "keytar": "^7.9.0"
+    },
+    "devDependencies": {
+        "@types/react": "^18.3.4",
+        "@types/react-dom": "^18.3.0",
+        "@vitejs/plugin-react": "^4.3.1",
+        "concurrently": "^9.0.1",
+        "cross-env": "^7.0.3",
+        "electron": "^31.4.0",
+        "electron-builder": "^24.13.3",
+        "tsup": "^8.2.4",
+        "tsx": "^4.16.2",
+        "typescript": "^5.5.4",
+        "vite": "^5.4.3",
+        "wait-on": "^7.2.0"
+    }
+}
