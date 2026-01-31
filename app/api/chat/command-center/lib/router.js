@@ -58,17 +58,12 @@ const INTENT_PATTERNS = [
     requiresTools: false, // Template-based, no tools needed
   },
   {
-    // REASSIGNMENT_REQUEST: Must come early (very specific patterns)
+    // REASSIGNMENT_REQUEST: Any mention of "reassign" or "reassignment" → this template
     intent: Intent.REASSIGNMENT_REQUEST,
     patterns: [
-      /\b(reassign|reassignment)\b.*\b(request|candidate|email|draft)?\b/i, // "reassignment" alone or with request/email/draft
-      /\b(please|can you)\s*reassign\b/i,
-      /\breassign\b.*\b[A-Z][a-z]+\b/i, // "reassign" followed by a name
-      /\binternal\s*reassign/i,
-      /\breassignment\s*(email|request|draft)?\b/i, // "reassignment email", "reassignment request", or just "reassignment"
-      /\b(draft|write|create)\b.*\breassign/i, // "draft reassignment", "write reassignment"
+      /\breassign/i, // Catches: reassign, reassignment, reassigning, etc.
     ],
-    requiresTools: true, // Needs tool to fetch Nova link
+    requiresTools: true,
   },
   {
     // OFFER_DETAILS must come before DRAFT_OUTREACH (more specific)
