@@ -61,10 +61,12 @@ const INTENT_PATTERNS = [
     // REASSIGNMENT_REQUEST: Must come early (very specific patterns)
     intent: Intent.REASSIGNMENT_REQUEST,
     patterns: [
-      /\b(reassign|reassignment)\b.*\b(request|candidate)\b/i,
+      /\b(reassign|reassignment)\b.*\b(request|candidate|email|draft)?\b/i, // "reassignment" alone or with request/email/draft
       /\b(please|can you)\s*reassign\b/i,
       /\breassign\b.*\b[A-Z][a-z]+\b/i, // "reassign" followed by a name
       /\binternal\s*reassign/i,
+      /\breassignment\s*(email|request|draft)?\b/i, // "reassignment email", "reassignment request", or just "reassignment"
+      /\b(draft|write|create)\b.*\breassign/i, // "draft reassignment", "write reassignment"
     ],
     requiresTools: true, // Needs tool to fetch Nova link
   },
