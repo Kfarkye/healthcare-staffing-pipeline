@@ -8,7 +8,11 @@
  * - Dual Protocol Stream Parsing (AI SDK data-stream + JSON event stream)
  * - Multimodal Support (base64 files: images/PDFs/text)
  *
- * @version 4.0.1 - Fixes: finishReason error surfacing, reload w/ attachments, stronger dedupe, safer deep compare
+ * @version 4.0.2 - Fixes:
+ * - No more "silent" guard failures (guards surface UI error)
+ * - Dedupe lock clears immediately on failed/aborted requests (retry works instantly)
+ * - Flushes trailing buffer when stream ends (prevents dropped last line / empty replies)
+ * - Better finishReason error surfacing (uses event.error/message when present)
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -58,6 +62,11 @@ export interface UseCommandCenterChatOptions {
 export interface SendMessageOptions {
     /** Hidden system context (e.g., mode chip) - sent to API but not shown in transcript */
     systemContext?: string;
+    /**
+     * Force bypasses duplicate-payload guard.
+     * Used for reload / explicit retries.
+     */
+    force?: boolean;
 }
 
 export interface UseCommandCenterChatReturn {
@@ -148,6 +157,28 @@ function useDeepCompareMemoize<T>(value: T): T {
     return ref.current.value;
 }
 
+function normalizeAttachments(input?: ImageAttachment[]): ImageAttachment[] {
+    if (!input || input.length === 0) return [];
+
+    const out: ImageAttachment[] = [];
+    for (const raw of input) {
+        if (!raw) continue;
+
+        const mimeType = String((raw as any).mimeType ?? '').trim();
+        const base64 = String((raw as any).base64 ?? '');
+        const fileName = (raw as any).fileName ? String((raw as any).fileName) : undefined;
+
+        if (!mimeType || !base64) {
+            // Fail fast with a real UI error; do not deadlock inFlightRef.
+            throw new Error('Attachment is missing mimeType or base64 data.');
+        }
+
+        out.push({ mimeType, base64, fileName });
+    }
+
+    return out;
+}
+
 /**
  * Stronger payload fingerprint:
  * - includes text
@@ -165,6 +196,84 @@ function fingerprintPayload(content: string, attachments?: ImageAttachment[]): s
         .join('||');
 
     return fnv1a32(`${text}||count=${atts.length}||${attSig}`);
+}
+
+function safeString(x: any): string {
+    if (typeof x === 'string') return x;
+    try {
+        return JSON.stringify(x);
+    } catch {
+        return String(x);
+    }
+}
+
+/**
+ * Stream line processor shared by loop + final flush.
+ */
+function applyStreamLine(lineRaw: string, onDelta: (s: string) => void): void {
+    const line = lineRaw.trim();
+    if (!line) return;
+
+    let payload = line.startsWith('data: ') ? line.slice(6) : line;
+    if (!payload || payload === '[DONE]') return;
+
+    // JSON event stream: parse, and only fall through on parse failure.
+    if (payload.startsWith('{')) {
+        try {
+            const event = JSON.parse(payload);
+
+            if (event?.type === 'text-delta' && typeof event.delta === 'string') {
+                onDelta(event.delta);
+                return;
+            }
+
+            if (event?.type === 'finish') {
+                // Surface real message if present.
+                const finishReason = safeString(event.finishReason ?? '');
+                const errMsg = (event.error && safeString(event.error)) || (event.message && safeString(event.message)) || '';
+
+                if (finishReason === 'error') {
+                    throw new Error(errMsg || 'Server stream failed with error');
+                }
+
+                // ignore normal finishes; caller will finalize
+                return;
+            }
+
+            // Ignore other JSON events
+            return;
+        } catch {
+            // fall through to data-stream protocol
+        }
+    }
+
+    // Data-stream protocol: "CHANNEL:PAYLOAD"
+    const colonIndex = payload.indexOf(':');
+    if (colonIndex === -1) return;
+
+    const channel = payload.slice(0, colonIndex);
+    const dataPayload = payload.slice(colonIndex + 1);
+
+    if (channel === '0') {
+        // Text payload
+        try {
+            const text = JSON.parse(dataPayload);
+            if (typeof text === 'string') onDelta(text);
+        } catch {
+            onDelta(dataPayload);
+        }
+        return;
+    }
+
+    if (channel === '9') {
+        // Error channel
+        try {
+            const errMsg = JSON.parse(dataPayload);
+            if (typeof errMsg === 'string' && errMsg.trim()) throw new Error(errMsg);
+        } catch {
+            if (dataPayload.trim()) throw new Error(dataPayload);
+        }
+    }
 }
 
 // ============================================================================
@@ -201,85 +310,97 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
     // ========================================================================
 
     const sendMessage = useCallback(
-        async (content: string, attachments?: ImageAttachment[], options?: SendMessageOptions) => {
-            const hasText = Boolean(content.trim());
-            const hasAtts = Boolean(attachments && attachments.length > 0);
-            if (!hasText && !hasAtts) return;
+        async (content: string, attachments?: ImageAttachment[], sendOptions?: SendMessageOptions) => {
+            const force = Boolean(sendOptions?.force);
 
-            // Guard 1: hard in-flight gate
-            if (inFlightRef.current) {
-                console.warn('[CommandCenterChat] BLOCKED: Request already in flight');
-                return;
-            }
-
-            // Guard 2: stronger duplicate fingerprint
-            const payloadHash = fingerprintPayload(content, attachments);
-            if (lastPayloadHashRef.current === payloadHash) {
-                console.warn('[CommandCenterChat] BLOCKED: Duplicate payload detected');
-                return;
-            }
-
-            inFlightRef.current = true;
-            lastPayloadHashRef.current = payloadHash;
-
-            abortControllerRef.current = new AbortController();
-            const signal = abortControllerRef.current.signal;
-
-            const requestId = generateId();
-            console.log(`[CommandCenterChat] Request ${requestId} starting (hash: ${payloadHash})`);
-
-            // Build multimodal parts for API
-            const parts: MessagePart[] = [];
-
-            if (hasText) {
-                parts.push({ type: 'text', text: content });
-            }
-
-            if (hasAtts) {
-                for (const att of attachments!) {
-                    parts.push({
-                        type: 'file',
-                        mimeType: att.mimeType,
-                        data: att.base64,
-                        fileName: att.fileName,
-                    });
-                }
-            }
-
-            // Build display content (keep UI readable; keep parts for true payload)
-            let displayContent = content;
-            if (hasAtts) {
-                const attachmentNames = attachments!.map((a) => a.fileName || 'Attachment').join(', ');
-                displayContent = hasText ? `${content}\n\n📎 ${attachmentNames}` : `📎 ${attachmentNames}`;
-            }
-
-            const userMessage: CommandCenterMessage = {
-                id: generateId(),
-                role: 'user',
-                content: displayContent,
-                parts,
-                createdAt: new Date(),
-            };
-
-            const assistantMessage: CommandCenterMessage = {
-                id: generateId(),
-                role: 'assistant',
-                content: '',
-                createdAt: new Date(),
-            };
-
-            // Optimistic update
-            const newHistory = [...messagesRef.current, userMessage, assistantMessage];
-            setMessages(newHistory);
-
-            setIsLoading(true);
-            setIsStreaming(false);
-            // NOTE: Don't clear error here - let it persist until we get a successful response
-            // This ensures user sees the error before it disappears on retry
-
+            let normalizedAtts: ImageAttachment[] = [];
+            let payloadHash: string | null = null;
             let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
+            // Track outcome for dedupe clearing policy
+            let didStartStream = false;
+            let didFail = false;
+
             try {
+                // Normalize attachments FIRST so we cannot deadlock with inFlightRef set.
+                normalizedAtts = normalizeAttachments(attachments);
+
+                const hasText = Boolean(content.trim());
+                const hasAtts = normalizedAtts.length > 0;
+                if (!hasText && !hasAtts) return;
+
+                // Guard 1: hard in-flight gate
+                if (inFlightRef.current) {
+                    // No silent fail: surface UI error.
+                    setError('Request already in progress. Tap Stop, then retry.');
+                    return;
+                }
+
+                // Guard 2: duplicate fingerprint (bypassable by force)
+                payloadHash = fingerprintPayload(content, normalizedAtts);
+                if (!force && lastPayloadHashRef.current === payloadHash) {
+                    setError('Duplicate send blocked. Retry after a moment, or use Reload.');
+                    return;
+                }
+
+                // From here on, guarantee release in finally.
+                inFlightRef.current = true;
+                lastPayloadHashRef.current = payloadHash;
+
+                abortControllerRef.current = new AbortController();
+                const signal = abortControllerRef.current.signal;
+
+                const requestId = generateId();
+                console.log(`[CommandCenterChat] Request ${requestId} starting (hash: ${payloadHash})`);
+
+                // Build multimodal parts for API
+                const parts: MessagePart[] = [];
+
+                if (hasText) {
+                    parts.push({ type: 'text', text: content });
+                }
+
+                if (hasAtts) {
+                    for (const att of normalizedAtts) {
+                        parts.push({
+                            type: 'file',
+                            mimeType: att.mimeType,
+                            data: att.base64,
+                            fileName: att.fileName,
+                        });
+                    }
+                }
+
+                // Build display content (keep UI readable; keep parts for true payload)
+                let displayContent = content;
+                if (hasAtts) {
+                    const attachmentNames = normalizedAtts.map((a) => a.fileName || 'Attachment').join(', ');
+                    displayContent = hasText ? `${content}\n\n📎 ${attachmentNames}` : `📎 ${attachmentNames}`;
+                }
+
+                const userMessage: CommandCenterMessage = {
+                    id: generateId(),
+                    role: 'user',
+                    content: displayContent,
+                    parts,
+                    createdAt: new Date(),
+                };
+
+                const assistantMessage: CommandCenterMessage = {
+                    id: generateId(),
+                    role: 'assistant',
+                    content: '',
+                    createdAt: new Date(),
+                };
+
+                // Optimistic update
+                const newHistory = [...messagesRef.current, userMessage, assistantMessage];
+                setMessages(newHistory);
+
+                setIsLoading(true);
+                setIsStreaming(false);
+                // Intentionally do NOT clear error here; clear only after stream starts successfully.
+
                 // TRUNCATE: message-count based (add byte-cap on server for true safety)
                 const MAX_HISTORY_MESSAGES = 40;
                 const historyForApi = newHistory.slice(0, -1); // exclude placeholder assistant
@@ -294,7 +415,7 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                 });
 
                 // Extract hidden system context (mode chips set this)
-                const systemContext = options?.systemContext?.trim() || '';
+                const systemContext = sendOptions?.systemContext?.trim() || '';
 
                 const response = await fetch('/api/chat/command-center', {
                     method: 'POST',
@@ -318,7 +439,9 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                 if (!response.body) throw new Error('No response body');
 
                 setIsStreaming(true);
-                setError(null); // Clear error only on successful stream start
+                setError(null); // Clear error only once we have a successful stream.
+
+                didStartStream = true;
 
                 reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -327,6 +450,10 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                 let buffer = '';
                 let lastRenderTime = 0;
                 const RENDER_THROTTLE_MS = 16;
+
+                const onDelta = (s: string) => {
+                    accumulatedText += s;
+                };
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -338,62 +465,8 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                     buffer = lines.pop() || '';
 
                     for (const line of lines) {
-                        if (!line.trim()) continue;
-
-                        let payload = line.startsWith('data: ') ? line.slice(6) : line;
-
-                        if (payload === '[DONE]') continue;
-
-                        // JSON event stream: parse ONLY parse errors, never swallow intentional throws
-                        if (payload.startsWith('{')) {
-                            let event: any | null = null;
-                            try {
-                                event = JSON.parse(payload);
-                            } catch {
-                                event = null;
-                            }
-
-                            if (event) {
-                                if (event.type === 'text-delta' && typeof event.delta === 'string') {
-                                    accumulatedText += event.delta;
-                                }
-
-                                if (event.type === 'finish' && event.finishReason === 'error') {
-                                    throw new Error('Server stream failed with error');
-                                }
-
-                                // Ignore non-text events
-                                continue;
-                            }
-                            // If JSON parse failed, fall through to data-stream protocol
-                        }
-
-                        // Data-stream protocol: "CHANNEL:PAYLOAD"
-                        const colonIndex = payload.indexOf(':');
-                        if (colonIndex === -1) continue;
-
-                        const channel = payload.slice(0, colonIndex);
-                        const dataPayload = payload.slice(colonIndex + 1);
-
-                        if (channel === '0') {
-                            // Text payload
-                            try {
-                                const text = JSON.parse(dataPayload);
-                                if (typeof text === 'string') accumulatedText += text;
-                            } catch {
-                                accumulatedText += dataPayload;
-                            }
-                        } else if (channel === '9') {
-                            // Error channel (if used)
-                            try {
-                                const errMsg = JSON.parse(dataPayload);
-                                if (typeof errMsg === 'string' && errMsg.trim()) {
-                                    throw new Error(errMsg);
-                                }
-                            } catch {
-                                if (dataPayload.trim()) throw new Error(dataPayload);
-                            }
-                        }
+                        // applyStreamLine throws on stream error signals; let it bubble
+                        applyStreamLine(line, onDelta);
                     }
 
                     const now = Date.now();
@@ -412,16 +485,16 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                     }
                 }
 
+                // Flush trailing buffer (critical if the final frame lacks '\n')
+                if (!signal.aborted && buffer.trim()) {
+                    applyStreamLine(buffer, onDelta);
+                    buffer = '';
+                }
+
                 // Final sync (no dropped tail)
                 if (!signal.aborted) {
                     if (!accumulatedText.trim()) {
-                        setError('No response received. Please try again.');
-                        setMessages((prev) => {
-                            const last = prev[prev.length - 1];
-                            if (last?.role === 'assistant' && !last.content) return prev.slice(0, -1);
-                            return prev;
-                        });
-                        return;
+                        throw new Error('No response received. Please try again.');
                     }
 
                     setMessages((prev) => {
@@ -434,11 +507,13 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                     });
                 }
             } catch (err: any) {
+                didFail = true;
+
                 if (err?.name === 'AbortError') return;
 
                 console.error('[CommandCenterChat] Error:', err);
                 setError(err?.message || 'An error occurred');
-                onError?.(err);
+                onError?.(err instanceof Error ? err : new Error(String(err)));
 
                 setMessages((prev) => {
                     const last = prev[prev.length - 1];
@@ -453,14 +528,20 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                     // ignore
                 }
 
-                inFlightRef.current = false;
                 abortControllerRef.current = null;
+                inFlightRef.current = false;
 
-                // Allow resend after short delay (legit retries)
-                const currentHash = lastPayloadHashRef.current;
-                setTimeout(() => {
-                    if (lastPayloadHashRef.current === currentHash) lastPayloadHashRef.current = null;
-                }, 300);
+                // Dedupe clearing policy:
+                // - If the request failed or was aborted, clear immediately so retry works instantly.
+                // - If it succeeded, keep a short window to prevent accidental double-send.
+                if (didFail || !didStartStream) {
+                    lastPayloadHashRef.current = null;
+                } else {
+                    const currentHash = lastPayloadHashRef.current;
+                    setTimeout(() => {
+                        if (lastPayloadHashRef.current === currentHash) lastPayloadHashRef.current = null;
+                    }, 300);
+                }
 
                 // Always reset UI flags (stop() already does this, but keep invariant)
                 setIsLoading(false);
@@ -482,6 +563,8 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
         setError(null);
         setIsLoading(false);
         setIsStreaming(false);
+        inFlightRef.current = false;
+        lastPayloadHashRef.current = null;
     }, []);
 
     const stop = useCallback(() => {
@@ -512,7 +595,7 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
             : undefined;
 
         setMessages(history.slice(0, keepIdx));
-        void sendMessage(reconstructedText, reconstructedAttachments);
+        void sendMessage(reconstructedText, reconstructedAttachments, { force: true });
     }, [sendMessage]);
 
     const status: UseCommandCenterChatReturn['status'] = error
