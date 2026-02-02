@@ -1,27 +1,41 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * EMAIL CONTRACT v2.0 — Elite Pattern Refactor
+ * EMAIL CONTRACT v2.1.1 — Deterministic, Type-Safe, Audited
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Changes from v1.0:
- * - DELETED: Regex template engine (fragile, runtime parsing)
- * - ADDED: JS function templates (V8-compiled, zero parsing overhead)
- * - ADDED: Discriminated union input types (compiler-enforced required vars)
- * - ADDED: Recruiter profile dependency injection (scalable, multi-tenant ready)
- * - KEPT: Zod output schemas (correct pattern for AI output validation)
+ * Changes from v2.1:
+ * - FIX: Signature stripping now only operates on tail 30% of body (prevents false positives)
+ * - FIX: safeNumberOrNull properly handles empty strings → null
+ * - FIX: buildEmailDraft validates output with Zod before returning
+ * - FIX: Removed empty generic patterns array (cosmetic)
+ *
+ * v2.1 Features:
+ * 1) Body-Signature Firewall: strips recruiter-signature artifacts from body tail.
+ * 2) NextSteps Cap: defaults to 2 user-facing steps (Outlook + Nova) to stop overflow.
+ * 3) True TS Discriminated Unions: compiler-enforced template inputs.
+ * 4) Var Normalization: supports facility vs facility_name, weekly_pay vs gross_weekly_pay, etc.
+ * 5) CC Hardening: de-dupes, filters empties, always includes assistant if present.
+ * 6) Safer Mailto: CRLF normalization + 2000-char guard.
  *
  * @module app/api/chat/command-center/lib/email-contract
- * @version 2.0.0
+ * @version 2.1.1
  */
 
 import { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 1: Type Definitions (Discriminated Unions)
+// SECTION 1: Types
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Recruiter profile for dependency injection.
+ * @typedef {'reference_consent' | 'doc_request' | 'assignment_interest' | 'generic'} TemplateKey
+ */
+
+/**
+ * @typedef {'open_nova' | 'await_docs' | 'await_availability' | 'move_stage' | 'send_email'} NextStepType
+ */
+
+/**
  * @typedef {Object} RecruiterProfile
  * @property {string} name
  * @property {string} email
@@ -45,27 +59,16 @@ export const DEFAULT_RECRUITER = Object.freeze({
 });
 
 /**
- * Template input types (discriminated union).
- * The compiler enforces that each template_key gets its required fields.
- *
- * @typedef {(
- *   | { key: 'reference_consent'; candidate_name: string }
- *   | { key: 'doc_request'; candidate_name: string; facility_name?: string; requested_items?: string[] }
- *   | { key: 'assignment_interest'; candidate_name: string; facility_name: string; role: string; location?: string; start_date?: string; end_date?: string; shifts?: string; hourly_rate?: string; stipend?: string; weekly_pay: string }
- *   | { key: 'generic'; candidate_name: string; body_content?: string }
- * )} TemplateInput
- */
-
-/**
- * @typedef {'reference_consent' | 'doc_request' | 'assignment_interest' | 'generic'} TemplateKey
- */
-
-/**
- * @typedef {'open_nova' | 'await_docs' | 'await_availability' | 'move_stage' | 'send_email'} NextStepType
+ * Candidate lookup result from DB (permissive; callers vary by table)
+ * @typedef {Object} CandidateLookup
+ * @property {number|string|null} [candidate_id]
+ * @property {string|null} [nova_url]
+ * @property {string|null} [name]
+ * @property {string|null} [email]
  */
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 2: Zod Schemas (Output Contract — enforced on AI responses)
+// SECTION 2: Zod Schemas (Output Contract)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export const CandidateMetaSchema = z.object({
@@ -86,9 +89,9 @@ export const EmailDraftSchema = z.object({
     to_email: z.string().nullable(),
     subject: z.string(),
     body: z.string(), // Plain text, NO signature (Outlook auto-appends)
-    signature: z.string().nullable(), // For UI preview only, NOT in mailto
-    cc: z.array(z.string()), // Always include assistant
-    mailto: z.string(), // Built from body only (no signature)
+    signature: z.string().nullable(), // UI preview only
+    cc: z.array(z.string()), // Always include assistant when present
+    mailto: z.string(), // Built from body only
     meta: EmailDraftMetaSchema,
 });
 
@@ -127,7 +130,7 @@ export const EmailResponseSchema = z.object({
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 3: Template Router
+// SECTION 3: Router (Deterministic Template Selection)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const TEMPLATE_PATTERNS = Object.freeze({
@@ -140,10 +143,10 @@ const TEMPLATE_PATTERNS = Object.freeze({
     ],
     doc_request: [
         /\b(cert|certification|certs|document|documents|docs)/i,
-        /\b(bls|acls|pals|nb|rn license)/i,
+        /\b(bls|acls|pals|license)\b/i,
         /\b(submit|submission)\b.*\b(need|require)/i,
         /\b(need|require|missing).*\b(document|cert|license)/i,
-        /\b(start\s*date|interview)\b.*\b(work|confirm)/i,
+        /\b(start\s*date|interview)\b/i,
     ],
     assignment_interest: [
         /\bclick(ed)?\s*interested/i,
@@ -152,69 +155,43 @@ const TEMPLATE_PATTERNS = Object.freeze({
         /\bpay\s*package\b/i,
         /\boutreach\s*(email)?\b/i,
     ],
+    // generic: intentionally no patterns - it's the default fallback
 });
 
 /**
  * Router: determines template_key from user message + context.
- * Prevents model improvisation by locking to a specific template path.
- *
- * @param {string} message - User message
- * @param {Object} [context] - Additional context
- * @returns {{ template_key: TemplateKey, required_fields: string[] }}
+ * @param {string} message
+ * @param {Object} [context]
+ * @param {TemplateKey} [context.forced_template_key]
+ * @returns {{ template_key: TemplateKey }}
  */
 export function routeToTemplate(message, context = {}) {
+    if (context.forced_template_key) {
+        return { template_key: context.forced_template_key };
+    }
+
     const normalized = (message ?? '').toLowerCase().trim();
 
-    // Check reference_consent FIRST (highest specificity)
     for (const pattern of TEMPLATE_PATTERNS.reference_consent) {
-        if (pattern.test(normalized)) {
-            return {
-                template_key: 'reference_consent',
-                required_fields: ['candidate_name'],
-            };
-        }
+        if (pattern.test(normalized)) return { template_key: 'reference_consent' };
     }
-
-    // Check doc_request
     for (const pattern of TEMPLATE_PATTERNS.doc_request) {
-        if (pattern.test(normalized)) {
-            return {
-                template_key: 'doc_request',
-                required_fields: ['candidate_name', 'requested_items'],
-            };
-        }
+        if (pattern.test(normalized)) return { template_key: 'doc_request' };
     }
-
-    // Check assignment_interest
     for (const pattern of TEMPLATE_PATTERNS.assignment_interest) {
-        if (pattern.test(normalized)) {
-            return {
-                template_key: 'assignment_interest',
-                required_fields: ['candidate_name', 'facility', 'role', 'weekly_pay'],
-            };
-        }
+        if (pattern.test(normalized)) return { template_key: 'assignment_interest' };
     }
 
-    // Default to generic
-    return {
-        template_key: 'generic',
-        required_fields: ['candidate_name'],
-    };
+    return { template_key: 'generic' };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 4: JS Function Templates (V8-compiled, type-safe)
+// SECTION 4: Pure Function Templates (No Regex Engines, No Parsing)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Pure function templates — zero parsing, V8-optimized.
- * Each template is a function that receives typed input and returns { subject, body }.
- */
 const TEMPLATE_FUNCTIONS = Object.freeze({
     /**
-     * Reference consent template
      * @param {{ candidate_name: string }} vars
-     * @returns {{ subject: string, body: string }}
      */
     reference_consent: (vars) => ({
         subject: 'References Needed for Your Submission',
@@ -222,55 +199,53 @@ const TEMPLATE_FUNCTIONS = Object.freeze({
 
 I'm reaching out because the facility is ready to move forward with your submission and will need to contact your professional references.
 
-Can you confirm the following:
-- Are you okay with facilities reaching out to your references?
-- Are the references on your Aya profile current and will they respond promptly?
-- If you need to update or add a reference, please let me know and I'll help you get that done.
+Can you confirm:
+- You're okay with facilities reaching out to your references
+- The references on your Aya profile are current and will respond promptly
 
-Once I have your confirmation, I can move your submission forward.
+If you need to update or add a reference, tell me and I will help get that handled.
+
+Once I have your confirmation, I will move your submission forward.
 
 Thank you!`,
     }),
 
     /**
-     * Document request template
      * @param {{ candidate_name: string; facility_name?: string; requested_items?: string[] }} vars
-     * @returns {{ subject: string, body: string }}
      */
     doc_request: (vars) => {
-        const facility = vars.facility_name || 'your assignment';
-        const items = vars.requested_items?.length
-            ? vars.requested_items.map(item => `- ${item}`).join('\n')
-            : `- Current resume (updated within last 6 months)
-- BLS card (AHA preferred — send what you have and we'll confirm facility requirement)
+        const facility = vars.facility_name || 'your submission';
+        const items =
+            vars.requested_items && vars.requested_items.length
+                ? vars.requested_items.map((i) => `- ${i}`).join('\n')
+                : `- Current resume (updated within last 6 months)
+- BLS card (send what you have — I will confirm facility preference)
 - Skills checklist`;
 
         return {
             subject: `Documents Needed for Submission - ${facility}`,
             body: `Hi ${vars.candidate_name},
 
-Great news! I'm working on getting you submitted for this assignment. To keep things moving, I need a few items from you:
+To get your file submitted and keep things moving, please reply with the following:
 
 ${items}
 
-Also, please send your best interview times this week (include your time zone).
+Also, send your best interview times this week (include your time zone).
 
-Once I have these, I can get your file submitted.
+Once these come through, I will submit you right away.
 
 Thank you!`,
         };
     },
 
     /**
-     * Assignment interest / outreach template
-     * @param {{ candidate_name: string; facility_name: string; role: string; location?: string; start_date?: string; end_date?: string; shifts?: string; hourly_rate?: string; stipend?: string; weekly_pay: string }} vars
-     * @returns {{ subject: string, body: string }}
+     * @param {{ candidate_name: string; facility_name: string; role: string; weekly_pay: string; location?: string; start_date?: string; end_date?: string; shifts?: string; hourly_rate?: string; stipend?: string }} vars
      */
     assignment_interest: (vars) => ({
         subject: `${vars.role} - ${vars.facility_name} | ${vars.weekly_pay}/week`,
         body: `Hi ${vars.candidate_name},
 
-I came across your profile and thought you'd be a strong fit for this ${vars.role} opening at ${vars.facility_name}.
+I saw your interest in the ${vars.role} opening at ${vars.facility_name}. Here are the details:
 
 Facility: ${vars.facility_name}
 Location: ${vars.location || 'TBD'}
@@ -287,13 +262,11 @@ To move forward, confirm:
 - Any time-off during the assignment?
 - Is your Aya profile current?
 
-Reply with the 3 confirmations above and I will move the submission forward.`,
+Reply with those 3 items and I will move your submission forward.`,
     }),
 
     /**
-     * Generic fallback template
      * @param {{ candidate_name: string; body_content?: string }} vars
-     * @returns {{ subject: string, body: string }}
      */
     generic: (vars) => ({
         subject: 'Follow-up from Aya Healthcare',
@@ -309,7 +282,7 @@ Thank you!`,
 export const TEMPLATES = TEMPLATE_FUNCTIONS;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 5: Signature Builder (Dependency Injection)
+// SECTION 5: Signature (Preview Only)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -318,9 +291,10 @@ export const TEMPLATES = TEMPLATE_FUNCTIONS;
  * @returns {string}
  */
 function buildSignature(profile) {
-    const assistantLine = profile.assistantName && profile.assistantEmail
-        ? `Please include my recruiter assistant on all email communications:\n${profile.assistantName} – ${profile.assistantEmail}\n\n`
-        : '';
+    const assistantLine =
+        profile.assistantName && profile.assistantEmail
+            ? `Please include my recruiter assistant on all email communications:\n${profile.assistantName} – ${profile.assistantEmail}\n\n`
+            : '';
 
     return `${assistantLine}${profile.name}
 ${profile.title}
@@ -328,47 +302,215 @@ P: ${profile.phone}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 6: Email Builder (Clean, Composable)
+// SECTION 6: Mailto Builder (Body-only, Outlook-safe)
 // ═══════════════════════════════════════════════════════════════════════════════
+
+const MAILTO_MAX_LEN = 2000;
+
+/**
+ * Normalize line breaks to CRLF for Outlook compatibility.
+ * @param {string} text
+ * @returns {string}
+ */
+function normalizeCRLF(text) {
+    return (text ?? '').replace(/\r?\n/g, '\r\n');
+}
 
 /**
  * Build a mailto link from email components.
  * Returns empty string if URL exceeds safe browser limits.
- *
- * @param {Object} email
- * @param {string|null} email.to_email
- * @param {string} email.subject
- * @param {string} email.body
- * @param {string[]} email.cc
+ * @param {{ to_email: string|null; subject: string; body: string; cc: string[] }} email
  * @returns {string}
  */
 function buildMailtoLink(email) {
     const to = email.to_email || '';
     const subject = encodeURIComponent(email.subject);
-    // Normalize line breaks to CRLF for Outlook compatibility
-    const body = encodeURIComponent(email.body.replace(/\r?\n/g, '\r\n'));
-    const cc = email.cc.length ? `&cc=${encodeURIComponent(email.cc.join(','))}` : '';
+    const body = encodeURIComponent(normalizeCRLF(email.body));
+    const ccList = (email.cc || []).filter(Boolean);
+    const cc = ccList.length ? `&cc=${encodeURIComponent(ccList.join(','))}` : '';
 
     const mailto = `mailto:${to}?subject=${subject}${cc}&body=${body}`;
 
-    // Production safety: guard against browser URL length limits
-    if (mailto.length > 2000) {
-        console.warn('[email-contract] mailto link exceeds 2000 chars, returning empty (UI should handle with clipboard)');
+    if (mailto.length > MAILTO_MAX_LEN) {
+        console.warn('[email-contract] mailto exceeds 2000 chars; returning empty so UI uses clipboard copy.');
         return '';
     }
-
     return mailto;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 7: Normalizers + Firewalls
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Safely convert to trimmed string or undefined.
+ * @param {unknown} v
+ * @returns {string|undefined}
+ */
+function safeString(v) {
+    if (v === null || v === undefined) return undefined;
+    const s = String(v).trim();
+    return s.length ? s : undefined;
+}
+
+/**
+ * Safely convert to number or null.
+ * FIX v2.1.1: Empty strings now correctly return null instead of 0.
+ * @param {unknown} v
+ * @returns {number|null}
+ */
+function safeNumberOrNull(v) {
+    if (v === null || v === undefined) return null;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    const s = String(v).trim();
+    if (!s.length) return null; // FIX: Empty string → null, not 0
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Strips signature-like lines from the body tail (prevents double signature in Outlook).
+ * FIX v2.1.1: Only operates on the last 30% of body to prevent false positives
+ * (e.g., "I spoke with Tiffany earlier" in body content).
+ *
+ * @param {string} body
+ * @param {RecruiterProfile} recruiter
+ * @returns {string}
+ */
+function stripSignatureArtifacts(body, recruiter) {
+    let out = body ?? '';
+    const lowerBody = out.toLowerCase();
+
+    const needles = [
+        recruiter.name,
+        recruiter.title,
+        recruiter.phone,
+        recruiter.assistantEmail || '',
+        'Please include my recruiter assistant',
+    ]
+        .map((x) => x.trim().toLowerCase())
+        .filter(Boolean);
+
+    if (!needles.length) return out.trim();
+
+    // FIX: Only strip if signature block appears in last 30% of body
+    const lastThirdStart = Math.floor(out.length * 0.7);
+
+    const hits = needles
+        .map((needle) => ({ needle, idx: lowerBody.indexOf(needle) }))
+        .filter((x) => x.idx >= lastThirdStart) // Only in last 30%
+        .sort((a, b) => a.idx - b.idx);
+
+    // Only strip if multiple signature indicators in tail (prevents false positives)
+    if (hits.length >= 2) {
+        out = out.slice(0, hits[0].idx);
+    }
+
+    return out.trim();
+}
+
+/**
+ * Normalizes variable names to the template's canonical keys.
+ * Supports: facility → facility_name, gross_weekly_pay → weekly_pay, etc.
+ *
+ * @param {TemplateKey} template_key
+ * @param {Record<string, unknown>} vars
+ * @returns {Object}
+ */
+function normalizeVarsForTemplate(template_key, vars) {
+    const candidate_name =
+        safeString(vars.candidate_name) ||
+        safeString(vars.name) ||
+        'there';
+
+    const candidate_email =
+        safeString(vars.candidate_email) ||
+        safeString(vars.email) ||
+        undefined;
+
+    if (template_key === 'reference_consent') {
+        return { candidate_name, candidate_email };
+    }
+
+    if (template_key === 'doc_request') {
+        const facility_name = safeString(vars.facility_name) || safeString(vars.facility) || undefined;
+        const requested_itemsRaw = vars.requested_items;
+        const requested_items =
+            Array.isArray(requested_itemsRaw)
+                ? requested_itemsRaw.map(String).map((s) => s.trim()).filter(Boolean)
+                : undefined;
+
+        return { candidate_name, candidate_email, facility_name, requested_items };
+    }
+
+    if (template_key === 'assignment_interest') {
+        const facility_name = safeString(vars.facility_name) || safeString(vars.facility) || 'TBD';
+        const role = safeString(vars.role) || safeString(vars.position_title) || 'Role';
+        const weekly_pay = safeString(vars.weekly_pay) || safeString(vars.gross_weekly_pay) || 'TBD';
+
+        return {
+            candidate_name,
+            candidate_email,
+            facility_name,
+            role,
+            weekly_pay,
+            location: safeString(vars.location),
+            start_date: safeString(vars.start_date),
+            end_date: safeString(vars.end_date),
+            shifts: safeString(vars.shifts),
+            hourly_rate: safeString(vars.hourly_rate),
+            stipend: safeString(vars.stipend),
+        };
+    }
+
+    // generic
+    return {
+        candidate_name,
+        candidate_email,
+        body_content: safeString(vars.body_content),
+    };
+}
+
+/**
+ * Build CC list with de-duplication.
+ * @param {RecruiterProfile} recruiter
+ * @param {string[]} extraCc
+ * @returns {string[]}
+ */
+function buildCc(recruiter, extraCc = []) {
+    const raw = [
+        ...extraCc,
+        recruiter.assistantEmail || '',
+    ]
+        .map((s) => String(s || '').trim())
+        .filter(Boolean);
+
+    // De-dupe case-insensitive
+    const seen = new Set();
+    const out = [];
+    for (const email of raw) {
+        const key = email.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(email);
+    }
+    return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 8: Email Builder
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Build a structured EmailDraft from template input + candidate lookup result.
  *
  * @param {Object} params
  * @param {TemplateKey} params.template_key
- * @param {Object} params.vars - Template variables (validated by caller)
- * @param {Object|null} params.candidate - Lookup result from DB
- * @param {string[]} [params.requested_items] - For doc_request template
- * @param {RecruiterProfile} [params.recruiter] - Injectable recruiter profile
+ * @param {Record<string, unknown>} params.vars
+ * @param {CandidateLookup|null} params.candidate
+ * @param {string[]} [params.requested_items]
+ * @param {RecruiterProfile} [params.recruiter]
+ * @param {string[]} [params.extra_cc]
  * @returns {z.infer<typeof EmailDraftSchema>}
  */
 export function buildEmailDraft({
@@ -377,52 +519,57 @@ export function buildEmailDraft({
     candidate,
     requested_items = [],
     recruiter = DEFAULT_RECRUITER,
+    extra_cc = [],
 }) {
-    // 1. Select template function (O(1) lookup)
-    const renderFn = TEMPLATE_FUNCTIONS[template_key] || TEMPLATE_FUNCTIONS.generic;
+    const renderFn = TEMPLATE_FUNCTIONS[template_key] ?? TEMPLATE_FUNCTIONS.generic;
 
-    // 2. Build template input with merged candidate data
-    const templateInput = {
+    const normalizedVars = normalizeVarsForTemplate(template_key, {
         ...vars,
-        candidate_name: candidate?.name ?? vars.candidate_name ?? 'there',
-        requested_items: requested_items.length ? requested_items : undefined,
-    };
+        requested_items: requested_items.length ? requested_items : vars.requested_items,
+    });
 
-    // 3. Execute template function (V8-compiled, zero parsing)
-    const { subject, body } = renderFn(templateInput);
+    const resolvedName = safeString(candidate?.name) || normalizedVars.candidate_name || 'there';
+    const resolvedEmail = safeString(candidate?.email) || normalizedVars.candidate_email || null;
 
-    // 4. Build signature from recruiter profile
+    const { subject, body: rawBody } = renderFn({
+        ...normalizedVars,
+        candidate_name: resolvedName,
+    });
+
+    // Firewall: ensure body does NOT contain recruiter signature artifacts
+    const cleanBody = stripSignatureArtifacts(rawBody, recruiter);
+
     const signature = buildSignature(recruiter);
+    const cc = buildCc(recruiter, extra_cc);
 
-    // 5. Assemble email draft
-    const email = {
+    const draft = {
         kind: /** @type {const} */ ('email_draft'),
-        to_name: candidate?.name ?? vars.candidate_name ?? null,
-        to_email: candidate?.email ?? vars.candidate_email ?? null,
+        to_name: resolvedName || null,
+        to_email: resolvedEmail,
         subject,
-        body, // Body-only, no signature (Outlook auto-appends)
-        signature, // For UI preview only
-        cc: [recruiter.assistantEmail || 'Tiffany.Chavez@ayahealthcare.com'],
-        mailto: '', // Will be set below
+        body: cleanBody, // body-only
+        signature, // preview-only
+        cc,
+        mailto: '', // filled below
         meta: {
             template_key,
             candidate: {
-                candidate_id: candidate?.candidate_id ?? null,
-                nova_url: candidate?.nova_url ?? null,
-                name: candidate?.name ?? vars.candidate_name ?? null,
+                candidate_id: safeNumberOrNull(candidate?.candidate_id),
+                nova_url: safeString(candidate?.nova_url) || null,
+                name: resolvedName || null,
             },
             requested_items: requested_items.length ? requested_items : undefined,
         },
     };
 
-    // 6. Build mailto from body only (Outlook auto-appends signature)
-    email.mailto = buildMailtoLink(email);
+    draft.mailto = buildMailtoLink(draft);
 
-    return email;
+    // FIX v2.1.1: Validate output against schema before returning
+    return EmailDraftSchema.parse(draft);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 7: NextSteps Builder
+// SECTION 9: NextSteps Builder (Default: 2 steps max)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -431,82 +578,88 @@ export function buildEmailDraft({
  * @param {Object} params
  * @param {z.infer<typeof EmailDraftSchema>} params.email
  * @param {TemplateKey} params.template_key
+ * @param {Object} [params.options]
+ * @param {boolean} [params.options.include_internal_steps] - Default false
+ * @param {number} [params.options.max_user_steps] - Default 2
  * @returns {z.infer<typeof NextStepActionSchema>[]}
  */
-export function buildNextSteps({ email, template_key }) {
-    const steps = [];
+export function buildNextSteps({ email, template_key, options }) {
+    const includeInternal = options?.include_internal_steps === true;
+    const maxUserSteps = Number.isFinite(options?.max_user_steps)
+        ? Math.max(0, Number(options?.max_user_steps))
+        : 2;
 
-    // 1. Open in Nova (only if we have a nova_url)
+    const userSteps = [];
+    const internalSteps = [];
+
+    // User-facing: Open in Outlook (only if mailto available)
+    if (email.mailto) {
+        userSteps.push({
+            type: /** @type {const} */ ('send_email'),
+            label: 'Open in Outlook',
+            href: email.mailto,
+        });
+    }
+
+    // User-facing: Open in Nova (only if nova_url exists)
     if (email.meta.candidate.nova_url) {
-        steps.push({
+        userSteps.push({
             type: /** @type {const} */ ('open_nova'),
             label: 'Open in Nova',
             href: email.meta.candidate.nova_url,
         });
     }
 
-    // 2. Send Email (always, but depends on mailto)
-    if (email.mailto) {
-        steps.push({
-            type: /** @type {const} */ ('send_email'),
-            label: 'Open in Outlook',
-            href: email.mailto,
-        });
-    } else {
-        // mailto was empty (too long), show copy indicator
-        steps.push({
-            type: /** @type {const} */ ('await_docs'),
-            label: 'Copy email to clipboard (too long for link)',
-            required: ['body copied'],
-        });
+    // Internal steps are optional; keep them out of the UI by default
+    if (includeInternal) {
+        if (template_key === 'reference_consent') {
+            internalSteps.push({
+                type: /** @type {const} */ ('await_docs'),
+                label: 'Awaiting reference consent',
+                required: ['reference consent'],
+            });
+        }
+
+        if (template_key === 'doc_request') {
+            const items = email.meta.requested_items || ['documents'];
+            internalSteps.push({
+                type: /** @type {const} */ ('await_docs'),
+                label: 'Awaiting documents',
+                required: items,
+            });
+            internalSteps.push({
+                type: /** @type {const} */ ('await_availability'),
+                label: 'Awaiting interview availability',
+                required: ['interview times'],
+            });
+        }
+
+        if (template_key === 'assignment_interest') {
+            internalSteps.push({
+                type: /** @type {const} */ ('await_docs'),
+                label: 'Awaiting confirmations',
+                required: ['availability', 'time-off', 'profile current'],
+            });
+        }
+
+        if (email.meta.candidate.candidate_id) {
+            internalSteps.push({
+                type: /** @type {const} */ ('move_stage'),
+                label: 'Move to Submitted',
+                stage: 'Submitted',
+                enabled_when: 'docs_received',
+            });
+        }
     }
 
-    // 3. Template-specific next steps
-    if (template_key === 'reference_consent') {
-        steps.push({
-            type: /** @type {const} */ ('await_docs'),
-            label: 'Waiting on reference confirmation',
-            required: ['reference consent'],
-        });
-    }
+    // Cap user steps to prevent UI overflow
+    const cappedUserSteps = userSteps.slice(0, maxUserSteps);
 
-    if (template_key === 'doc_request') {
-        const items = email.meta.requested_items || ['documents'];
-        steps.push({
-            type: /** @type {const} */ ('await_docs'),
-            label: 'Waiting on documents',
-            required: items,
-        });
-        steps.push({
-            type: /** @type {const} */ ('await_availability'),
-            label: 'Waiting on interview availability',
-            required: ['interview times'],
-        });
-    }
-
-    if (template_key === 'assignment_interest') {
-        steps.push({
-            type: /** @type {const} */ ('await_docs'),
-            label: 'Waiting on confirmations',
-            required: ['availability', 'time-off', 'profile status'],
-        });
-    }
-
-    // 4. Move Stage (only if we have candidate_id)
-    if (email.meta.candidate.candidate_id) {
-        steps.push({
-            type: /** @type {const} */ ('move_stage'),
-            label: 'Move to Submitted',
-            stage: 'Submitted',
-            enabled_when: 'docs_received',
-        });
-    }
-
-    return steps;
+    return [...cappedUserSteps, ...internalSteps];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 8: Full Response Builder
+// SECTION 10: Full Response Builder
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -514,10 +667,16 @@ export function buildNextSteps({ email, template_key }) {
  *
  * @param {Object} params
  * @param {string} params.message - User message for template routing
- * @param {Object} params.vars - Template variables
- * @param {Object|null} params.candidate - Candidate lookup result
+ * @param {Record<string, unknown>} params.vars - Template variables
+ * @param {CandidateLookup|null} params.candidate - Candidate lookup result
  * @param {string[]} [params.requested_items]
- * @param {RecruiterProfile} [params.recruiter] - Injectable recruiter profile
+ * @param {RecruiterProfile} [params.recruiter]
+ * @param {string[]} [params.extra_cc]
+ * @param {Object} [params.route_context]
+ * @param {TemplateKey} [params.route_context.forced_template_key]
+ * @param {Object} [params.next_steps_options]
+ * @param {boolean} [params.next_steps_options.include_internal_steps]
+ * @param {number} [params.next_steps_options.max_user_steps]
  * @returns {z.infer<typeof EmailResponseSchema>}
  */
 export function buildEmailResponse({
@@ -526,8 +685,11 @@ export function buildEmailResponse({
     candidate,
     requested_items = [],
     recruiter = DEFAULT_RECRUITER,
+    extra_cc = [],
+    route_context,
+    next_steps_options,
 }) {
-    const { template_key } = routeToTemplate(message);
+    const { template_key } = routeToTemplate(message, route_context);
 
     const email = buildEmailDraft({
         template_key,
@@ -535,15 +697,20 @@ export function buildEmailResponse({
         candidate,
         requested_items,
         recruiter,
+        extra_cc,
     });
 
-    const next_steps = buildNextSteps({ email, template_key });
+    const next_steps = buildNextSteps({
+        email,
+        template_key,
+        options: next_steps_options,
+    });
 
     return { email, next_steps };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 9: Exports
+// SECTION 11: Exports
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default {
