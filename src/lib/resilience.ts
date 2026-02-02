@@ -146,23 +146,59 @@ export async function circuitBreaker<T>(
 }
 
 /**
- * Lightweight memory cache for SWR
+ * Lightweight memory cache for SWR with TTL support
  */
 const responseCache = new Map<string, {
     data: any;
     timestamp: number;
+    ttl?: number;
 }>();
 
+/**
+ * Get cached data if it exists and hasn't expired.
+ * @param key Cache key
+ * @returns Cached data or null if expired/missing
+ */
 export function getCachedData<T>(key: string): T | null {
     const entry = responseCache.get(key);
-    return entry ? entry.data : null;
+    if (!entry) return null;
+
+    // Check TTL if specified
+    if (entry.ttl !== undefined) {
+        const age = Date.now() - entry.timestamp;
+        if (age > entry.ttl) {
+            responseCache.delete(key);
+            return null;
+        }
+    }
+
+    return entry.data;
 }
 
-export function setCachedData<T>(key: string, data: T): void {
-    responseCache.set(key, { data, timestamp: Date.now() });
+/**
+ * Set cached data with optional TTL.
+ * @param key Cache key
+ * @param data Data to cache
+ * @param ttlMs Optional TTL in milliseconds (no expiration if omitted)
+ */
+export function setCachedData<T>(key: string, data: T, ttlMs?: number): void {
+    responseCache.set(key, { data, timestamp: Date.now(), ttl: ttlMs });
 }
 
+/**
+ * Clear a specific cache key.
+ * @param key Cache key to clear
+ */
+export function clearCachedData(key: string): void {
+    responseCache.delete(key);
+}
+
+/**
+ * Clear all cache entries or a specific key.
+ * @param key Optional specific key to clear
+ */
 export function clearCache(key?: string): void {
     if (key) responseCache.delete(key);
     else responseCache.clear();
 }
+

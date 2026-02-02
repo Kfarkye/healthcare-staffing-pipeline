@@ -172,8 +172,9 @@ EXPECTED FIELDS:
 {
   "candidateName": string | null,
   "candidateEmail": string | null,
+  "candidateHomeState": string | null,  // Candidate's home state (e.g., "CA", "Texas") - NOT the job location
   "facility": string | null,
-  "location": string | null,
+  "location": string | null,            // Job/assignment location (city, state)
   "role": string | null,
   "startDate": string | null,
   "endDate": string | null,
@@ -188,6 +189,7 @@ EXAMPLE OUTPUT:
 {
   "candidateName": "Sarah Martinez",
   "candidateEmail": "sarah.m@gmail.com",
+  "candidateHomeState": "TX",
   "facility": "Broward Health Medical Center",
   "location": "Fort Lauderdale, FL",
   "role": "RRT",
@@ -798,7 +800,7 @@ Subject: Please Reassign - [Candidate Name]
 
 Hi Team,
 
-Can we please reassign [Candidate Name (hyperlink to Nova profile)]?
+Can we please reassign <a href="NOVA_URL">Candidate Name</a>?
 
 Thank you!
 
@@ -811,9 +813,11 @@ NOVA URL FORMAT (CRITICAL):
 - NEVER use the short URL (without ${NOVA_CONFIG.PROFILE_SUFFIX})
 - If you have the nova_id, construct the full hyperlink
 
-CANDIDATE NAME HYPERLINK:
-- Format: [Candidate Name](${NOVA_CONFIG.BASE_URL}${NOVA_CONFIG.CANDIDATE_PATH}/[nova_id]${NOVA_CONFIG.PROFILE_SUFFIX})
+CANDIDATE NAME HYPERLINK (OUTLOOK-COMPATIBLE):
+- Format: <a href="${NOVA_CONFIG.BASE_URL}${NOVA_CONFIG.CANDIDATE_PATH}/[nova_id]${NOVA_CONFIG.PROFILE_SUFFIX}">Candidate Name</a>
+- Example: <a href="https://nova.ayahealthcare.com/#/recruiting/candidates/754667/new-profile/about">Antwoine Daniels</a>
 - If nova_id is not available, state: "[[MISSING: nova_id - please provide candidate's Nova ID]]"
+- NOTE: Use HTML anchor tags, NOT markdown links. Outlook renders HTML but ignores markdown.
 
 REQUIRED INPUTS:
 1. Candidate Name
