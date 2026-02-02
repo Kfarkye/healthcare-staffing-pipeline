@@ -1,13 +1,16 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * EMAIL CONTRACT v2.1.1 — Deterministic, Type-Safe, Audited
+ * EMAIL CONTRACT v2.1.2 — Hardened Guards
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Changes from v2.1:
- * - FIX: Signature stripping now only operates on tail 30% of body (prevents false positives)
+ * Changes from v2.1.1:
+ * - ADD: safeCandidateName guard (prevents "stop signature" from becoming names)
+ * - ADD: stripActionLines sanitizer (removes "Next Step:" lines from body)
+ *
+ * v2.1.1 Fixes:
+ * - FIX: Signature stripping now only operates on tail 30% of body
  * - FIX: safeNumberOrNull properly handles empty strings → null
  * - FIX: buildEmailDraft validates output with Zod before returning
- * - FIX: Removed empty generic patterns array (cosmetic)
  *
  * v2.1 Features:
  * 1) Body-Signature Firewall: strips recruiter-signature artifacts from body tail.
@@ -18,7 +21,7 @@
  * 6) Safer Mailto: CRLF normalization + 2000-char guard.
  *
  * @module app/api/chat/command-center/lib/email-contract
- * @version 2.1.1
+ * @version 2.1.2
  */
 
 import { z } from 'zod';
@@ -369,6 +372,49 @@ function safeNumberOrNull(v) {
 }
 
 /**
+ * Guard: Prevents instructions/keywords from becoming candidate names.
+ * If user writes "stop signature" or "remove the template", the LLM might
+ * incorrectly extract that as a candidate name.
+ *
+ * @param {unknown} input
+ * @returns {string|null} - Returns null if input looks like instructions, not a name
+ */
+const BAD_NAME_TOKENS = [
+    'signature', 'stop', 'remove', 'dont', "don't", 'next step',
+    'template', 'contract', 'code', 'email', 'draft', 'subject',
+    'body', 'mailto', 'outlook', 'gmail', 'copy', 'clipboard',
+];
+
+function safeCandidateName(input) {
+    if (typeof input !== 'string') return null;
+    const s = input.trim();
+    if (!s) return null;
+    const lower = s.toLowerCase();
+
+    // Reject if contains instruction-like tokens
+    if (BAD_NAME_TOKENS.some(t => lower.includes(t))) return null;
+
+    // Reject long "sentences" as names (real names are 1-4 words max)
+    if (s.split(/\s+/).length > 4) return null;
+
+    return s;
+}
+
+/**
+ * Sanitizes body to remove any "Next Step:" or "Action:" lines that might leak.
+ * This is a safety net in case the LLM appends workflow instructions to body.
+ *
+ * @param {string} body
+ * @returns {string}
+ */
+function stripActionLines(body) {
+    if (!body) return '';
+    const lines = body.replace(/\r?\n/g, '\n').split('\n');
+    const kept = lines.filter(l => !/^\s*(next\s*step|action)\s*:/i.test(l));
+    return kept.join('\n').trim();
+}
+
+/**
  * Strips signature-like lines from the body tail (prevents double signature in Outlook).
  * FIX v2.1.1: Only operates on the last 30% of body to prevent false positives
  * (e.g., "I spoke with Tiffany earlier" in body content).
@@ -418,10 +464,9 @@ function stripSignatureArtifacts(body, recruiter) {
  * @returns {Object}
  */
 function normalizeVarsForTemplate(template_key, vars) {
-    const candidate_name =
-        safeString(vars.candidate_name) ||
-        safeString(vars.name) ||
-        'there';
+    // Use safeCandidateName to prevent instructions from becoming names
+    const rawName = safeString(vars.candidate_name) || safeString(vars.name);
+    const candidate_name = safeCandidateName(rawName) || 'there';
 
     const candidate_email =
         safeString(vars.candidate_email) ||
@@ -536,8 +581,10 @@ export function buildEmailDraft({
         candidate_name: resolvedName,
     });
 
-    // Firewall: ensure body does NOT contain recruiter signature artifacts
-    const cleanBody = stripSignatureArtifacts(rawBody, recruiter);
+    // Firewall 1: Strip "Next Step:" or "Action:" lines that might leak
+    const noActionLines = stripActionLines(rawBody);
+    // Firewall 2: Strip recruiter signature artifacts from tail
+    const cleanBody = stripSignatureArtifacts(noActionLines, recruiter);
 
     const signature = buildSignature(recruiter);
     const cc = buildCc(recruiter, extra_cc);
