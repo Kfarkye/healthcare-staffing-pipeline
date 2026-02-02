@@ -137,12 +137,15 @@ export const EmailResponseSchema = z.object({
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const TEMPLATE_PATTERNS = Object.freeze({
+    // CRITICAL: Patterns must be SPECIFIC to avoid hijacking general questions
+    // DO NOT match: "requesting references from her", "these are her references"
     reference_consent: [
-        /\breference/i,
-        /\b(ok|okay|yes)?\s*(to)?\s*reach\s*out\s*(to)?\s*reference/i,
-        /\b(confirm|check)\s*(with)?\s*reference/i,
-        /\breference\s*consent/i,
-        /\breferences?\s*needed/i,
+        /\breference\s*consent\b/i, // Explicit "reference consent"
+        /\b(ok|okay|yes|is it ok)\s*(to)?\s*reach\s*out\s*(to)?\s*(her|his|their)?\s*reference/i,
+        /\b(can we|can i|should i)\s*(reach out|contact)\s*(to)?\s*(her|his|their)?\s*reference/i,
+        /\b(confirm|check)\s*(with)?\s*(her|his|their)?\s*reference/i,
+        /\breferences?\s*(are)?\s*needed\b/i, // "references needed"
+        /\bdraft\b.*\breference\s*(consent|email|request)\b/i,
     ],
     doc_request: [
         /\b(cert|certification|certs|document|documents|docs)/i,

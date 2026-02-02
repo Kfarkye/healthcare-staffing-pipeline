@@ -83,13 +83,17 @@ const INTENT_PATTERNS = [
   {
     // DRAFT_EMAIL: Deterministic template routing (MUST come before DRAFT_OUTREACH)
     // Routes to specific templates: reference_consent, doc_request, assignment_interest
+    // CRITICAL: Patterns must be SPECIFIC to avoid hijacking general questions
     intent: Intent.DRAFT_EMAIL,
     patterns: [
-      // Reference consent patterns
-      /\breference/i,
-      /\b(ok|okay|yes)?\s*(to)?\s*reach\s*out\s*(to)?\s*reference/i,
-      /\b(confirm|check)\s*(with)?\s*reference/i,
-      /\breferences?\s*needed/i,
+      // Reference consent patterns - MUST require consent/reach-out language
+      // DO NOT match: "requesting references from her", "these are her references"
+      /\breference\s*consent\b/i, // Explicit "reference consent"
+      /\b(ok|okay|yes|is it ok)\s*(to)?\s*reach\s*out\s*(to)?\s*(her|his|their)?\s*reference/i,
+      /\b(can we|can i|should i)\s*(reach out|contact)\s*(to)?\s*(her|his|their)?\s*reference/i,
+      /\b(confirm|check)\s*(with)?\s*(her|his|their)?\s*reference/i,
+      /\breferences?\s*(are)?\s*needed\b/i, // "references needed" or "references are needed"
+      /\bdraft\b.*\breference\s*(consent|email|request)\b/i, // "draft reference consent email"
       // Doc request patterns
       /\b(cert|certification|certs|document|documents|docs)\b.*\b(need|send|submit|missing)/i,
       /\b(bls|acls|pals|nb|rn license)\b.*\b(send|need|submit)/i,
