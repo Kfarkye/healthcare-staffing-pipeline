@@ -17,6 +17,7 @@
 export const Intent = Object.freeze({
   // Buffered processing (quality-first)
   DRAFT_OUTREACH: 'DRAFT_OUTREACH',
+  DRAFT_EMAIL: 'DRAFT_EMAIL', // Deterministic template-based email drafting
   OFFER_DETAILS: 'OFFER_DETAILS',
   EDIT_CONTENT: 'EDIT_CONTENT',
 
@@ -75,6 +76,26 @@ const INTENT_PATTERNS = [
       /\b(offer)\b.*\b(received|accepted|got the)\b/i,
     ],
     requiresTools: true,
+  },
+  {
+    // DRAFT_EMAIL: Deterministic template routing (MUST come before DRAFT_OUTREACH)
+    // Routes to specific templates: reference_consent, doc_request, assignment_interest
+    intent: Intent.DRAFT_EMAIL,
+    patterns: [
+      // Reference consent patterns
+      /\breference/i,
+      /\b(ok|okay|yes)?\s*(to)?\s*reach\s*out\s*(to)?\s*reference/i,
+      /\b(confirm|check)\s*(with)?\s*reference/i,
+      /\breferences?\s*needed/i,
+      // Doc request patterns
+      /\b(cert|certification|certs|document|documents|docs)\b.*\b(need|send|submit|missing)/i,
+      /\b(bls|acls|pals|nb|rn license)\b.*\b(send|need|submit)/i,
+      /\b(need|require|missing).*\b(document|cert|license)/i,
+      /\bsubmission\b.*\b(need|require)/i,
+      // Interview availability
+      /\b(interview)\s*(time|availability|schedule)/i,
+    ],
+    requiresTools: true, // Needs resolve_candidate for Nova links
   },
   {
     intent: Intent.DRAFT_OUTREACH,

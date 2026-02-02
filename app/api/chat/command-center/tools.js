@@ -34,7 +34,7 @@ import { z } from 'zod';
 
 const CONFIG_DEFAULTS = Object.freeze({
     TIMEOUT_MS: 15000,
-    MAX_OUTPUT_CHARS: 25000,
+    MAX_OUTPUT_CHARS: 12000, // Reduced from 25k to prevent slow serialization and 504s
     MAX_ARRAY_ITEMS: 15,
     MAX_DEPTH: 6,
     MAX_KEY_COUNT: 2000, // Prevents pathological objects
@@ -425,6 +425,7 @@ export function createCommandCenterTools(supabase, configOverrides) {
             list_templates: dead,
             get_template: dead,
             search_all_candidates: dead,
+            resolve_candidate: dead,
             search_prospects: dead,
             search_travel_list: dead,
             get_prospect_details: dead,
@@ -581,6 +582,76 @@ DO NOT USE THIS WHEN:
                     results,
                     total_found: results.length,
                     warnings: warnings.length ? warnings : undefined,
+                };
+            },
+        }),
+
+        resolve_candidate: createSafeTool({
+            name: 'resolve_candidate',
+            description: `Resolve a candidate by name to get their candidate_id, nova_url, and email.
+
+USE THIS WHEN:
+- Drafting an email and need to populate Nova link and candidate_id
+- User mentions a candidate name and you need their profile link
+- Building next steps that require candidate_id
+
+RETURNS: Single best match with candidate_id, name, email, nova_url.`,
+            parameters: z.object({
+                name: z.string().min(1).describe('Candidate name to lookup'),
+            }),
+            configOverrides,
+            execute: async ({ name }) => {
+                const cleanName = name.trim();
+
+                // Search prospects first (most common source)
+                const { data: prospects, error: pErr } = await supabase
+                    .from('prospects')
+                    .select('candidate_id, name, email, nova_url, specialty, status')
+                    .ilike('name', `%${cleanName}%`)
+                    .limit(5);
+
+                if (pErr) {
+                    return { error: pErr.message, found: false };
+                }
+
+                // Find best match: exact match first, then partial
+                const exactMatch = prospects?.find(
+                    (p) => p.name?.toLowerCase() === cleanName.toLowerCase()
+                );
+                const bestMatch = exactMatch || prospects?.[0];
+
+                if (!bestMatch) {
+                    // Fallback to travelers
+                    const { data: travelers, error: tErr } = await supabase
+                        .from('travel_candidates')
+                        .select('candidate_id, candidate_name, email')
+                        .ilike('candidate_name', `%${cleanName}%`)
+                        .limit(3);
+
+                    if (tErr || !travelers?.length) {
+                        return { found: false, searched_name: cleanName };
+                    }
+
+                    const traveler = travelers[0];
+                    return {
+                        found: true,
+                        candidate_id: traveler.candidate_id,
+                        name: traveler.candidate_name,
+                        email: traveler.email || null,
+                        nova_url: buildNovaUrl(traveler.candidate_id),
+                        source: 'travelers',
+                    };
+                }
+
+                return {
+                    found: true,
+                    candidate_id: bestMatch.candidate_id,
+                    name: bestMatch.name,
+                    email: bestMatch.email || null,
+                    nova_url: bestMatch.nova_url || buildNovaUrl(bestMatch.candidate_id),
+                    specialty: bestMatch.specialty || null,
+                    status: bestMatch.status || null,
+                    source: 'prospects',
                 };
             },
         }),

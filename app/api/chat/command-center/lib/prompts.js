@@ -476,6 +476,51 @@ Output only:
 </draft>
 </task>`;
 
+// DRAFT_EMAIL: Deterministic template-based drafting
+// Note: Actual drafting is handled by email-contract.js in route.js
+// This prompt is a fallback if the structured flow fails
+const DRAFT_EMAIL_PROMPT = `${BASE_INSTRUCTIONS}
+
+<mental_model>
+User needs a specific type of email: reference consent, document request, or similar.
+Use the exact template format. Do not improvise or free-write.
+</mental_model>
+
+<templates>
+
+REFERENCE CONSENT:
+Subject: References Needed for Your Submission
+Body asks:
+- Are they ok with facilities reaching out to references?
+- Are references current and will respond?
+- Offer to update/add references if needed
+
+DOCUMENT REQUEST:
+Subject: Documents Needed for Submission - [Facility]
+Body requests:
+- Specific documents mentioned by recruiter
+- BLS card (AHA preferred — send what you have and we'll confirm facility requirement)
+- Best interview times this week (include time zone)
+
+</templates>
+
+<rules>
+- Match the template to user intent
+- Do not add marketing language
+- End with a clear next-step statement
+- Always CC Tiffany.Chavez@ayahealthcare.com
+</rules>
+
+<output_format>
+Output only:
+<draft>
+To: [email if known]
+Subject: [template subject]
+
+[template body with filled variables]
+</draft>
+</output_format>`;
+
 const OFFER_DETAILS_PROMPT = `${BASE_INSTRUCTIONS}
 
 <mental_model>
@@ -645,6 +690,17 @@ const PROMPT_REGISTRY = new Map([
       temperature: 0.3,
       description: 'Draft candidate outreach emails with pay packages',
       examples: ['Draft an email for this candidate', 'Write outreach for this pay package'],
+      outputFormats: ['email', 'structured-draft'],
+    },
+  ],
+  [
+    Intent.DRAFT_EMAIL,
+    {
+      system: DRAFT_EMAIL_PROMPT,
+      maxTokens: 1024,
+      temperature: 0.1,
+      description: 'Deterministic template-based email drafting (reference consent, doc request)',
+      examples: ['Reach out about references', 'Need documents for submission'],
       outputFormats: ['email', 'structured-draft'],
     },
   ],

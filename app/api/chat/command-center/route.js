@@ -35,6 +35,7 @@ import { createCommandCenterTools } from './tools.js';
 import { classify, Intent } from './lib/router.js';
 import { getPromptForIntent, EXTRACT_DATA_PROMPT, getPass2DraftPrompt } from './lib/prompts.js';
 import { validate } from './lib/validator.js';
+import { routeToTemplate, buildEmailResponse, EmailResponseSchema } from './lib/email-contract.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 1: RUNTIME CONFIGURATION
@@ -553,13 +554,14 @@ export async function POST(request) {
             `\nCurrent Time: ${new Date().toISOString()}`
         ].join('');
 
-        const shouldProvideTools = classification.intent !== Intent.DRAFT_OUTREACH;
+        const shouldProvideTools = ![Intent.DRAFT_OUTREACH, Intent.DRAFT_EMAIL].includes(classification.intent);
         const tools = shouldProvideTools ? createCommandCenterTools(supabase) : undefined;
 
         // BUFFERING STRATEGY: Quality-critical intents are buffered for validation
         const isBuffered = [
             Intent.EDIT_CONTENT,
             Intent.DRAFT_OUTREACH,
+            Intent.DRAFT_EMAIL,
             Intent.LICENSING_REQUEST,
             Intent.REASSIGNMENT_REQUEST,
         ].includes(classification.intent);
@@ -588,6 +590,103 @@ export async function POST(request) {
                 // LLM PATH: Inject template contract
                 activeSystemPrompt += '\n\n' + buildTemplateContract(template);
                 logger.info('template_contract_applied', { templateName, missingVars: missingVars.slice(0, 5) });
+            }
+        }
+
+        // 6b. DETERMINISTIC EMAIL DRAFTING (DRAFT_EMAIL intent)
+        // Uses template router to prevent free-writing and ensure consistency
+        if (classification.intent === Intent.DRAFT_EMAIL) {
+            try {
+                logger.info('draft_email_start', { inputText: inputText.slice(0, 100) });
+
+                // 1. Route to template
+                const routeResult = routeToTemplate(inputText);
+                logger.info('template_routed', { template_key: routeResult.template_key });
+
+                // 2. Extract candidate name from input (simple extraction)
+                const namePatterns = [
+                    /(?:for|to|candidate|email|reach out to)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+                    /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:needs|wants|profile|submission)/i,
+                ];
+                let candidateName = null;
+                for (const pattern of namePatterns) {
+                    const match = inputText.match(pattern);
+                    if (match?.[1]) {
+                        candidateName = match[1].trim();
+                        break;
+                    }
+                }
+
+                // 3. Resolve candidate if name found
+                let candidate = null;
+                if (candidateName) {
+                    const resolveTools = createCommandCenterTools(supabase);
+                    try {
+                        const resolveResult = await resolveTools.resolve_candidate.execute({ name: candidateName });
+                        if (resolveResult?.found) {
+                            candidate = {
+                                candidate_id: resolveResult.candidate_id,
+                                name: resolveResult.name,
+                                email: resolveResult.email,
+                                nova_url: resolveResult.nova_url,
+                            };
+                            logger.info('candidate_resolved', { candidate_id: candidate.candidate_id });
+                        }
+                    } catch (e) {
+                        logger.warn('candidate_resolve_failed', { error: e.message });
+                    }
+                }
+
+                // 4. Extract requested items for doc_request template
+                let requestedItems = [];
+                if (routeResult.template_key === 'doc_request') {
+                    const itemPatterns = [
+                        /\b(bls|acls|pals|cpr|license|resume|skills?\s*checklist|availability)\b/gi,
+                    ];
+                    const matches = inputText.match(itemPatterns[0]);
+                    if (matches) {
+                        requestedItems = [...new Set(matches.map(m => m.toUpperCase()))];
+                        // Always add interview availability for doc_request
+                        if (!requestedItems.some(i => i.includes('AVAILABILITY'))) {
+                            requestedItems.push('Best interview times this week (include time zone)');
+                        }
+                    }
+                }
+
+                // 5. Build structured email response
+                const vars = {
+                    candidate_name: candidate?.name || candidateName || 'there',
+                    candidate_email: candidate?.email,
+                    ...context,
+                };
+
+                const emailResponse = buildEmailResponse({
+                    message: inputText,
+                    vars,
+                    candidate,
+                    requested_items: requestedItems,
+                });
+
+                // 6. Return as structured JSON for UI rendering
+                clearTimeout(softTimeout);
+
+                const jsonPayload = JSON.stringify(emailResponse, null, 2);
+                const responseText = `[EMAIL_DRAFT_JSON]\n${jsonPayload}\n[/EMAIL_DRAFT_JSON]`;
+
+                waitUntil(performAuditLog(supabase, traceId, 'DRAFT_EMAIL', inputText, {
+                    text: responseText,
+                    valid: true,
+                    template_key: routeResult.template_key,
+                }));
+
+                return createBufferedUIResponse(responseText, {
+                    traceId,
+                    status: 'email_draft_structured',
+                });
+
+            } catch (error) {
+                logger.error('draft_email_error', error);
+                // Fall through to general processing
             }
         }
 

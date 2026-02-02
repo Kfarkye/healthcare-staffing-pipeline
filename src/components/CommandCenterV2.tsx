@@ -70,6 +70,9 @@ const REGEX_EMAIL_BODY = /---[\r\n]+([\s\S]+?)(?:[\r\n]+---[\r\n]*(?:$|[\r\n])|$
 const REGEX_TAG_SUBJECT = /\[SUBJECT\]([\s\S]*?)\[\/SUBJECT\]/i;
 const REGEX_TAG_BODY = /\[BODY\]([\s\S]*?)\[\/BODY\]/i;
 
+// Structured email draft JSON format (from email-contract system)
+const REGEX_EMAIL_DRAFT_JSON = /\[EMAIL_DRAFT_JSON\]\s*([\s\S]*?)\s*\[\/EMAIL_DRAFT_JSON\]/i;
+
 // Defaults (recruiting workflow standard)
 const DEFAULT_CC = 'Tiffany.Chavez@ayahealthcare.com';
 
@@ -445,6 +448,98 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string }>
 });
 EmailCard.displayName = 'EmailCard';
 
+// ============================================================================
+// 4b. NEXT STEPS PANEL (Structured Actions from Email Contract)
+// ============================================================================
+
+interface NextStepAction {
+    type: 'open_nova' | 'await_docs' | 'await_availability' | 'move_stage' | 'send_email';
+    label: string;
+    href?: string;
+    required?: string[];
+    stage?: string;
+    enabled_when?: string;
+}
+
+const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
+    if (!steps?.length) return null;
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, ...SYSTEM.anim.fluid }}
+            className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden"
+        >
+            <div className="px-4 py-2.5 border-b border-white/[0.06] bg-white/[0.02]">
+                <span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>NEXT STEPS</span>
+            </div>
+            <div className="p-3 space-y-2">
+                {steps.map((step, idx) => (
+                    <motion.div
+                        key={`${step.type}-${idx}`}
+                        initial={{ opacity: 0, x: -5 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.1 * idx, ...SYSTEM.anim.fluid }}
+                    >
+                        {step.type === 'open_nova' && step.href && (
+                            <a
+                                href={step.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() => triggerHaptic()}
+                                className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 transition-all group"
+                            >
+                                <ExternalLink size={14} className="text-indigo-400" />
+                                <span className="text-[13px] text-indigo-300 font-medium">{step.label}</span>
+                                <ChevronRight size={14} className="ml-auto text-indigo-500/50 group-hover:text-indigo-400 transition-colors" />
+                            </a>
+                        )}
+                        {step.type === 'send_email' && step.href && (
+                            <a
+                                href={step.href}
+                                onClick={() => { triggerHaptic(); playDraftReadyCue(); }}
+                                className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all group"
+                            >
+                                <Mail size={14} className="text-emerald-400" />
+                                <span className="text-[13px] text-emerald-300 font-medium">{step.label}</span>
+                                <ChevronRight size={14} className="ml-auto text-emerald-500/50 group-hover:text-emerald-400 transition-colors" />
+                            </a>
+                        )}
+                        {(step.type === 'await_docs' || step.type === 'await_availability') && (
+                            <div className="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                                <Activity size={14} className="text-amber-400 mt-0.5 shrink-0" />
+                                <div>
+                                    <span className="text-[13px] text-amber-300/80 font-medium">{step.label}</span>
+                                    {step.required?.length && (
+                                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                            {step.required.map((item, i) => (
+                                                <span key={i} className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-400/80">
+                                                    {item}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {step.type === 'move_stage' && (
+                            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-zinc-500/5 border border-zinc-500/10 opacity-60">
+                                <Zap size={14} className="text-zinc-500" />
+                                <span className="text-[13px] text-zinc-400">{step.label}</span>
+                                {step.enabled_when && (
+                                    <span className="ml-auto text-[10px] text-zinc-600 font-mono">when: {step.enabled_when}</span>
+                                )}
+                            </div>
+                        )}
+                    </motion.div>
+                ))}
+            </div>
+        </motion.div>
+    );
+});
+NextStepsPanel.displayName = 'NextStepsPanel';
+
 // Post-Draft Modifier Chips - one-tap adjustments
 const POST_DRAFT_MODIFIERS = [
     { label: '+ Certs', query: 'Also ask them to send their certifications.' },
@@ -496,6 +591,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
     const isUser = role === 'user';
     // Detect if this message contains an email draft (for showing modifier chips)
     const hasEmailDraft = !isUser && !isStreaming && (
+        REGEX_EMAIL_DRAFT_JSON.test(content) ||
         REGEX_TAG_SUBJECT.test(content) ||
         REGEX_EMAIL_SUBJECT.test(content) ||
         REGEX_EMAIL_HEADER.test(content)
@@ -546,6 +642,33 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
         const draftMatch = content.match(/<draft>([\s\S]*?)<\/draft>/i);
         if (draftMatch) {
             processedContent = draftMatch[1].trim();
+        }
+
+        // STRUCTURED EMAIL FORMAT: [EMAIL_DRAFT_JSON]...[/EMAIL_DRAFT_JSON] (from email-contract system)
+        const jsonMatch = processedContent.match(REGEX_EMAIL_DRAFT_JSON);
+        if (jsonMatch) {
+            try {
+                const parsed = JSON.parse(jsonMatch[1]);
+                const email = parsed.email;
+                const nextSteps = parsed.next_steps as NextStepAction[];
+
+                if (email?.kind === 'email_draft') {
+                    return (
+                        <>
+                            <EmailCard
+                                to={email.to_email || undefined}
+                                cc={email.cc?.[0] || DEFAULT_CC}
+                                subject={email.subject}
+                                body={email.body}
+                            />
+                            <NextStepsPanel steps={nextSteps} />
+                        </>
+                    );
+                }
+            } catch (e) {
+                console.warn('Failed to parse EMAIL_DRAFT_JSON:', e);
+                // Fall through to other parsers
+            }
         }
 
         // NEW FORMAT: [SUBJECT]...[/SUBJECT] [BODY]...[/BODY] (from AI system prompt)
