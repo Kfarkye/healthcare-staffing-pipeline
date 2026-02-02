@@ -1,18 +1,26 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * TOOLS — Command Center (v4.1 - Hardened Production Runtime)
+ * TOOLS — Command Center (v4.2 - Hardened Production Runtime)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * UPGRADES from v4.0:
+ * UPGRADES from v4.1:
+ * - MAX_KEY_COUNT guard: prevents pathological objects from consuming tokens
+ * - Truncated items tracking: observability for how many items were cut
+ * - pickCampaignVars: safer template merge (prevents leaking nested objects)
+ * - safeTemplateReplace: extracted helper for template variable replacement
+ * - Scalar result wrapping: stable output shapes for primitive returns
+ *
+ * PRESERVED from v4.1:
  * - Crash-proof wrapper: tool execution never kills the stream
  * - Circular-safe sanitization: prevents JSON crashes on cyclic objects
- * - Deep sanitization: Dates -> ISO, BigInt -> string, Error -> plain object, Map/Set supported
- * - Token guard: truncates large arrays at any depth (not just root)
- * - Timeout hygiene: clears timers; adds consistent latency meta
- * - Supabase error normalization: supports error objects and error strings
+ * - Deep sanitization: Date → ISO, BigInt → string, Error → plain object, Map/Set supported
+ * - Token guard: truncates large arrays at any depth
+ * - Timeout hygiene: clears timers; consistent meta envelope
+ * - Supabase error normalization: handles error objects and error strings
  * - Fail-closed guard: returns stable error if Supabase client missing
  * - Email deduplication in add_recipients
  * - Upsert for add_prospect (idempotent)
+ * - Backward-compatible _latency field
  *
  * @module app/api/chat/command-center/tools
  */
@@ -21,7 +29,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// INFRASTRUCTURE: RESILIENT RUNTIME LAYER
+// CONFIG
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const CONFIG_DEFAULTS = Object.freeze({
@@ -29,6 +37,7 @@ const CONFIG_DEFAULTS = Object.freeze({
     MAX_OUTPUT_CHARS: 25000,
     MAX_ARRAY_ITEMS: 15,
     MAX_DEPTH: 6,
+    MAX_KEY_COUNT: 2000, // Prevents pathological objects
 });
 
 /**
@@ -36,6 +45,12 @@ const CONFIG_DEFAULTS = Object.freeze({
  * @typedef {JsonPrimitive | JsonObject | JsonValue[]} JsonValue
  * @typedef {{ [k: string]: JsonValue }} JsonObject
  * @typedef {Record<string, any>} AnyRecord
+ */
+
+/**
+ * @typedef {Object} SanitizeContext
+ * @property {number} truncated_items
+ * @property {number} key_count
  */
 
 /**
@@ -47,15 +62,27 @@ const CONFIG_DEFAULTS = Object.freeze({
  * @property {number} [truncated_items]
  */
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════════════════════
+
 /**
- * @typedef {Object} ToolEnvelope
- * @property {boolean} success
- * @property {string} [status]
- * @property {string} [message]
- * @property {string} [error]
- * @property {string} [_latency] - Backward-compatible latency string
- * @property {ToolMeta} [_meta]
+ * Build a Nova profile URL from candidate ID.
+ * @param {string | number} candidateId
+ * @returns {string}
  */
+function buildNovaUrl(candidateId) {
+    return `https://nova.ayahealthcare.com/#/recruiting/candidates/${candidateId}/new-profile/about`;
+}
+
+/**
+ * Extract date-only ISO string (YYYY-MM-DD).
+ * @param {Date} d
+ * @returns {string}
+ */
+function isoDateOnly(d) {
+    return d.toISOString().split('T')[0];
+}
 
 /**
  * Normalize common Supabase error shapes into a stable string.
@@ -65,17 +92,20 @@ const CONFIG_DEFAULTS = Object.freeze({
 function normalizeDbError(err) {
     if (!err) return 'Database operation failed.';
     if (typeof err === 'string') return err;
+
     if (typeof err === 'object') {
-        const anyErr = /** @type {AnyRecord} */ (err);
-        if (typeof anyErr.message === 'string' && anyErr.message.trim()) return anyErr.message;
-        if (typeof anyErr.error_description === 'string' && anyErr.error_description.trim()) return anyErr.error_description;
+        const e = /** @type {AnyRecord} */ (err);
+        if (typeof e.message === 'string' && e.message.trim()) return e.message;
+        if (typeof e.error_description === 'string' && e.error_description.trim()) return e.error_description;
+
         try {
-            const asJson = JSON.stringify(anyErr);
-            if (asJson && asJson !== '{}' && asJson !== 'null') return asJson;
+            const j = JSON.stringify(e);
+            if (j && j !== '{}' && j !== 'null') return j;
         } catch {
             // ignore
         }
     }
+
     return 'Database operation failed.';
 }
 
@@ -99,97 +129,137 @@ function safeStringify(value) {
  */
 function summarizeLargePayload(value) {
     if (value === null || value === undefined) return { summary: null };
-
     if (typeof value !== 'object') return { summary: value };
 
     const out = /** @type {AnyRecord} */ ({});
+
     if (typeof value.count === 'number') out.count = value.count;
     if (typeof value.total_found === 'number') out.total_found = value.total_found;
     if (typeof value.generated === 'number') out.generated = value.generated;
+
     if (Array.isArray(value.results)) out.results_count = value.results.length;
     if (Array.isArray(value.prospects)) out.prospects_count = value.prospects.length;
     if (Array.isArray(value.travelers)) out.travelers_count = value.travelers.length;
     if (Array.isArray(value.templates)) out.templates_count = value.templates.length;
 
     if (!Object.keys(out).length) {
-        const keys = Object.keys(value).slice(0, 20);
-        out.keys = keys;
+        out.keys = Object.keys(value).slice(0, 25);
+    }
+
+    return out;
+}
+
+/**
+ * Pick only safe campaign fields for template merge.
+ * Prevents leaking nested objects (template, id, timestamps) into generated emails.
+ * @param {AnyRecord} campaign
+ * @returns {AnyRecord}
+ */
+function pickCampaignVars(campaign) {
+    const keys = [
+        'position_title',
+        'facility_name',
+        'city',
+        'state',
+        'start_date',
+        'end_date',
+        'gross_weekly_pay',
+        'job_id',
+    ];
+
+    const out = /** @type {AnyRecord} */ ({});
+    for (const k of keys) {
+        if (campaign && campaign[k] !== undefined && campaign[k] !== null) {
+            out[k] = campaign[k];
+        }
     }
     return out;
 }
 
 /**
- * Recursively sanitizes data for AI stream compatibility.
- * - Circular-safe via WeakSet
- * - Date -> ISO
- * - BigInt -> string
- * - Error -> { name, message, stack? }
- * - Map -> object
- * - Set -> array
+ * Safe template variable replacement with regex escaping.
+ * @param {string} template
+ * @param {AnyRecord} vars
+ * @returns {string}
+ */
+function safeTemplateReplace(template, vars) {
+    let out = template;
+
+    for (const [k, v] of Object.entries(vars)) {
+        if (v === null || v === undefined) continue;
+        const safeK = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const reg = new RegExp(`{{${safeK}}}`, 'gi');
+        out = out.replace(reg, String(v));
+    }
+
+    return out;
+}
+
+/**
+ * Circular-safe sanitizer:
  * - Strips undefined
  * - Drops private keys starting with "_" except "_system_msg"
- * - Truncates large arrays at any depth (saves tokens reliably)
+ * - Date → ISO, BigInt → string, Error → plain object
+ * - Map → object, Set → array
+ * - Truncates arrays at any depth
+ * - Caps depth and key count
  *
  * @param {unknown} data
  * @param {typeof CONFIG_DEFAULTS} opts
  * @param {number} [depth=0]
  * @param {WeakSet<object>} [seen]
+ * @param {SanitizeContext} [ctx]
  * @returns {JsonValue}
  */
-function sanitizeForAI(data, opts, depth = 0, seen) {
+function sanitizeForAI(data, opts, depth = 0, seen, ctx) {
+    const context = ctx || { truncated_items: 0, key_count: 0 };
+
     if (depth > opts.MAX_DEPTH) return '[Max Depth Exceeded]';
+    if (context.key_count > opts.MAX_KEY_COUNT) return '[Max Keys Exceeded]';
 
     if (data === null || data === undefined) return null;
 
     const t = typeof data;
+
     if (t === 'string' || t === 'number' || t === 'boolean') return /** @type {JsonPrimitive} */ (data);
-
     if (t === 'bigint') return String(data);
-
     if (t === 'function' || t === 'symbol') return null;
 
-    // Errors: make them plain and safe
-    if (data instanceof Error) {
-        const errObj = /** @type {JsonObject} */ ({
-            name: data.name || 'Error',
-            message: data.message || 'Unknown error',
-        });
-        if (data.stack) errObj.stack = data.stack;
-        return errObj;
-    }
-
-    // Date -> ISO string
     if (data instanceof Date) return data.toISOString();
 
-    // Map -> plain object
-    if (data instanceof Map) {
-        const obj = /** @type {JsonObject} */ ({});
-        for (const [k, v] of data.entries()) {
-            const key = typeof k === 'string' ? k : safeStringify(k);
-            obj[key] = sanitizeForAI(v, opts, depth + 1, seen);
-        }
-        return obj;
+    if (data instanceof Error) {
+        const errObj = /** @type {AnyRecord} */ ({ name: data.name || 'Error', message: data.message || 'Unknown error' });
+        if (data.stack) errObj.stack = data.stack;
+        return /** @type {JsonValue} */ (errObj);
     }
 
-    // Set -> array
+    if (data instanceof Map) {
+        const obj = /** @type {AnyRecord} */ ({});
+        for (const [k, v] of data.entries()) {
+            const key = typeof k === 'string' ? k : safeStringify(k);
+            obj[key] = sanitizeForAI(v, opts, depth + 1, seen, context);
+            context.key_count += 1;
+        }
+        return /** @type {JsonValue} */ (obj);
+    }
+
     if (data instanceof Set) {
-        const arr = Array.from(data.values());
-        return sanitizeForAI(arr, opts, depth + 1, seen);
+        return sanitizeForAI(Array.from(data.values()), opts, depth + 1, seen, context);
     }
 
     // Arrays - truncate at ANY depth
     if (Array.isArray(data)) {
         const len = data.length;
         const limit = opts.MAX_ARRAY_ITEMS;
-
         const sliced = len > limit ? data.slice(0, limit) : data;
-        const sanitized = sliced.map((item) => sanitizeForAI(item, opts, depth + 1, seen));
+
+        const sanitized = sliced.map((item) => sanitizeForAI(item, opts, depth + 1, seen, context));
 
         if (len > limit) {
-            sanitized.push({
-                _system_msg: `... ${len - limit} more items truncated for performance.`,
-            });
+            context.truncated_items += len - limit;
+            sanitized.push({ _system_msg: `... ${len - limit} more items truncated for performance.` });
         }
+
         return sanitized;
     }
 
@@ -200,21 +270,26 @@ function sanitizeForAI(data, opts, depth = 0, seen) {
         if (seen.has(obj)) return '[Circular]';
         seen.add(obj);
 
-        const clean = /** @type {JsonObject} */ ({});
+        const clean = /** @type {AnyRecord} */ ({});
+
         for (const [key, val] of Object.entries(/** @type {AnyRecord} */(obj))) {
             if (key.startsWith('_') && key !== '_system_msg') continue;
-            const sanitized = sanitizeForAI(val, opts, depth + 1, seen);
+
+            const sanitized = sanitizeForAI(val, opts, depth + 1, seen, context);
             if (sanitized !== undefined) clean[key] = sanitized;
+
+            context.key_count += 1;
+            if (context.key_count > opts.MAX_KEY_COUNT) break;
         }
-        return clean;
+
+        return /** @type {JsonValue} */ (clean);
     }
 
     return null;
 }
 
 /**
- * The Safety Net Wrapper.
- * Wraps every tool execution to ensure JSON validity and keep the stream alive.
+ * Safety wrapper: never throws; always returns valid JSON.
  *
  * @param {Object} cfg
  * @param {string} cfg.name
@@ -235,7 +310,6 @@ function createSafeTool(cfg) {
         let timeoutId = null;
 
         try {
-            // Timeout race with cleanup
             const timeoutPromise = new Promise((_, reject) => {
                 timeoutId = setTimeout(() => reject(new Error(`Execution timed out (${opts.TIMEOUT_MS}ms)`)), opts.TIMEOUT_MS);
             });
@@ -245,30 +319,34 @@ function createSafeTool(cfg) {
             // CRITICAL: Clear timeout to prevent timer leak
             if (timeoutId) clearTimeout(timeoutId);
 
-            // Normalize explicit error returns from tools
+            // Standardize error returns: { error: ... } (string or object)
             if (result && typeof result === 'object' && 'error' in result) {
-                const errVal = result.error;
                 const latency = Date.now() - startedAt;
                 return {
                     success: false,
                     status: 'db_error',
-                    error: normalizeDbError(errVal),
+                    error: normalizeDbError(result.error),
                     message: 'Database operation failed.',
                     _latency: `${latency}ms`,
                     _meta: { tool: toolId, latency_ms: latency },
                 };
             }
 
-            // Sanitize for streaming
-            const safeResult = /** @type {AnyRecord} */ (sanitizeForAI(result, opts));
+            const context = { truncated_items: 0, key_count: 0 };
+            const safeResult = /** @type {AnyRecord} */ (sanitizeForAI(result, opts, 0, undefined, context));
 
-            // Payload size guard (post-sanitize)
-            const payload = safeStringify(safeResult);
-            const payloadSize = payload.length;
+            // If tool returned a scalar, wrap it to keep output shape stable
+            const payloadObj =
+                safeResult && typeof safeResult === 'object' && !Array.isArray(safeResult)
+                    ? safeResult
+                    : { result: safeResult };
+
+            const payload = safeStringify(payloadObj);
+            const payloadChars = payload.length;
             const latency = Date.now() - startedAt;
 
-            if (payloadSize > opts.MAX_OUTPUT_CHARS) {
-                const summary = summarizeLargePayload(safeResult);
+            if (payloadChars > opts.MAX_OUTPUT_CHARS) {
+                const summary = summarizeLargePayload(payloadObj);
                 return {
                     success: true,
                     status: 'truncated',
@@ -278,26 +356,28 @@ function createSafeTool(cfg) {
                     _meta: {
                         tool: toolId,
                         latency_ms: latency,
-                        payload_chars: payloadSize,
+                        payload_chars: payloadChars,
                         truncated: true,
+                        truncated_items: context.truncated_items || undefined,
                     },
                 };
             }
 
-            // If tool result already contains _meta, preserve it under _meta_user
-            if (safeResult && typeof safeResult === 'object' && safeResult._meta) {
-                safeResult._meta_user = safeResult._meta;
-                delete safeResult._meta;
+            // Preserve user _meta under _meta_user if present
+            if (payloadObj && typeof payloadObj === 'object' && payloadObj._meta) {
+                payloadObj._meta_user = payloadObj._meta;
+                delete payloadObj._meta;
             }
 
             return {
                 success: true,
-                ...safeResult,
+                ...payloadObj,
                 _latency: `${latency}ms`,
                 _meta: {
                     tool: toolId,
                     latency_ms: latency,
-                    payload_chars: payloadSize,
+                    payload_chars: payloadChars,
+                    truncated_items: context.truncated_items || undefined,
                 },
             };
         } catch (err) {
@@ -325,15 +405,6 @@ function createSafeTool(cfg) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Build a Nova profile URL from candidate ID.
- * @param {string | number} candidateId
- * @returns {string}
- */
-function buildNovaUrl(candidateId) {
-    return `https://nova.ayahealthcare.com/#/recruiting/candidates/${candidateId}/new-profile/about`;
-}
-
-/**
  * Create Command Center tools with Supabase client.
  * @param {any} supabase - Supabase client instance
  * @param {Partial<typeof CONFIG_DEFAULTS>} [configOverrides]
@@ -345,8 +416,8 @@ export function createCommandCenterTools(supabase, configOverrides) {
             name: 'supabase_missing',
             description: 'Supabase client missing.',
             parameters: z.object({}),
-            execute: async () => ({ error: 'Supabase client missing.' }),
             configOverrides,
+            execute: async () => ({ error: 'Supabase client missing.' }),
         });
 
         return {
@@ -448,7 +519,7 @@ DO NOT USE THIS WHEN:
             },
         }),
 
-        // ── SEARCH ──────────────────────────────────────────────────────────────
+        // ── SEARCH ─────────────────────────────────────────────────────────────
 
         search_all_candidates: createSafeTool({
             name: 'search_all_candidates',
@@ -478,40 +549,38 @@ DO NOT USE THIS WHEN:
                 const travelersPayload =
                     travelersRes.status === 'fulfilled' ? travelersRes.value : { data: [], error: travelersRes.reason };
 
-                if (prospectsPayload.error || travelersPayload.error) {
-                    return {
-                        results: [],
-                        total_found: 0,
-                        warnings: [
-                            prospectsPayload.error ? 'Prospects query failed.' : null,
-                            travelersPayload.error ? 'Travelers query failed.' : null,
-                        ].filter(Boolean),
-                    };
-                }
+                // Partial failure handling
+                const warnings = [
+                    prospectsPayload.error ? 'Prospects query failed.' : null,
+                    travelersPayload.error ? 'Travelers query failed.' : null,
+                ].filter(Boolean);
 
                 const prospects = prospectsPayload.data ?? [];
                 const travelers = travelersPayload.data ?? [];
 
+                const results = [
+                    ...prospects.map((p) => ({
+                        type: 'Prospect',
+                        name: p.name,
+                        info: `${p.specialty || 'Unknown'} | ${p.home_state || 'N/A'}`,
+                        status: p.status,
+                        id: p.candidate_id,
+                        link: p.nova_url || buildNovaUrl(p.candidate_id),
+                    })),
+                    ...travelers.map((t) => ({
+                        type: 'Traveler',
+                        name: t.candidate_name,
+                        info: `${t.facility || 'N/A'}`,
+                        status: t.contract_status,
+                        id: t.candidate_id,
+                        link: buildNovaUrl(t.candidate_id),
+                    })),
+                ];
+
                 return {
-                    results: [
-                        ...prospects.map((p) => ({
-                            type: 'Prospect',
-                            name: p.name,
-                            info: `${p.specialty || 'Unknown'} | ${p.home_state || 'N/A'}`,
-                            status: p.status,
-                            id: p.candidate_id,
-                            link: p.nova_url || buildNovaUrl(p.candidate_id),
-                        })),
-                        ...travelers.map((t) => ({
-                            type: 'Traveler',
-                            name: t.candidate_name,
-                            info: `${t.facility || 'N/A'}`,
-                            status: t.contract_status,
-                            id: t.candidate_id,
-                            link: buildNovaUrl(t.candidate_id),
-                        })),
-                    ],
-                    total_found: prospects.length + travelers.length,
+                    results,
+                    total_found: results.length,
+                    warnings: warnings.length ? warnings : undefined,
                 };
             },
         }),
@@ -557,10 +626,10 @@ DO NOT USE THIS WHEN:
 
                 if (name) query = query.ilike('candidate_name', `%${name.trim()}%`);
                 if (facility) query = query.ilike('facility', `%${facility.trim()}%`);
+
                 if (ending_soon) {
-                    const today = new Date();
-                    const startIso = today.toISOString().split('T')[0];
-                    const endIso = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                    const startIso = isoDateOnly(new Date());
+                    const endIso = isoDateOnly(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
                     query = query.gte('end_date', startIso).lte('end_date', endIso);
                 }
 
@@ -582,7 +651,7 @@ DO NOT USE THIS WHEN:
             execute: async ({ nova_id, name }) => {
                 if (!nova_id && !name) return { error: 'Provide nova_id or name.' };
 
-                // Prospects
+                // 1) Prospects
                 let pQuery = supabase.from('prospects').select('*');
                 if (nova_id) pQuery = pQuery.eq('candidate_id', nova_id);
                 else pQuery = pQuery.ilike('name', `%${name.trim()}%`);
@@ -591,7 +660,7 @@ DO NOT USE THIS WHEN:
                 if (pErr) return { error: pErr };
                 if (prospect) return { ...prospect, source: 'prospect' };
 
-                // Travelers
+                // 2) Travelers
                 let tQuery = supabase.from('travel_candidates').select('*');
                 if (nova_id) tQuery = tQuery.eq('candidate_id', nova_id);
                 else tQuery = tQuery.ilike('candidate_name', `%${name.trim()}%`);
@@ -635,7 +704,7 @@ DO NOT USE THIS WHEN:
 
                 if (!resolvedNovaUrl) resolvedNovaUrl = buildNovaUrl(resolvedNovaId);
 
-                // Upsert by candidate_id to avoid duplicate pipeline records (idempotent)
+                // Upsert prevents duplicate candidate rows (idempotent)
                 const { data, error } = await supabase
                     .from('prospects')
                     .upsert(
@@ -680,10 +749,11 @@ DO NOT USE THIS WHEN:
                 if (cErr) return { error: cErr };
                 if (!current) return { error: 'Prospect not found.' };
 
-                const stamp = new Date().toISOString().split('T')[0];
+                const stamp = isoDateOnly(new Date());
                 const auditEntry = reason
                     ? `[${stamp}] ${current.status} -> ${new_status}: ${reason}`
                     : `[${stamp}] ${current.status} -> ${new_status}`;
+
                 const updatedNotes = current.notes ? `${current.notes}\n${auditEntry}` : auditEntry;
 
                 const { data, error } = await supabase
@@ -725,6 +795,7 @@ DO NOT USE THIS WHEN:
                         ...args,
                         state: String(args.state).toUpperCase().slice(0, 2),
                         status: 'draft',
+                        updated_at: new Date().toISOString(),
                     })
                     .select('id, position_title')
                     .single();
@@ -752,7 +823,11 @@ DO NOT USE THIS WHEN:
                 if (cErr) return { error: cErr };
                 if (!c) return { error: 'Campaign not found.' };
 
-                const lines = raw_text.split(/[\n\r]+/).map((l) => l.trim()).filter(Boolean);
+                const lines = raw_text
+                    .split(/[\n\r]+/)
+                    .map((l) => l.trim())
+                    .filter(Boolean);
+
                 const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i;
 
                 // Deduplicate emails
@@ -795,11 +870,7 @@ DO NOT USE THIS WHEN:
 
                 if (error) return { error };
 
-                return {
-                    success: true,
-                    added: data?.length || 0,
-                    message: `Added ${data?.length || 0} recipients.`,
-                };
+                return { action: 'RECIPIENTS_ADDED', added: data?.length || 0 };
             },
         }),
 
@@ -830,28 +901,24 @@ DO NOT USE THIS WHEN:
                 if (rErr) return { error: rErr };
                 if (!recipients?.length) return { message: 'No pending recipients.' };
 
-                const sT = campaign.template?.subject_template || 'Opportunity: {{position_title}}';
-                const bT = campaign.template?.body_template || 'Hi {{first_name}},\n\n{{custom_hook}}\n\nPay: {{gross_weekly_pay}}';
+                const subjectTemplate = campaign.template?.subject_template || 'Opportunity: {{position_title}}';
+                const bodyTemplate =
+                    campaign.template?.body_template || 'Hi {{first_name}},\n\n{{custom_hook}}\n\nPay: {{gross_weekly_pay}}';
+
+                // CRITICAL: Use pickCampaignVars to avoid leaking nested objects
+                const baseVars = pickCampaignVars(campaign);
 
                 const updates = recipients.map((r) => {
-                    let subject = sT;
-                    let body = bT;
+                    const vars = { ...baseVars, ...r };
 
-                    const vars = { ...campaign, ...r };
-
-                    for (const [k, v] of Object.entries(vars)) {
-                        if (v === null || v === undefined) continue;
-                        const safeK = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                        const reg = new RegExp(`{{${safeK}}}`, 'gi');
-                        subject = subject.replace(reg, String(v));
-                        body = body.replace(reg, String(v));
-                    }
+                    const generated_subject = safeTemplateReplace(subjectTemplate, vars);
+                    const generated_body = safeTemplateReplace(bodyTemplate, vars);
 
                     return {
                         id: r.id,
                         campaign_id,
-                        generated_subject: subject,
-                        generated_body: body,
+                        generated_subject,
+                        generated_body,
                         status: 'generated',
                         updated_at: new Date().toISOString(),
                     };
@@ -860,10 +927,14 @@ DO NOT USE THIS WHEN:
                 const { error: upErr } = await supabase.from('cold_outreach_recipients').upsert(updates);
                 if (upErr) return { error: upErr };
 
-                const { error: statusErr } = await supabase.from('cold_outreach_campaigns').update({ status: 'ready' }).eq('id', campaign_id);
+                const { error: statusErr } = await supabase
+                    .from('cold_outreach_campaigns')
+                    .update({ status: 'ready', updated_at: new Date().toISOString() })
+                    .eq('id', campaign_id);
+
                 if (statusErr) return { error: statusErr };
 
-                return { generated: updates.length, action: 'EMAILS_GENERATED' };
+                return { action: 'EMAILS_GENERATED', generated: updates.length };
             },
         }),
     };
