@@ -44,9 +44,10 @@ export const EmailDraftSchema = z.object({
     to_name: z.string().nullable(),
     to_email: z.string().nullable(),
     subject: z.string(),
-    body: z.string(), // Plain text, CRLF-safe
+    body: z.string(), // Plain text, NO signature (Outlook auto-appends)
+    signature: z.string().nullable(), // For UI preview only, NOT in mailto
     cc: z.array(z.string()), // Always include Tiffany
-    mailto: z.string(), // Pre-filled mailto link
+    mailto: z.string(), // Built from body only (no signature)
     meta: EmailDraftMetaSchema,
 });
 
@@ -166,6 +167,15 @@ export function routeToTemplate(message, context = {}) {
 
 const DEFAULT_CC = 'Tiffany.Chavez@ayahealthcare.com';
 
+// Signature is stored separately - NOT included in mailto body
+// (Outlook auto-appends stored signature; including it causes duplicates)
+const SIGNATURE = `Please include my recruiter assistant on all email communications:
+Tiffany Chavez – Tiffany.Chavez@ayahealthcare.com
+
+Kofi Farkye
+Senior Recruiter, Fulfillment Specialist
+P: 858-529-7267 Ext: 17017`;
+
 export const TEMPLATES = Object.freeze({
     reference_consent: {
         subject: 'References Needed for Your Submission',
@@ -180,14 +190,7 @@ Can you confirm the following:
 
 Once I have your confirmation, I can move your submission forward.
 
-Thank you!
-
-Please include my recruiter assistant on all email communications:
-Tiffany Chavez – Tiffany.Chavez@ayahealthcare.com
-
-Kofi Farkye
-Senior Recruiter, Fulfillment Specialist
-P: 858-529-7267 Ext: 17017`,
+Thank you!`,
     },
 
     doc_request: {
@@ -210,14 +213,7 @@ Also, please send your best interview times this week (include your time zone).
 
 Once I have these, I can get your file submitted.
 
-Thank you!
-
-Please include my recruiter assistant on all email communications:
-Tiffany Chavez – Tiffany.Chavez@ayahealthcare.com
-
-Kofi Farkye
-Senior Recruiter, Fulfillment Specialist
-P: 858-529-7267 Ext: 17017`,
+Thank you!`,
     },
 
     assignment_interest: {
@@ -241,14 +237,7 @@ To move forward, confirm:
 - Any time-off during the assignment?
 - Is your Aya profile current?
 
-Reply with the 3 confirmations above and I will move the submission forward.
-
-Please include my recruiter assistant on all email communications:
-Tiffany Chavez – Tiffany.Chavez@ayahealthcare.com
-
-Kofi Farkye
-Senior Recruiter, Fulfillment Specialist
-P: 858-529-7267 Ext: 17017`,
+Reply with the 3 confirmations above and I will move the submission forward.`,
     },
 
     generic: {
@@ -257,12 +246,7 @@ P: 858-529-7267 Ext: 17017`,
 
 {{body_content}}
 
-Please include my recruiter assistant on all email communications:
-Tiffany Chavez – Tiffany.Chavez@ayahealthcare.com
-
-Kofi Farkye
-Senior Recruiter, Fulfillment Specialist
-P: 858-529-7267 Ext: 17017`,
+Thank you!`,
     },
 });
 
@@ -352,9 +336,10 @@ export function buildEmailDraft({ template_key, vars, candidate, requested_items
         to_name: candidate?.name ?? vars.candidate_name ?? null,
         to_email: candidate?.email ?? vars.candidate_email ?? null,
         subject,
-        body,
+        body, // Body-only, no signature
+        signature: SIGNATURE, // For UI preview only
         cc: [DEFAULT_CC],
-        mailto: '', // Will be set below
+        mailto: '', // Will be set below (body-only, no signature)
         meta: {
             template_key,
             candidate: {
@@ -366,6 +351,7 @@ export function buildEmailDraft({ template_key, vars, candidate, requested_items
         },
     };
 
+    // mailto built from body only (Outlook auto-appends signature)
     email.mailto = buildMailtoLink(email);
 
     return email;

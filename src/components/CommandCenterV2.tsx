@@ -307,14 +307,26 @@ ModeChips.displayName = 'ModeChips';
 // 4. EMAIL & ATTACHMENT HANDLING (ENHANCED OUTLOOK DEEP LINK)
 // ============================================================================
 
-const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string }> = memo(({ to, cc = DEFAULT_CC, subject, body }) => {
+const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string; signature?: string | null }> = memo(({ to, cc = DEFAULT_CC, subject, body, signature }) => {
     const [copiedField, setCopiedField] = useState<string | null>(null);
     const [isExpanded, setIsExpanded] = useState(false);
     const { showToast } = useToast();
 
+    // Body only for copy (no signature - Outlook auto-appends)
+    const bodyOnly = useMemo(() => body.replace(/  \n/g, '\n').replace(/^---\s*$/gm, '').trim(), [body]);
+
+    // Full preview (body + signature) for on-screen display only
+    const previewBody = useMemo(() => {
+        if (!signature) return bodyOnly;
+        return `${bodyOnly}\n\n${signature}`;
+    }, [bodyOnly, signature]);
+
+    const isLongBody = previewBody.length > 600 || previewBody.split('\n').length > 15;
+
     // Premium copy: clipboard + audio cue + haptic (user gesture required)
+    // Copies body-only (no signature) since Outlook auto-appends
     const handleQuickCopyAll = useCallback(async () => {
-        const fullDraft = `Subject: ${subject}\n\n${body}`;
+        const fullDraft = `Subject: ${subject}\n\n${bodyOnly}`;
         const success = await systemCopyToClipboard(fullDraft);
         if (success) {
             setCopiedField('all');
@@ -324,7 +336,7 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string }>
         } else {
             showToast('Clipboard access blocked. Try manual copy.');
         }
-    }, [subject, body, showToast]);
+    }, [subject, bodyOnly, showToast]);
 
     const handleCopy = useCallback(async (text: string, field: string) => {
         const success = await systemCopyToClipboard(text);
@@ -335,16 +347,14 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string }>
         }
     }, []);
 
-    const formattedBody = useMemo(() => body.replace(/  \n/g, '\n').replace(/^---\s*$/gm, '').trim(), [body]);
-    const isLongBody = formattedBody.length > 600 || formattedBody.split('\n').length > 15;
-
     // Outlook Deep Link Generator (Robust CRLF & Length Guard + CC support)
+    // Uses body-only since Outlook auto-appends stored signature
     const handleOpenOutlook = useCallback(() => {
         triggerHaptic();
         playDraftReadyCue(); // Audio cue on mail action too
 
-        // Outlook requires \r\n for line breaks
-        const outlookBody = normalizeBodyForMailto(formattedBody);
+        // Outlook requires \r\n for line breaks - use body-only (no signature)
+        const outlookBody = normalizeBodyForMailto(bodyOnly);
         const safeSubject = encodeURIComponent(subject);
         const safeBody = encodeURIComponent(outlookBody);
         const safeCc = cc ? `&cc=${encodeURIComponent(cc)}` : '';
@@ -354,14 +364,14 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string }>
 
         // Guard against URL length limits (approx 2000 chars is safe)
         if (mailtoLink.length > 2000) {
-            handleCopy(formattedBody, 'all');
+            handleCopy(bodyOnly, 'all');
             showToast("Draft too long for link. Content copied to clipboard.");
             // Fallback: Open mail client with just subject/to/cc
             window.open(`mailto:${to || ''}?subject=${safeSubject}${safeCc}`, '_blank');
         } else {
             window.open(mailtoLink, '_blank');
         }
-    }, [to, cc, subject, formattedBody, handleCopy, showToast]);
+    }, [to, cc, subject, bodyOnly, handleCopy, showToast]);
 
     return (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={SYSTEM.anim.fluid} className={cn('rounded-[20px] overflow-hidden bg-white/[0.02] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_-8px_rgba(0,0,0,0.4)]')}>
@@ -407,7 +417,7 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string }>
                 <div className={cn('flex-1 min-w-0 relative', !isExpanded && isLongBody && 'max-h-[280px] overflow-hidden')}>
                     {/* Render body with markdown support for proper formatting */}
                     <div className={cn('prose prose-invert prose-sm max-w-none', 'prose-p:text-[#C4C4C4] prose-p:leading-relaxed prose-strong:text-white prose-li:text-[#C4C4C4]')}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{formattedBody}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{previewBody}</ReactMarkdown>
                     </div>
                     {!isExpanded && isLongBody && <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0A0A0B] to-transparent pointer-events-none" />}
                 </div>
@@ -426,9 +436,9 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string }>
                         triggerHaptic();
                         playDraftReadyCue();
                         const ccParam = cc ? `&cc=${encodeURIComponent(cc)}` : '';
-                        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1${to ? `&to=${encodeURIComponent(to)}` : ''}${ccParam}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(formattedBody)}`;
+                        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1${to ? `&to=${encodeURIComponent(to)}` : ''}${ccParam}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyOnly)}`;
                         if (gmailUrl.length > 2000) {
-                            handleCopy(formattedBody, 'all');
+                            handleCopy(bodyOnly, 'all');
                             showToast("Draft too long for link. Content copied to clipboard.");
                             window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(subject)}${ccParam}`, '_blank');
                         } else {
@@ -439,7 +449,7 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string }>
                 >
                     <Mail size={14} /> Gmail
                 </motion.button>
-                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => handleCopy(formattedBody, 'body')} className={cn('px-4 py-2 rounded-xl border transition-all text-[12px] font-medium', copiedField === 'body' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-white/[0.04] border-white/[0.06] text-zinc-400 hover:text-white')}>
+                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => handleCopy(bodyOnly, 'body')} className={cn('px-4 py-2 rounded-xl border transition-all text-[12px] font-medium', copiedField === 'body' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-white/[0.04] border-white/[0.06] text-zinc-400 hover:text-white')}>
                     {copiedField === 'body' ? <span className="flex items-center gap-1.5"><Check size={14} /> Copied</span> : 'Copy Body'}
                 </motion.button>
             </div>
@@ -472,9 +482,13 @@ const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
             className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden"
         >
             <div className="px-4 py-2.5 border-b border-white/[0.06] bg-white/[0.02]">
-                <span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>NEXT STEPS</span>
+                <span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px] tracking-widest')}>NEXT STEPS</span>
             </div>
-            <div className="p-3 space-y-2">
+            {/* Capped height + scroll to prevent overflow pushing layout */}
+            <div
+                className="max-h-40 overflow-y-auto px-4 py-3 space-y-2"
+                style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+            >
                 {steps.map((step, idx) => (
                     <motion.div
                         key={`${step.type}-${idx}`}
@@ -490,9 +504,9 @@ const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
                                 onClick={() => triggerHaptic()}
                                 className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 transition-all group"
                             >
-                                <ExternalLink size={14} className="text-indigo-400" />
-                                <span className="text-[13px] text-indigo-300 font-medium">{step.label}</span>
-                                <ChevronRight size={14} className="ml-auto text-indigo-500/50 group-hover:text-indigo-400 transition-colors" />
+                                <ExternalLink size={14} className="text-indigo-400 shrink-0" />
+                                <span className="text-[13px] text-indigo-300 font-medium truncate">{step.label}</span>
+                                <ChevronRight size={14} className="ml-auto text-indigo-500/50 group-hover:text-indigo-400 transition-colors shrink-0" />
                             </a>
                         )}
                         {step.type === 'send_email' && step.href && (
@@ -501,15 +515,15 @@ const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
                                 onClick={() => { triggerHaptic(); playDraftReadyCue(); }}
                                 className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all group"
                             >
-                                <Mail size={14} className="text-emerald-400" />
-                                <span className="text-[13px] text-emerald-300 font-medium">{step.label}</span>
-                                <ChevronRight size={14} className="ml-auto text-emerald-500/50 group-hover:text-emerald-400 transition-colors" />
+                                <Mail size={14} className="text-emerald-400 shrink-0" />
+                                <span className="text-[13px] text-emerald-300 font-medium truncate">{step.label}</span>
+                                <ChevronRight size={14} className="ml-auto text-emerald-500/50 group-hover:text-emerald-400 transition-colors shrink-0" />
                             </a>
                         )}
                         {(step.type === 'await_docs' || step.type === 'await_availability') && (
                             <div className="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-amber-500/5 border border-amber-500/10">
                                 <Activity size={14} className="text-amber-400 mt-0.5 shrink-0" />
-                                <div>
+                                <div className="min-w-0">
                                     <span className="text-[13px] text-amber-300/80 font-medium">{step.label}</span>
                                     {step.required?.length && (
                                         <div className="flex flex-wrap gap-1.5 mt-1.5">
@@ -525,10 +539,10 @@ const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
                         )}
                         {step.type === 'move_stage' && (
                             <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-zinc-500/5 border border-zinc-500/10 opacity-60">
-                                <Zap size={14} className="text-zinc-500" />
-                                <span className="text-[13px] text-zinc-400">{step.label}</span>
+                                <Zap size={14} className="text-zinc-500 shrink-0" />
+                                <span className="text-[13px] text-zinc-400 truncate">{step.label}</span>
                                 {step.enabled_when && (
-                                    <span className="ml-auto text-[10px] text-zinc-600 font-mono">when: {step.enabled_when}</span>
+                                    <span className="ml-auto text-[10px] text-zinc-600 font-mono shrink-0">when: {step.enabled_when}</span>
                                 )}
                             </div>
                         )}
@@ -660,6 +674,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                                 cc={email.cc?.[0] || DEFAULT_CC}
                                 subject={email.subject}
                                 body={email.body}
+                                signature={email.signature}
                             />
                             <NextStepsPanel steps={nextSteps} />
                         </>
