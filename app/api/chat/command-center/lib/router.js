@@ -67,13 +67,16 @@ const INTENT_PATTERNS = [
     requiresTools: true,
   },
   {
-    // OFFER_DETAILS must come before DRAFT_OUTREACH (more specific)
+    // OFFER_DETAILS must come before DRAFT_OUTREACH and DRAFT_EMAIL (more specific)
+    // These require LLM generation to analyze complex offer data from images/context
     intent: Intent.OFFER_DETAILS,
     patterns: [
-      /\b(offer)\s*(details|letter|email|breakdown)\b/i,
+      /\b(offer)\s*(details|letter|email|breakdown)\b/i, // "offer email", "offer details"
+      /\b(draft|write|create)\b.*\b(offer)\b.*\b(email|letter|summary)?\b/i, // "draft offer email"
       /\b(congratulations|congrats)\b.*\b(offer|position)\b/i,
-      /\b(draft|write|create)\b.*\b(offer|acceptance)\b.*\b(letter|email|details)\b/i,
-      /\b(offer)\b.*\b(received|accepted|got the)\b/i,
+      /\b(offer)\b.*\b(received|accepted|got the|review|compare)\b/i,
+      /\b(compare|review|go over|going over)\b.*\b(offer|offers)\b/i, // "going over the two offers"
+      /\b(two|multiple|both)\s*(offer|offers)\b/i, // "the two offers"
     ],
     requiresTools: true,
   },
