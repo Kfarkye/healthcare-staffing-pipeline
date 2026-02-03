@@ -274,6 +274,14 @@ const MODE_CHIPS = [
     { label: 'Screen Resume', context: 'Screen Resume' },
 ] as const;
 
+type RouterMode = 'default' | 'cold_outreach' | 'batch_reassign' | 'reply_mode';
+
+const MODE_CONTEXT_TO_ROUTER_MODE: Record<string, RouterMode> = {
+    'Pay Package Email': 'cold_outreach',
+    'Internal Reassignment Request': 'batch_reassign',
+};
+
+
 const ModeChips: FC<{ value: string; onChange: (v: string) => void }> = memo(({ value, onChange }) => (
     <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide px-1">
         {MODE_CHIPS.map((chip, index) => {
@@ -1059,8 +1067,11 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
             if (links) msg = text ? `${text}\n\n${links}` : `Analyze:\n\n${links}`;
         }
 
+        const routerMode: RouterMode = MODE_CONTEXT_TO_ROUTER_MODE[modeContext] ?? 'default';
+        const modeLocked = routerMode !== 'default';
+
         setInputValue(''); clearAttachments(); scrollToBottomNow(); triggerHaptic();
-        await sendMessage(msg, safeFileAttachments, { systemContext: modeContext });
+        await sendMessage(msg, safeFileAttachments, { systemContext: modeContext, mode: routerMode, modeLocked });
     }, [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments, showToast, totalPayloadSize, modeContext]);
 
     const containerStyle = useMemo(() => {

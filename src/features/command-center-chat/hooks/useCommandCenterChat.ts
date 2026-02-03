@@ -62,6 +62,10 @@ export interface UseCommandCenterChatOptions {
 export interface SendMessageOptions {
     /** Hidden system context (e.g., mode chip) - sent to API but not shown in transcript */
     systemContext?: string;
+    /** Router mode (drives deterministic Tier 0 behavior server-side). */
+    mode?: 'default' | 'cold_outreach' | 'batch_reassign' | 'reply_mode';
+    /** When true, mode is locked and Tier 0 routing overrides. */
+    modeLocked?: boolean;
     /**
      * Force bypasses duplicate-payload guard.
      * Used for reload / explicit retries.
@@ -416,6 +420,8 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
 
                 // Extract hidden system context (mode chips set this)
                 const systemContext = sendOptions?.systemContext?.trim() || '';
+                const mode = sendOptions?.mode;
+                const modeLocked = sendOptions?.modeLocked;
 
                 const response = await fetch('/api/chat/command-center', {
                     method: 'POST',
@@ -425,6 +431,8 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                     },
                     body: JSON.stringify({
                         systemContext,
+                        mode,
+                        modeLocked,
                         messages: requestMessages,
                         context: stableContext,
                     }),

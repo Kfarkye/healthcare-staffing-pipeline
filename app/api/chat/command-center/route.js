@@ -194,6 +194,8 @@ const RequestSchema = z.object({
     messages: z.array(z.any()).min(1),
     context: z.record(z.any()).optional(),
     systemContext: z.string().optional(), // Hidden mode context from pre-draft chips
+    mode: z.enum(['default', 'cold_outreach', 'batch_reassign', 'reply_mode']).optional(),
+    modeLocked: z.boolean().optional(),
 });
 
 async function fetchTemplate(supabase, name, logger) {
@@ -495,7 +497,7 @@ export async function POST(request) {
     if (!parsed.success) {
         return new Response(JSON.stringify({ error: 'Invalid Schema', traceId }), { status: 400, headers: HEADERS.DEFAULT });
     }
-    const { messages, context } = parsed.data;
+    const { messages, context, systemContext: systemContextRaw, mode, modeLocked } = parsed.data;
 
     // 4. CLIENTS
     const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
@@ -526,7 +528,7 @@ export async function POST(request) {
         });
 
         // Extract hidden mode context from pre-draft chips (not shown in transcript)
-        const { systemContext } = parsed.data;
+        const systemContext = (systemContextRaw ?? '').trim();
 
         // SMART ROUTING: Include mode context in classification so chips route correctly
         // Mode context like "Internal Reassignment Request" should trigger REASSIGNMENT_REQUEST intent
@@ -536,12 +538,17 @@ export async function POST(request) {
             hasImage && !inputText && !systemContext ? 'Draft a pay package outreach email using this image' : ''
         ].filter(Boolean).join(' ') || 'Start interaction';
 
+        const routerMode = mode ?? 'default';
+        const routerModeLocked = Boolean(modeLocked);
+
         const classification = await classify({
             message: classificationMessage,
-            history: normalizedMessages
+            history: normalizedMessages,
+            mode: routerMode,
+            modeLocked: routerModeLocked,
         });
 
-        logger.info('intent_classified', { intent: classification.intent, tools: classification.requiresTools, modeContext: systemContext });
+        logger.info('intent_classified', { intent: classification.intent, tools: classification.requiresTools, modeContext: systemContext, mode: routerMode, modeLocked: routerModeLocked });
 
         const modeContextBlock = systemContext?.trim()
             ? `\n\nMODE CONTEXT (Hidden from user):\nThe user has selected: "${systemContext}"\nTailor your response appropriately for this mode.\n`
