@@ -22,7 +22,7 @@ import type {
 } from '../types/index';
 
 import { TemplateType } from '../types/index';
-import { CONFIG, buildSignature, buildNovaUrl } from './config';
+import { CONFIG, buildNovaUrl } from './config';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // SECTION 1: Utility Functions
@@ -166,8 +166,6 @@ export function buildPayPackageEmail(data: PayPackageData): EmailOutput {
     lines.push('Let me know and I can get you submitted right away.');
     lines.push('');
     lines.push('Thank you!');
-    lines.push(buildSignature());
-
     if (missing.length > 0) {
         lines.push('');
         lines.push('---');
@@ -223,8 +221,6 @@ export function buildWorkingTravelerEmail(data: PayPackageData): EmailOutput {
     }
 
     lines.push('Let me know if you have any time-off needs and I will get you submitted.');
-    lines.push(buildSignature());
-
     if (missing.length > 0) {
         lines.push('');
         lines.push('---');
@@ -280,8 +276,6 @@ export function buildReengagedTravelerEmail(data: PayPackageData): EmailOutput {
     }
 
     lines.push('Let me know if you have any time-off needs and I will get you submitted. Happy to jump on a quick call if you would like to chat through anything.');
-    lines.push(buildSignature());
-
     if (missing.length > 0) {
         lines.push('');
         lines.push('---');
@@ -324,8 +318,6 @@ export function buildDocRequestEmail(data: DocRequestData): EmailOutput {
     lines.push('- Best interview times this week (include time zone)');
     lines.push('');
     lines.push('Send these over and I will get you submitted right away.');
-    lines.push(buildSignature());
-
     return createOutput(
         TemplateType.DOC_REQUEST,
         data.candidateEmail || '',
@@ -355,8 +347,6 @@ export function buildReferenceRequestEmail(data: ReferenceRequestData): EmailOut
     lines.push('- Do you need to update or add any references?');
     lines.push('');
     lines.push('Let me know and I will move forward with your submission.');
-    lines.push(buildSignature());
-
     return createOutput(
         TemplateType.REFERENCE_REQUEST,
         data.candidateEmail || '',
@@ -381,8 +371,6 @@ export function buildLicensingRequestEmail(data: LicensingRequestData): EmailOut
     lines.push(`Can I please have licensing information for ${data.specialty || '[Specialty]'} in ${data.state || '[State]'}?`);
     lines.push('');
     lines.push('Thank you!');
-    lines.push(buildSignature());
-
     return createOutput(
         TemplateType.LICENSING,
         CONFIG.teamEmails.licensing,
@@ -411,8 +399,6 @@ export function buildReassignmentRequestEmail(data: ReassignmentRequestData): Em
     if (data.candidateEmail) lines.push(`Email: ${data.candidateEmail}`);
     lines.push('');
     lines.push('Thank you!');
-    lines.push(buildSignature());
-
     return createOutput(
         TemplateType.REASSIGNMENT,
         CONFIG.teamEmails.reassignments,
@@ -462,8 +448,6 @@ export function buildOfferDetailsEmail(data: OfferDetailsData): EmailOutput {
     lines.push('3. If anything is missing, send a photo of the missing item and I will upload it.');
     lines.push('');
     lines.push('Thank you,');
-    lines.push(buildSignature());
-
     if (missing.length > 0) {
         lines.push('');
         lines.push('---');

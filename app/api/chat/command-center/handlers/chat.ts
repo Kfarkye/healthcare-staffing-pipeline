@@ -71,6 +71,7 @@ Guidelines:
 4. Keep the tone professional but warm
 5. Preserve any specific details mentioned by the user
 6. If drafting a reply, make it concise and actionable
+7. Do NOT include any signature or contact block (the email client already adds it)
 
 OUTPUT FORMAT (use when producing an email):
 To: [email if visible]
