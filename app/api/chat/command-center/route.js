@@ -546,6 +546,7 @@ export async function POST(request) {
             history: normalizedMessages,
             mode: routerMode,
             modeLocked: routerModeLocked,
+            hasImage,
         });
 
         logger.info('intent_classified', { intent: classification.intent, tools: classification.requiresTools, modeContext: systemContext, mode: routerMode, modeLocked: routerModeLocked });

@@ -263,6 +263,10 @@ const RX_MEDIUMS = /\b(emails?|messages?|notes?|texts?)\b/i;
 const RX_OUTREACH = /\boutreach\b/i;
 const RX_PAY_PACKAGE = /\bpay\s*package\b/i;
 
+// Typo-tolerant versions for image gate (catches "ddraft", "outrecah", etc.)
+const RX_DRAFT_TYPO = /\b(d{1,2}raf{1,2}t?|write|compose)\b/i;
+const RX_OUTREACH_TYPO = /\boutr?e?a?c?h?\b/i;
+
 const RX_ENTITIES = /\b(references?|docs?|documents?|certifications?)\b/i;
 const RX_ENTITY_ACTIONS = /\b(ask|request|get|send|collect|confirm)\b/i;
 
@@ -584,6 +588,7 @@ function resolveModeIntent(mode, message, history) {
  * @property {HistoryMessage[]} [history]
  * @property {string} [mode]
  * @property {boolean} [modeLocked]
+ * @property {boolean} [hasImage]
  */
 
 /**
@@ -595,6 +600,7 @@ export async function classify({
   history = [],
   mode = ChatMode.DEFAULT,
   modeLocked = false,
+  hasImage = false,
 }) {
   const normalized = normalizeText(message, MAX_MESSAGE_CHARS);
 
@@ -641,6 +647,27 @@ export async function classify({
         parameters: {},
         fastPath: true,
         modeLocked: true,
+      };
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // TIER 0.5: Image + Draft Outreach Gate (0ms, deterministic)
+  // If user uploads an image with "draft outreach" (even with typos), assume pay package
+  // --------------------------------------------------------------------------
+  if (hasImage) {
+    const hasDraftTypo = RX_DRAFT_TYPO.test(normalized);
+    const hasOutreachTypo = RX_OUTREACH_TYPO.test(normalized);
+
+    if (hasDraftTypo && hasOutreachTypo) {
+      return {
+        intent: Intent.DRAFT_OUTREACH,
+        kind: RESPONSE_KIND[Intent.DRAFT_OUTREACH],
+        requiresTools: TOOL_REQUIREMENTS[Intent.DRAFT_OUTREACH],
+        confidence: 1.0,
+        reason: 'Image + draft + outreach detected.',
+        parameters: {},
+        fastPath: true,
       };
     }
   }
