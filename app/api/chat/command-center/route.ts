@@ -286,6 +286,16 @@ export async function POST(request: Request) {
     const inputText = getInputText(normalizedMessages);
     const imagePresent = hasImage(normalizedMessages);
 
+    // DEBUG: Log normalized message details
+    const lastMsg = normalizedMessages[normalizedMessages.length - 1];
+    logger.info('normalized_last_message', {
+        normalizedCount: normalizedMessages.length,
+        lastMsgContentCount: lastMsg?.content?.length ?? 0,
+        lastMsgContentTypes: lastMsg?.content?.map(c => c.type) ?? [],
+        imagePresent,
+        inputTextPreview: inputText.substring(0, 100),
+    });
+
     logger.info('request_received', {
         inputLength: inputText.length,
         hasImage: imagePresent,
@@ -294,7 +304,8 @@ export async function POST(request: Request) {
         messageCount: messages.length,
         lastMessageRole: messages[messages.length - 1]?.role,
         lastMessageContentType: typeof messages[messages.length - 1]?.content,
-        hasAttachments: !!(messages[messages.length - 1]?.experimental_attachments?.length || messages[messages.length - 1]?.attachments?.length),
+        lastMessageHasParts: Array.isArray(messages[messages.length - 1]?.parts),
+        lastMessagePartsCount: messages[messages.length - 1]?.parts?.length ?? 0,
     });
 
     // ══════════════════════════════════════════════════════════════════════════
