@@ -130,10 +130,13 @@ export function buildPayPackageEmail(data: PayPackageData): EmailOutput {
 
     // Body
     const lines: string[] = [];
-    
+
     lines.push(`Hi ${firstName},`);
     lines.push('');
-    lines.push(`I came across your profile and thought you would be a great fit for this ${specialty} opening at ${data.facility || 'the facility'}.`);
+
+    // Intro with location context
+    const locationStr = city && state ? `${city}` : (city || state || 'the area');
+    lines.push(`I am reaching out to share a new ${specialty} assignment in ${locationStr} that matches your experience.`);
     lines.push('');
 
     // Job details
@@ -149,18 +152,20 @@ export function buildPayPackageEmail(data: PayPackageData): EmailOutput {
     if (data.hourlyRate || data.stipend || data.weeklyTotal) {
         lines.push('Pay Package:');
         if (data.hourlyRate) lines.push(`- Taxable Hourly Rate: ${formatHourlyRate(data.hourlyRate)}`);
-        if (data.stipend) lines.push(`- Meals and Housing Stipend: ${formatWeekly(data.stipend)}`);
+        if (data.stipend) lines.push(`- Meals & Housing Stipend: ${formatWeekly(data.stipend)}`);
         if (data.weeklyTotal) lines.push(`- Total Gross Weekly Pay: ${formatWeekly(data.weeklyTotal)}`);
         lines.push('');
     }
 
-    // CTA
-    lines.push('To move forward, confirm:');
+    // CTA with cert reminder
+    lines.push('To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):');
     lines.push(`- Available to start ${data.startDate || 'on the start date'}?`);
     lines.push('- Any time-off during the assignment?');
     lines.push('- Is your Aya profile current?');
     lines.push('');
-    lines.push('Reply with the 3 confirmations above and I will get you submitted right away.');
+    lines.push('Let me know and I can get you submitted right away.');
+    lines.push('');
+    lines.push('Thank you!');
     lines.push(buildSignature());
 
     if (missing.length > 0) {
@@ -194,7 +199,7 @@ export function buildWorkingTravelerEmail(data: PayPackageData): EmailOutput {
         : `${specialty} - ${data.facility || 'Facility'}`;
 
     const lines: string[] = [];
-    
+
     lines.push(`Hi ${firstName},`);
     lines.push('');
     lines.push('I saw you clicked interested on this one - here are the details:');
@@ -251,7 +256,7 @@ export function buildReengagedTravelerEmail(data: PayPackageData): EmailOutput {
         : `${specialty} - ${data.facility || 'Facility'}`;
 
     const lines: string[] = [];
-    
+
     lines.push(`Hi ${firstName},`);
     lines.push('');
     lines.push('I hope you are doing well! I saw you clicked interested on this one - here are the details:');
@@ -304,7 +309,7 @@ export function buildDocRequestEmail(data: DocRequestData): EmailOutput {
         : 'Documents Needed for Submission';
 
     const lines: string[] = [];
-    
+
     lines.push(`Hi ${firstName},`);
     lines.push('');
     lines.push('To move forward with your submission, I need the following:');
@@ -340,7 +345,7 @@ export function buildReferenceRequestEmail(data: ReferenceRequestData): EmailOut
     const subject = 'References Needed for Your Submission';
 
     const lines: string[] = [];
-    
+
     lines.push(`Hi ${firstName},`);
     lines.push('');
     lines.push('Before I can submit you, I need to confirm your references:');
@@ -370,7 +375,7 @@ export function buildLicensingRequestEmail(data: LicensingRequestData): EmailOut
     const subject = `Licensing - ${data.specialty || 'Specialty'}/${data.state || 'State'}`;
 
     const lines: string[] = [];
-    
+
     lines.push('Hi Team,');
     lines.push('');
     lines.push(`Can I please have licensing information for ${data.specialty || '[Specialty]'} in ${data.state || '[State]'}?`);
@@ -397,7 +402,7 @@ export function buildReassignmentRequestEmail(data: ReassignmentRequestData): Em
     const novaUrl = data.novaId ? buildNovaUrl(data.novaId) : '[Nova link needed]';
 
     const lines: string[] = [];
-    
+
     lines.push('Hi Team,');
     lines.push('');
     lines.push(`Can we please reassign ${data.candidateName || '[Candidate Name]'}?`);
@@ -427,7 +432,7 @@ export function buildOfferDetailsEmail(data: OfferDetailsData): EmailOutput {
     const subject = `Offer: ${data.facility || 'Facility'} - ${data.location || 'Location'}`;
 
     const lines: string[] = [];
-    
+
     lines.push(`Hi ${firstName},`);
     lines.push('');
     lines.push(`Congratulations on your offer with ${data.facility || 'the facility'}. Here are the details:`);
