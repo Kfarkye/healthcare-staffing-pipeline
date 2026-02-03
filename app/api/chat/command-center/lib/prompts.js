@@ -399,8 +399,11 @@ Hi [name],
 
 OUTPUT RULES:
 - Output ONLY the <draft>...</draft> block.
+- PLAIN TEXT ONLY. No markdown: no **, no *, no # headers, no bullet symbols.
+- Use "- " for lists (plain dash), NOT "* " or "• ".
 - Do NOT add any text before or after the draft tags.
-- No summaries, no "Send this..." instructions, no commentary.`;
+- No summaries, no "I will now...", no "Send this...", no commentary.
+- End the email with your closing line. Nothing after that.`;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -488,7 +491,14 @@ Reply with the 3 confirmations above and I will move the submission forward.
 </examples>
 
 <task>
-Output ONLY the draft block. No commentary, no "Send this..." text.
+OUTPUT RULES (MANDATORY):
+1. Output ONLY the <draft>...</draft> block.
+2. PLAIN TEXT ONLY. No markdown: no **, no *, no headers.
+3. Use "- " for bullets, NOT "* " or bullets.
+4. No text before or after the draft tags.
+5. No "I will now...", no "Send this...", no commentary.
+6. Email ends at the closing line. Nothing after.
+
 <draft>
 ...email...
 </draft>
