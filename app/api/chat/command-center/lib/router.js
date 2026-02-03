@@ -10,6 +10,7 @@
  * 4) Substring Bugs: All trigger detection uses \b boundaries (no "context" => "text").
  * 5) Pre-Gate Optimization: Info questions + code/stack traces skip LLM entirely (<1ms).
  * 6) Mode Layer (Tier 0): Deterministic routing when modeLocked is enabled.
+ * 7) DB Query Override: "Where is candidate 123?" → DATABASE_ACTION (no LLM).
  *
  * Drop-in path:
  *   app/api/chat/command-center/lib/router.js
@@ -588,10 +589,39 @@ export async function classify({
   }
 
   // --------------------------------------------------------------------------
-  // TIER 2A: Pre-Gate (Info Questions)
+  // TIER 2A: Pre-Gate (Database Query Override)
+  // DB queries win even when phrased as questions like "Where is candidate 123?"
   // --------------------------------------------------------------------------
   const isDatabaseQuery = RX_DB_QUERY.test(normalized) || RX_NOVA.test(normalized);
-  if (isInfoQuestion(normalized) && !isDatabaseQuery) {
+  if (isDatabaseQuery && !isExplicitEmailRequest(normalized)) {
+    // Code pastes still blocked
+    if (isCodeLike(normalized)) {
+      return {
+        intent: Intent.GENERAL_CHAT,
+        kind: RESPONSE_KIND[Intent.GENERAL_CHAT],
+        requiresTools: TOOL_REQUIREMENTS[Intent.GENERAL_CHAT],
+        confidence: 1.0,
+        reason: 'Blocked by Code/Stacktrace Pre-Gate.',
+        parameters: {},
+        fastPath: true,
+      };
+    }
+
+    return {
+      intent: Intent.DATABASE_ACTION,
+      kind: RESPONSE_KIND[Intent.DATABASE_ACTION],
+      requiresTools: TOOL_REQUIREMENTS[Intent.DATABASE_ACTION],
+      confidence: 1.0,
+      reason: 'Database query override.',
+      parameters: {},
+      fastPath: true,
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // TIER 2B: Pre-Gate (Info Questions)
+  // --------------------------------------------------------------------------
+  if (isInfoQuestion(normalized)) {
     return {
       intent: Intent.GENERAL_CHAT,
       kind: RESPONSE_KIND[Intent.GENERAL_CHAT],
@@ -604,7 +634,7 @@ export async function classify({
   }
 
   // --------------------------------------------------------------------------
-  // TIER 2B: Pre-Gate (Code / Stacktraces)
+  // TIER 2C: Pre-Gate (Code / Stacktraces)
   // --------------------------------------------------------------------------
   if (isCodeLike(normalized) && !isExplicitEmailRequest(normalized)) {
     return {
