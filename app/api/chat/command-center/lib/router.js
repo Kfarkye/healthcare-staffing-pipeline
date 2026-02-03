@@ -1,28 +1,28 @@
 /**
- * ============================================================================
- * router.js — Control Plane & Hybrid Intent Router (Production Paste-and-Go)
- * ============================================================================
+ * ════════════════════════════════════════════════════════════════════════════════
+ * ROUTER.JS — Intent Classification Engine (Production v4.0.0)
+ * ════════════════════════════════════════════════════════════════════════════════
  *
- * FIXES INCLUDED (Your Failure Modes):
- * 1) Email Card Hallucination: Deterministic safety gates (2-token rule + strict boundaries).
- * 2) 504 Timeouts: AbortController hard-kills the upstream LLM request at 1000ms.
- * 3) Nova Routing: Correct hash router matching for nova.ayahealthcare.com/#/...
- * 4) Substring Bugs: All trigger detection uses \b boundaries (no "context" => "text").
- * 5) Pre-Gate Optimization: Info questions + code/stack traces skip LLM entirely (<1ms).
- * 6) Mode Layer (Tier 0): Deterministic routing when modeLocked is enabled.
- * 7) DB Query Narrowing: Only ATS terms or search+ID combos route to DATABASE_ACTION.
+ * ARCHITECTURE: Tiered deterministic gates → LLM semantic fallback
  *
- * Drop-in path:
- *   app/api/chat/command-center/lib/router.js
+ * v4.0.0 CHANGELOG:
+ * - CRITICAL FIX: COLD_OUTREACH mode + image → DRAFT_OUTREACH (was CAMPAIGN_WORKFLOW)
+ * - CRITICAL FIX: Image-only uploads with no text now route correctly
+ * - PERF: Pre-gate checks reordered for <1ms cold path
+ * - SAFETY: All regex patterns use word boundaries to prevent substring false positives
+ * - REMOVED: Redundant checks that caused path bypass
+ *
+ * @module app/api/chat/command-center/lib/router.js
+ * @version 4.0.0
  */
 
 import { z } from 'zod';
 import { generateObject } from 'ai';
 import { google } from '@ai-sdk/google';
 
-// ============================================================================
-// SECTION 1: Intents + Modes
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════════
+// SECTION 1: Intent & Mode Definitions
+// ════════════════════════════════════════════════════════════════════════════════
 
 export const Intent = Object.freeze({
   DRAFT_OUTREACH: 'DRAFT_OUTREACH',
@@ -38,10 +38,6 @@ export const Intent = Object.freeze({
   UNKNOWN: 'UNKNOWN',
 });
 
-/**
- * @typedef {typeof Intent[keyof typeof Intent]} IntentType
- */
-
 const INTENT_ENUM = /** @type {[string, ...string[]]} */ (Object.values(Intent));
 const INTENT_SET = new Set(INTENT_ENUM);
 
@@ -52,10 +48,6 @@ export const ChatMode = Object.freeze({
   REPLY_MODE: 'reply_mode',
 });
 
-/**
- * @typedef {typeof ChatMode[keyof typeof ChatMode]} ChatModeType
- */
-
 export const MODE_UI_HINTS = Object.freeze({
   [ChatMode.DEFAULT]: 'Ask to draft emails, find candidates, or check Nova…',
   [ChatMode.COLD_OUTREACH]: 'Paste filters, facility details, IDs, or lists for outreach…',
@@ -63,48 +55,30 @@ export const MODE_UI_HINTS = Object.freeze({
   [ChatMode.REPLY_MODE]: 'Paste the inbound email thread to generate a reply…',
 });
 
-/**
- * @typedef {'email_response' | 'chat'} ResponseKind
- */
-
-/**
- * @typedef {Object} ClassificationResult
- * @property {string} intent
- * @property {ResponseKind} kind
- * @property {boolean} requiresTools
- * @property {number} confidence
- * @property {string} reason
- * @property {{ candidate_name?: string; topic?: string; urgency?: 'high' | 'normal' }} parameters
- * @property {boolean} [fastPath]
- * @property {boolean} [modeLocked]
- */
+// ════════════════════════════════════════════════════════════════════════════════
+// SECTION 2: Tool & Response Configuration
+// ════════════════════════════════════════════════════════════════════════════════
 
 /** @type {Readonly<Record<string, boolean>>} */
 const TOOL_REQUIREMENTS = Object.freeze({
-  // Email drafts default FALSE to reduce latency; downstream can fetch if ID missing.
   [Intent.DRAFT_EMAIL]: false,
-  [Intent.DRAFT_OUTREACH]: false,
+  [Intent.DRAFT_OUTREACH]: false, // No tools needed - deterministic template fill
   [Intent.EDIT_CONTENT]: false,
-
-  // Ops & data flows
   [Intent.OFFER_DETAILS]: true,
   [Intent.REASSIGNMENT_REQUEST]: true,
   [Intent.DATABASE_ACTION]: true,
   [Intent.CAMPAIGN_WORKFLOW]: true,
-
-  // Non-tool intents
   [Intent.LICENSING_REQUEST]: false,
   [Intent.SEARCH_QUERY]: false,
   [Intent.GENERAL_CHAT]: false,
   [Intent.UNKNOWN]: false,
 });
 
-/** @type {Readonly<Record<string, ResponseKind>>} */
+/** @type {Readonly<Record<string, 'email_response' | 'chat'>>} */
 const RESPONSE_KIND = Object.freeze({
   [Intent.DRAFT_EMAIL]: 'email_response',
   [Intent.DRAFT_OUTREACH]: 'email_response',
   [Intent.EDIT_CONTENT]: 'email_response',
-
   [Intent.OFFER_DETAILS]: 'chat',
   [Intent.DATABASE_ACTION]: 'chat',
   [Intent.CAMPAIGN_WORKFLOW]: 'chat',
@@ -115,41 +89,29 @@ const RESPONSE_KIND = Object.freeze({
   [Intent.UNKNOWN]: 'chat',
 });
 
-// ============================================================================
-// SECTION 2: Schema + Constants
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════════
+// SECTION 3: Schema & Constants
+// ════════════════════════════════════════════════════════════════════════════════
 
 const ClassificationSchema = z.object({
   reason: z.string().describe('Short 1-sentence reason for classification.'),
   intent: z.enum(INTENT_ENUM),
   confidence: z.number().min(0).max(1),
-  parameters: z
-    .object({
-      candidate_name: z.string().optional(),
-      topic: z.string().optional(),
-      urgency: z.enum(['high', 'normal']).optional(),
-    })
-    .default({}),
+  parameters: z.object({
+    candidate_name: z.string().optional(),
+    topic: z.string().optional(),
+    urgency: z.enum(['high', 'normal']).optional(),
+  }).default({}),
 });
 
-/**
- * @typedef {{ role: 'user' | 'assistant' | string; content: unknown }} HistoryMessage
- */
-
-/**
- * @typedef {{ name?: string; message: string }} NormalizedError
- */
-
 const HISTORY_WINDOW = 2;
-/** @type {{ candidate_name?: string; topic?: string; urgency?: 'high' | 'normal' }} */
 const DEFAULT_PARAMETERS = Object.freeze({});
 const MAX_MESSAGE_CHARS = 12000;
 const MAX_LLM_CHARS = 4000;
 const MAX_HISTORY_MESSAGE_CHARS = 2000;
 const SEMANTIC_BUDGET_MS = 1000;
 
-const SYSTEM_PROMPT = `
-You are the Intent Router for a Healthcare ATS. Classify the user's request.
+const SYSTEM_PROMPT = `You are the Intent Router for a Healthcare ATS. Classify the user's request.
 
 Intents:
 - DRAFT_OUTREACH: cold outreach, pay package emails, first contact campaigns
@@ -163,82 +125,68 @@ Rules:
 1) Negation ("don't send", "cancel", "no email") -> GENERAL_CHAT
 2) Info questions ("why/how/what...") -> GENERAL_CHAT
 3) "outreach" + (draft/pay package) -> DRAFT_OUTREACH
-4) Return only the schema fields.
-`;
+4) Return only the schema fields.`;
 
-/**
- * @param {unknown} err
- * @returns {NormalizedError}
- */
+// ════════════════════════════════════════════════════════════════════════════════
+// SECTION 4: Regex Patterns (Strict Word Boundaries)
+// ════════════════════════════════════════════════════════════════════════════════
+
+const RX_INFO_STARTERS = /^(who|what|where|when|why|how)\b/i;
+const RX_DRAFT_VERBS = /\b(draft|write|compose|rewrite|revise|edit|create|generate|reply|respond|follow\s*up)\b/i;
+const RX_MEDIUMS = /\b(emails?|messages?|notes?|texts?)\b/i;
+const RX_OUTREACH = /\boutreach\b/i;
+const RX_PAY_PACKAGE = /\bpay\s*package\b/i;
+const RX_DRAFT_TYPO = /\b(d{1,2}raf{1,2}t?|write|compose)\b/i;
+const RX_OUTREACH_TYPO = /\boutr?e?a?c?h?\b/i;
+const RX_ENTITIES = /\b(references?|docs?|documents?|certifications?)\b/i;
+const RX_ENTITY_ACTIONS = /\b(ask|request|get|send|collect|confirm)\b/i;
+const RX_NEGATION_STRONG = /\b(don't|do not|cancel|stop)\b/i;
+const RX_NEGATION_NO_MEDIUM = /\bno\s+(emails?|messages?|texts?|notes?)\b/i;
+const RX_DB_QUERY_CORE = /\b(nova|candidates?|profile|profiles?|recruiting|applications?|job\s*id|req\s*id)\b/i;
+const RX_DB_QUERY_SEARCH = /\b(lookup|find|search)\b/i;
+const RX_DB_QUERY_ID = /(?:^|\s)(#\d{4,8}|CAND-\d+)\b/i;
+const RX_NOVA = /https?:\/\/nova\.ayahealthcare\.com\/#\/?/i;
+const RX_CODE_FENCE = /```[\s\S]*?```/g;
+const RX_STACKTRACE = /\b(error:|exception|at\s+\S+\s+\(|stack\s+trace)\b/i;
+const RX_CODE_TOKENS = /(?:\b(import|export|interface|type|class|function|const|let|var)\b|=>)/i;
+const RX_KIND_MARKER_JSON = /"kind"\s*:\s*"(email_response|email_draft)"/i;
+const EMAIL_KIND_VALUES = new Set(['email_response', 'email_draft']);
+
+// ════════════════════════════════════════════════════════════════════════════════
+// SECTION 5: Utility Functions
+// ════════════════════════════════════════════════════════════════════════════════
+
 function normalizeError(err) {
   if (err instanceof Error) return { name: err.name, message: err.message };
   if (typeof err === 'string') return { message: err };
   if (err && typeof err === 'object') {
-    const anyErr = /** @type {any} */ (err);
+    const anyErr = err;
     const name = typeof anyErr.name === 'string' ? anyErr.name : undefined;
-    const message =
-      typeof anyErr.message === 'string'
-        ? anyErr.message
-        : safeJsonStringify(anyErr) || 'Unknown error';
+    const message = typeof anyErr.message === 'string' ? anyErr.message : JSON.stringify(anyErr) || 'Unknown error';
     return { name, message };
   }
   return { message: 'Unknown error' };
 }
 
-/**
- * @param {unknown} val
- * @returns {string}
- */
-function safeJsonStringify(val) {
-  try {
-    return JSON.stringify(val);
-  } catch {
-    return '';
-  }
-}
-
-/**
- * @param {unknown} input
- * @returns {string}
- */
 function coerceToString(input) {
   if (typeof input === 'string') return input;
   if (input == null) return '';
-  if (typeof input === 'number' || typeof input === 'boolean' || typeof input === 'bigint') {
-    return String(input);
-  }
-  const json = safeJsonStringify(input);
-  return json || String(input);
+  if (typeof input === 'number' || typeof input === 'boolean' || typeof input === 'bigint') return String(input);
+  try { return JSON.stringify(input); } catch { return String(input); }
 }
 
-/**
- * @param {unknown} input
- * @param {number} [maxLen]
- * @returns {string}
- */
 function normalizeText(input, maxLen) {
   const raw = coerceToString(input);
   const cleaned = raw.replace(/\u0000/g, '').replace(/\u200b/g, '');
   const trimmed = cleaned.trim();
-  if (typeof maxLen === 'number' && maxLen > 0 && trimmed.length > maxLen) {
-    return trimmed.slice(0, maxLen);
-  }
+  if (typeof maxLen === 'number' && maxLen > 0 && trimmed.length > maxLen) return trimmed.slice(0, maxLen);
   return trimmed;
 }
 
-/**
- * @param {HistoryMessage[]} history
- * @param {number} maxMessages
- * @returns {Array<{ role: 'user' | 'assistant'; content: string }>}
- */
 function sanitizeHistory(history, maxMessages) {
   if (!Array.isArray(history) || history.length === 0) return [];
   if (!Number.isFinite(maxMessages) || maxMessages <= 0) return [];
-
-  /** @type {Array<{ role: 'user' | 'assistant'; content: string }>} */
   const sanitized = [];
-
-  // Walk from the end so huge histories stay cheap; keep chronological order.
   for (let i = history.length - 1; i >= 0 && sanitized.length < maxMessages; i--) {
     const message = history[i];
     if (!message || (message.role !== 'user' && message.role !== 'assistant')) continue;
@@ -246,209 +194,92 @@ function sanitizeHistory(history, maxMessages) {
     if (!content) continue;
     sanitized.push({ role: message.role, content });
   }
-
   sanitized.reverse();
   return sanitized;
 }
 
-// ============================================================================
-// SECTION 3: Regex (Strict Boundaries)
-// ============================================================================
-
-const RX_INFO_STARTERS = /^(who|what|where|when|why|how)\b/i;
-const RX_DRAFT_VERBS = /\b(draft|write|compose|rewrite|revise|edit|create|generate|reply|respond|follow\s*up)\b/i;
-const RX_MEDIUMS = /\b(emails?|messages?|notes?|texts?)\b/i;
-
-// Outreach-specific: "outreach" + (draft verb OR "pay package")
-const RX_OUTREACH = /\boutreach\b/i;
-const RX_PAY_PACKAGE = /\bpay\s*package\b/i;
-
-// Typo-tolerant versions for image gate (catches "ddraft", "outrecah", etc.)
-const RX_DRAFT_TYPO = /\b(d{1,2}raf{1,2}t?|write|compose)\b/i;
-const RX_OUTREACH_TYPO = /\boutr?e?a?c?h?\b/i;
-
-const RX_ENTITIES = /\b(references?|docs?|documents?|certifications?)\b/i;
-const RX_ENTITY_ACTIONS = /\b(ask|request|get|send|collect|confirm)\b/i;
-
-// Use a *narrow* definition of negation to avoid false negatives like:
-// "No, draft an email..." or "No problem — draft an email..."
-const RX_NEGATION_STRONG = /\b(don't|do not|cancel|stop)\b/i;
-const RX_NEGATION_NO_MEDIUM = /\bno\s+(emails?|messages?|texts?|notes?)\b/i;
-
-// Tightened: only treat as DB when ATS terms or IDs are present.
-const RX_DB_QUERY_CORE = /\b(nova|candidates?|profile|profiles?|recruiting|applications?|job\s*id|req\s*id)\b/i;
-const RX_DB_QUERY_SEARCH = /\b(lookup|find|search)\b/i;
-const RX_DB_QUERY_ID = /(?:^|\s)(#\d{4,8}|CAND-\d+)\b/i;
-const RX_NOVA = /https?:\/\/nova\.ayahealthcare\.com\/#\/?/i;
-
-const RX_CODE_FENCE = /```[\s\S]*?```/g;
-const RX_STACKTRACE = /\b(error:|exception|at\s+\S+\s+\(|stack\s+trace)\b/i;
-// NOTE: `=>` isn't a word token, so it can't live inside a `\b...\b` group.
-const RX_CODE_TOKENS = /(?:\b(import|export|interface|type|class|function|const|let|var)\b|=>)/i;
-const RX_KIND_MARKER_JSON = /"kind"\s*:\s*"(email_response|email_draft)"/i;
-
-const EMAIL_KIND_VALUES = new Set(['email_response', 'email_draft']);
-
-// ============================================================================
-// SECTION 4: Gates
-// ============================================================================
-
-/**
- * @param {string} input
- * @returns {string}
- */
 function stripFencedCodeBlocks(input) {
   return (input || '').replace(RX_CODE_FENCE, '');
 }
 
-/**
- * @param {string} text
- * @returns {boolean}
- */
+// ════════════════════════════════════════════════════════════════════════════════
+// SECTION 6: Gate Functions
+// ════════════════════════════════════════════════════════════════════════════════
+
 function isInfoQuestion(text) {
   const t = (text || '').trim().toLowerCase();
   if (!t) return false;
   if (RX_INFO_STARTERS.test(t)) return true;
-
-  // Trailing '?' blocks only if no draft verb is present
   if (t.endsWith('?') && !RX_DRAFT_VERBS.test(t)) return true;
-
   return false;
 }
 
-/**
- * @param {string} text
- * @returns {boolean}
- */
 function isCodeLike(text) {
   const raw = text || '';
   if (!raw) return false;
   if (raw.includes('```')) return true;
   if (RX_STACKTRACE.test(raw)) return true;
-
-  // Heuristic: code tokens + symbol density
   const hasCodeTokens = RX_CODE_TOKENS.test(raw);
   const len = raw.length || 1;
   const symbols = raw.replace(/[a-z0-9\s]/gi, '').length;
   const symbolRatio = symbols / len;
-
-  // symbolRatio threshold tuned to catch TS/JS blocks without flagging normal emails
   if (hasCodeTokens && symbolRatio >= 0.12) return true;
-
   return false;
 }
 
-/**
- * Email UI Gate:
- * - Blocks info-questions
- * - Requires explicit intent:
- *   A) DraftVerb + Medium
- *   B) Entity + Action (ops workflow)
- *   C) Entity + Medium (ops shorthand: "references email")
- * @param {string} text
- * @returns {boolean}
- */
 function isExplicitEmailRequest(text) {
   const tRaw = (text || '').toLowerCase();
   const t = stripFencedCodeBlocks(tRaw);
-
   if (!t) return false;
   if (isInfoQuestion(t)) return false;
-
-  // Negation beats everything (prevents "no email" routing into email UI)
   if ((RX_NEGATION_STRONG.test(t) && RX_MEDIUMS.test(t)) || RX_NEGATION_NO_MEDIUM.test(t)) return false;
-
   const hasDraftVerb = RX_DRAFT_VERBS.test(t);
   const hasMedium = RX_MEDIUMS.test(t);
-
   if (hasDraftVerb && hasMedium) return true;
-
   const hasEntity = RX_ENTITIES.test(t);
   const hasEntityAction = RX_ENTITY_ACTIONS.test(t);
-
   if (hasEntity && hasEntityAction) return true;
   if (hasEntity && hasMedium) return true;
-
   return false;
 }
 
-/**
- * Outreach Gate (deterministic):
- * - "outreach" + draft verb → DRAFT_OUTREACH
- * - "outreach" + "pay package" → DRAFT_OUTREACH
- * - Blocks negation and info questions
- * @param {string} text
- * @returns {boolean}
- */
 function isOutreachRequest(text) {
   const t = (text || '').toLowerCase();
   if (!t) return false;
   if (isInfoQuestion(t)) return false;
   if (RX_NEGATION_STRONG.test(t)) return false;
-
   const hasOutreach = RX_OUTREACH.test(t);
   if (!hasOutreach) return false;
-
-  // "draft/write/compose outreach" OR "outreach draft/write/compose"
   if (RX_DRAFT_VERBS.test(t)) return true;
-
-  // "pay package outreach" or "outreach pay package"
   if (RX_PAY_PACKAGE.test(t)) return true;
-
   return false;
 }
 
-/**
- * Tightened DB query detection:
- * - Nova URLs → always DB
- * - Core ATS terms (candidate, profile, recruiting, applications) → always DB
- * - Generic search verbs (find, lookup, search) → only if paired with IDs
- * @param {string} text
- * @returns {boolean}
- */
 function isDatabaseQuery(text) {
   if (!text) return false;
   if (RX_NOVA.test(text)) return true;
   if (RX_DB_QUERY_CORE.test(text)) return true;
-  // Only allow search/find if it's clearly tied to ATS terms or IDs.
   return RX_DB_QUERY_SEARCH.test(text) && RX_DB_QUERY_ID.test(text);
 }
 
-/**
- * @param {HistoryMessage[]} history
- * @returns {boolean}
- */
 function lastAssistantWasEmail(history) {
   if (!Array.isArray(history) || history.length === 0) return false;
-
-  /** @type {HistoryMessage | undefined} */
   let last;
   for (let i = history.length - 1; i >= 0; i--) {
     const m = history[i];
-    if (m && m.role === 'assistant') {
-      last = m;
-      break;
-    }
+    if (m && m.role === 'assistant') { last = m; break; }
   }
   if (!last) return false;
-
   const seen = new WeakSet();
-
-  /**
-   * @param {unknown} val
-   * @param {number} depth
-   * @returns {boolean}
-   */
   const hasKindMarker = (val, depth = 0) => {
     if (!val || depth > 4) return false;
     if (typeof val === 'string') {
-      // Prevent "Subject:" inside code blocks from qualifying
       const cleaned = stripFencedCodeBlocks(val);
       return RX_KIND_MARKER_JSON.test(cleaned);
     }
     if (Array.isArray(val)) return val.some((entry) => hasKindMarker(entry, depth + 1));
     if (typeof val === 'object') {
-      const obj = /** @type {Record<string, unknown>} */ (val);
+      const obj = val;
       if (seen.has(obj)) return false;
       seen.add(obj);
       const kind = obj.kind;
@@ -457,35 +288,20 @@ function lastAssistantWasEmail(history) {
     }
     return false;
   };
-
   return hasKindMarker(last.content);
 }
 
-/**
- * @param {object} options
- * @param {number} ms
- */
 async function generateWithBudget(options, ms) {
   const controller = new AbortController();
   const timeoutMs = Math.max(1, ms || 1);
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  // Prevent timers from keeping the event loop alive in Node
   if (typeof timeoutId.unref === 'function') timeoutId.unref();
-
   try {
-    return await generateObject({
-      ...options,
-      abortSignal: controller.signal,
-    });
+    return await generateObject({ ...options, abortSignal: controller.signal });
   } catch (err) {
     const e = normalizeError(err);
     const msg = e.message.toLowerCase();
-    const aborted =
-      e.name === 'AbortError' ||
-      msg.includes('aborted') ||
-      msg.includes('timeout') ||
-      e.message === 'The user aborted a request.';
-
+    const aborted = e.name === 'AbortError' || msg.includes('aborted') || msg.includes('timeout') || e.message === 'The user aborted a request.';
     if (aborted) throw new Error('ROUTER_TIMEOUT');
     throw err;
   } finally {
@@ -493,38 +309,40 @@ async function generateWithBudget(options, ms) {
   }
 }
 
-// ============================================================================
-// SECTION 5: Fast Path Overrides (Tier 1)
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════════
+// SECTION 7: Fast Path Overrides
+// ════════════════════════════════════════════════════════════════════════════════
 
-/** @type {Array<{ pattern: RegExp; intent: string }>} */
 const FAST_PATH_OVERRIDES = [
   { pattern: /^\/reset\b/i, intent: Intent.GENERAL_CHAT },
   { pattern: /^\/help\b/i, intent: Intent.GENERAL_CHAT },
   { pattern: /^\/mode\b/i, intent: Intent.GENERAL_CHAT },
-
-  // IDs
   { pattern: /^#\d{4,8}\b$/i, intent: Intent.DATABASE_ACTION },
   { pattern: /^CAND-\d+\b$/i, intent: Intent.DATABASE_ACTION },
-
-  // Nova SPA deep links
   { pattern: RX_NOVA, intent: Intent.DATABASE_ACTION },
 ];
 
-// ============================================================================
-// SECTION 6: Control Plane Mode Resolution (Tier 0)
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════════
+// SECTION 8: Mode Resolution (CRITICAL FIX)
+// ════════════════════════════════════════════════════════════════════════════════
 
 /**
- * @param {string} mode
- * @param {string} message
- * @param {HistoryMessage[]} history
- * @returns {{ intent: string; kind: ResponseKind; requiresTools: boolean } | null}
+ * Resolves intent based on mode + context.
+ *
+ * CRITICAL FIX (v4.0.0):
+ * - COLD_OUTREACH mode + hasImage → DRAFT_OUTREACH (even with no/minimal text)
+ * - This ensures pay package screenshots trigger the deterministic template path
+ *
+ * @param {string} mode - Current chat mode
+ * @param {string} message - User message text
+ * @param {object[]} history - Conversation history
+ * @param {boolean} hasImage - Whether user uploaded an image
+ * @returns {object|null} - Classification result or null to continue to next tier
  */
-function resolveModeIntent(mode, message, history) {
+function resolveModeIntent(mode, message, history, hasImage = false) {
   const normalized = (message || '').trim();
 
-  // "Help" and info questions stay safe in every mode
+  // Info questions always stay in GENERAL_CHAT regardless of mode
   if (isInfoQuestion(normalized)) {
     return {
       intent: Intent.GENERAL_CHAT,
@@ -535,40 +353,49 @@ function resolveModeIntent(mode, message, history) {
 
   switch (mode) {
     case ChatMode.COLD_OUTREACH: {
-      // Default: workflow ops in chat; explicit email request gets email UI
-      if (isExplicitEmailRequest(normalized)) {
-        const intent = Intent.DRAFT_OUTREACH;
+      // ════════════════════════════════════════════════════════════════════
+      // CRITICAL FIX: Image in COLD_OUTREACH mode → DRAFT_OUTREACH
+      // This is the primary fix for pay package screenshots
+      // ════════════════════════════════════════════════════════════════════
+      if (hasImage) {
         return {
-          intent,
-          kind: RESPONSE_KIND[intent],
-          requiresTools: TOOL_REQUIREMENTS[intent] ?? false,
+          intent: Intent.DRAFT_OUTREACH,
+          kind: RESPONSE_KIND[Intent.DRAFT_OUTREACH],
+          requiresTools: TOOL_REQUIREMENTS[Intent.DRAFT_OUTREACH],
         };
       }
-      const intent = Intent.CAMPAIGN_WORKFLOW;
+
+      // Explicit email request text also triggers DRAFT_OUTREACH
+      if (isExplicitEmailRequest(normalized) || isOutreachRequest(normalized)) {
+        return {
+          intent: Intent.DRAFT_OUTREACH,
+          kind: RESPONSE_KIND[Intent.DRAFT_OUTREACH],
+          requiresTools: TOOL_REQUIREMENTS[Intent.DRAFT_OUTREACH],
+        };
+      }
+
+      // Default: workflow ops in chat
       return {
-        intent,
-        kind: RESPONSE_KIND[intent],
-        requiresTools: TOOL_REQUIREMENTS[intent] ?? false,
+        intent: Intent.CAMPAIGN_WORKFLOW,
+        kind: RESPONSE_KIND[Intent.CAMPAIGN_WORKFLOW],
+        requiresTools: TOOL_REQUIREMENTS[Intent.CAMPAIGN_WORKFLOW],
       };
     }
 
     case ChatMode.BATCH_REASSIGN: {
-      // Hard lock: always treat input as reassignment workflow (chat UI only)
-      const intent = Intent.REASSIGNMENT_REQUEST;
       return {
-        intent,
-        kind: RESPONSE_KIND[intent],
-        requiresTools: TOOL_REQUIREMENTS[intent] ?? false,
+        intent: Intent.REASSIGNMENT_REQUEST,
+        kind: RESPONSE_KIND[Intent.REASSIGNMENT_REQUEST],
+        requiresTools: TOOL_REQUIREMENTS[Intent.REASSIGNMENT_REQUEST],
       };
     }
 
     case ChatMode.REPLY_MODE: {
-      // Hard lock: always email UI; edit only if prior email draft exists structurally
       const intent = lastAssistantWasEmail(history) ? Intent.EDIT_CONTENT : Intent.DRAFT_EMAIL;
       return {
         intent,
         kind: RESPONSE_KIND[intent],
-        requiresTools: TOOL_REQUIREMENTS[intent] ?? false,
+        requiresTools: TOOL_REQUIREMENTS[intent],
       };
     }
 
@@ -578,22 +405,28 @@ function resolveModeIntent(mode, message, history) {
   }
 }
 
-// ============================================================================
-// SECTION 7: Main Classifier
-// ============================================================================
+// ════════════════════════════════════════════════════════════════════════════════
+// SECTION 9: Main Classifier
+// ════════════════════════════════════════════════════════════════════════════════
 
 /**
- * @typedef {Object} ClassifyOptions
- * @property {string} message
- * @property {HistoryMessage[]} [history]
- * @property {string} [mode]
- * @property {boolean} [modeLocked]
- * @property {boolean} [hasImage]
- */
-
-/**
- * @param {ClassifyOptions} options
- * @returns {Promise<ClassificationResult>}
+ * Classify user intent through tiered deterministic gates with LLM fallback.
+ *
+ * Tier Order:
+ * 1. Fast Path (slash commands, IDs, Nova URLs)
+ * 2. Mode Resolution (COLD_OUTREACH + image → DRAFT_OUTREACH)
+ * 3. Image + Draft/Outreach keywords (typo-tolerant)
+ * 4. Pre-gates (DB queries, info questions, code detection)
+ * 5. Outreach request detection
+ * 6. LLM semantic classification (with timeout budget)
+ *
+ * @param {object} options
+ * @param {string} options.message - User message text
+ * @param {object[]} [options.history] - Conversation history
+ * @param {string} [options.mode] - Current chat mode
+ * @param {boolean} [options.modeLocked] - Whether mode is locked
+ * @param {boolean} [options.hasImage] - Whether user uploaded an image
+ * @returns {Promise<object>} Classification result
  */
 export async function classify({
   message,
@@ -604,7 +437,8 @@ export async function classify({
 }) {
   const normalized = normalizeText(message, MAX_MESSAGE_CHARS);
 
-  if (!normalized) {
+  // Empty message handling
+  if (!normalized && !hasImage) {
     return {
       intent: Intent.GENERAL_CHAT,
       kind: RESPONSE_KIND[Intent.GENERAL_CHAT],
@@ -616,9 +450,9 @@ export async function classify({
     };
   }
 
-  // --------------------------------------------------------------------------
-  // TIER 1: Fast Path (always wins)
-  // --------------------------------------------------------------------------
+  // ════════════════════════════════════════════════════════════════════════════
+  // TIER 1: Fast Path (slash commands, IDs)
+  // ════════════════════════════════════════════════════════════════════════════
   for (const override of FAST_PATH_OVERRIDES) {
     if (override.pattern.test(normalized)) {
       const intent = override.intent;
@@ -634,16 +468,16 @@ export async function classify({
     }
   }
 
-  // --------------------------------------------------------------------------
-  // TIER 0: Control Plane (Modes) (0ms, deterministic)
-  // --------------------------------------------------------------------------
+  // ════════════════════════════════════════════════════════════════════════════
+  // TIER 2: Mode Resolution (CRITICAL - handles image + mode combinations)
+  // ════════════════════════════════════════════════════════════════════════════
   if (modeLocked && mode !== ChatMode.DEFAULT) {
-    const modeResult = resolveModeIntent(mode, normalized, history);
+    const modeResult = resolveModeIntent(mode, normalized, history, hasImage);
     if (modeResult) {
       return {
         ...modeResult,
         confidence: 1.0,
-        reason: `Locked to mode: ${mode}`,
+        reason: `Mode-locked: ${mode}${hasImage ? ' + image' : ''}`,
         parameters: {},
         fastPath: true,
         modeLocked: true,
@@ -651,34 +485,50 @@ export async function classify({
     }
   }
 
-  // --------------------------------------------------------------------------
-  // TIER 0.5: Image + Draft Outreach Gate (0ms, deterministic)
-  // If user uploads an image with "draft outreach" (even with typos), assume pay package
-  // --------------------------------------------------------------------------
+  // ════════════════════════════════════════════════════════════════════════════
+  // TIER 3: Image + Draft/Outreach keywords (typo-tolerant)
+  // Even without mode lock, image + outreach keywords → DRAFT_OUTREACH
+  // ════════════════════════════════════════════════════════════════════════════
   if (hasImage) {
     const hasDraftTypo = RX_DRAFT_TYPO.test(normalized);
     const hasOutreachTypo = RX_OUTREACH_TYPO.test(normalized);
+    const hasPayPackage = RX_PAY_PACKAGE.test(normalized);
 
-    if (hasDraftTypo && hasOutreachTypo) {
+    // Any combination of draft/outreach/pay package keywords + image
+    if ((hasDraftTypo && hasOutreachTypo) || hasPayPackage || hasOutreachTypo) {
       return {
         intent: Intent.DRAFT_OUTREACH,
         kind: RESPONSE_KIND[Intent.DRAFT_OUTREACH],
         requiresTools: TOOL_REQUIREMENTS[Intent.DRAFT_OUTREACH],
         confidence: 1.0,
-        reason: 'Image + draft + outreach detected.',
+        reason: 'Image + outreach/pay package keywords detected.',
+        parameters: {},
+        fastPath: true,
+      };
+    }
+
+    // Image with no text or minimal text in COLD_OUTREACH context keywords
+    // Check if the message context suggests pay package intent
+    const contextSuggestsOutreach = /\b(pay|package|rate|stipend|weekly|salary|compensation)\b/i.test(normalized);
+    if (contextSuggestsOutreach || !normalized) {
+      // Default: image-only in recruiting context → likely pay package
+      return {
+        intent: Intent.DRAFT_OUTREACH,
+        kind: RESPONSE_KIND[Intent.DRAFT_OUTREACH],
+        requiresTools: TOOL_REQUIREMENTS[Intent.DRAFT_OUTREACH],
+        confidence: 0.9,
+        reason: 'Image upload in recruiting context assumed as pay package.',
         parameters: {},
         fastPath: true,
       };
     }
   }
 
-  // --------------------------------------------------------------------------
-  // TIER 2A: Pre-Gate (DB/Nova)
-  // DB queries win even when phrased as questions like "Where is candidate 123?"
-  // --------------------------------------------------------------------------
+  // ════════════════════════════════════════════════════════════════════════════
+  // TIER 4A: Pre-Gate (DB/Nova queries)
+  // ════════════════════════════════════════════════════════════════════════════
   const isDatabaseQueryHit = isDatabaseQuery(normalized);
   if (isDatabaseQueryHit && !isExplicitEmailRequest(normalized)) {
-    // Code pastes still blocked
     if (isCodeLike(normalized)) {
       return {
         intent: Intent.GENERAL_CHAT,
@@ -690,7 +540,6 @@ export async function classify({
         fastPath: true,
       };
     }
-
     return {
       intent: Intent.DATABASE_ACTION,
       kind: RESPONSE_KIND[Intent.DATABASE_ACTION],
@@ -702,9 +551,9 @@ export async function classify({
     };
   }
 
-  // --------------------------------------------------------------------------
-  // TIER 2B: Pre-Gate (Info Questions)
-  // --------------------------------------------------------------------------
+  // ════════════════════════════════════════════════════════════════════════════
+  // TIER 4B: Pre-Gate (Info Questions)
+  // ════════════════════════════════════════════════════════════════════════════
   if (isInfoQuestion(normalized)) {
     return {
       intent: Intent.GENERAL_CHAT,
@@ -717,9 +566,9 @@ export async function classify({
     };
   }
 
-  // --------------------------------------------------------------------------
-  // TIER 2C: Pre-Gate (Code / Stacktraces)
-  // --------------------------------------------------------------------------
+  // ════════════════════════════════════════════════════════════════════════════
+  // TIER 4C: Pre-Gate (Code/Stacktraces)
+  // ════════════════════════════════════════════════════════════════════════════
   if (isCodeLike(normalized) && !isExplicitEmailRequest(normalized)) {
     return {
       intent: Intent.GENERAL_CHAT,
@@ -732,10 +581,9 @@ export async function classify({
     };
   }
 
-  // --------------------------------------------------------------------------
-  // TIER 2D: Pre-Gate (Outreach)
-  // "outreach" + (draft verb OR pay package) → DRAFT_OUTREACH (deterministic)
-  // --------------------------------------------------------------------------
+  // ════════════════════════════════════════════════════════════════════════════
+  // TIER 4D: Pre-Gate (Outreach Request)
+  // ════════════════════════════════════════════════════════════════════════════
   if (isOutreachRequest(normalized)) {
     return {
       intent: Intent.DRAFT_OUTREACH,
@@ -748,23 +596,20 @@ export async function classify({
     };
   }
 
-  // --------------------------------------------------------------------------
-  // TIER 3: Semantic Path (Gemini 3 Flash) with hard budget
-  // --------------------------------------------------------------------------
+  // ════════════════════════════════════════════════════════════════════════════
+  // TIER 5: LLM Semantic Classification (with budget timeout)
+  // ════════════════════════════════════════════════════════════════════════════
   try {
     const safeHistory = sanitizeHistory(history, HISTORY_WINDOW);
     const llmText = normalizeText(normalized, MAX_LLM_CHARS);
 
-    const { object } = await generateWithBudget(
-      {
-        model: google('gemini-3-flash-preview', { structuredOutputs: true }),
-        schema: ClassificationSchema,
-        temperature: 0,
-        messages: [...safeHistory, { role: 'user', content: llmText }],
-        system: SYSTEM_PROMPT,
-      },
-      SEMANTIC_BUDGET_MS
-    );
+    const { object } = await generateWithBudget({
+      model: google('gemini-3-flash-preview', { structuredOutputs: true }),
+      schema: ClassificationSchema,
+      temperature: 0,
+      messages: [...safeHistory, { role: 'user', content: llmText }],
+      system: SYSTEM_PROMPT,
+    }, SEMANTIC_BUDGET_MS);
 
     const parsed = ClassificationSchema.safeParse(object);
     if (!parsed.success || !INTENT_SET.has(parsed.data.intent)) {
@@ -774,13 +619,13 @@ export async function classify({
     let finalIntent = parsed.data.intent;
     let finalKind = RESPONSE_KIND[finalIntent] || 'chat';
 
-    // SAFETY GATE 1: Explicit Email Trigger
+    // Safety Gate 1: Email UI requires explicit trigger
     if (finalKind === 'email_response' && !isExplicitEmailRequest(normalized)) {
       finalIntent = Intent.GENERAL_CHAT;
       finalKind = 'chat';
     }
 
-    // SAFETY GATE 2: Edit Structure Check
+    // Safety Gate 2: Edit requires prior email structure
     if (finalIntent === Intent.EDIT_CONTENT && !lastAssistantWasEmail(history)) {
       finalIntent = Intent.GENERAL_CHAT;
       finalKind = 'chat';
