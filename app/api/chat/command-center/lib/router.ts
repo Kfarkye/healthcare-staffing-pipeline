@@ -21,10 +21,10 @@ import type {
     NormalizedMessage,
 } from '../types/index';
 import { Intent, ChatMode, TemplateType } from '../types/index';
-import { 
-    getIntentConfig, 
+import {
+    getIntentConfig,
     CONTEXT_TEMPLATE_MAP,
-    MODEL_CONFIG 
+    MODEL_CONFIG
 } from './config';
 import { detectTemplateType } from './email-builder';
 
@@ -37,23 +37,24 @@ const PATTERNS = {
     slashCommand: /^\/(reset|help|mode)\b/i,
     novaId: /^#?\d{6,8}$/,
     novaUrl: /nova\.ayahealthcare\.com/i,
-    
+
     // Intent detection
     infoQuestion: /^(who|what|where|when|why|how)\b/i,
     draftVerb: /\b(draft|write|compose|create|generate)\b/i,
-    emailMedium: /\b(email|message)\b/i,
+    editVerb: /\b(clean\s*up|edit|fix|rewrite|revise|polish|improve|refine|tweak)\b/i,
+    emailMedium: /\b(email|message|draft)\b/i,
     outreach: /\boutreach\b/i,
     payPackage: /\bpay\s*package\b/i,
-    
+
     // Entity detection
     reference: /\breference/i,
     document: /\b(document|bls|acls|resume|certification)/i,
     reassign: /\breassign/i,
     licensing: /\blicensing?\b/i,
-    
+
     // Negation
     negation: /\b(don't|do not|cancel|stop|no)\b/i,
-    
+
     // Code detection
     codeFence: /```/,
     codeTokens: /\b(import|export|function|const|class)\b/,
@@ -121,6 +122,12 @@ function isEmailRequest(text: string): boolean {
     return PATTERNS.draftVerb.test(t) && PATTERNS.emailMedium.test(t);
 }
 
+function isEditRequest(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    return PATTERNS.editVerb.test(t);
+}
+
 function isOutreachRequest(text: string): boolean {
     const t = text.toLowerCase();
     if (PATTERNS.negation.test(t)) return false;
@@ -140,19 +147,27 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
     // TIER 1: Empty/Trivial
     // ══════════════════════════════════════════════════════════════════════════
-    
+
     if (!text && !hasImage) {
         return createResult(Intent.GENERAL_CHAT, null, 'Empty input');
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // TIER 1.5: Edit/Cleanup Requests (with image = LLM editing, not templating)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    if (hasImage && isEditRequest(text)) {
+        return createResult(Intent.EDIT_CONTENT, null, 'Edit request with image');
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // TIER 2: Fast Path (Slash commands, IDs)
     // ══════════════════════════════════════════════════════════════════════════
-    
+
     if (PATTERNS.slashCommand.test(text)) {
         return createResult(Intent.GENERAL_CHAT, null, 'Slash command');
     }
-    
+
     if (PATTERNS.novaId.test(text) || PATTERNS.novaUrl.test(text)) {
         return createResult(Intent.DATABASE_ACTION, null, 'Nova ID/URL detected');
     }
@@ -160,7 +175,7 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
     // TIER 3: Mode-Locked Routing
     // ══════════════════════════════════════════════════════════════════════════
-    
+
     if (modeLocked && mode !== ChatMode.DEFAULT) {
         // Info questions bypass mode lock
         if (isInfoQuestion(text)) {
@@ -204,15 +219,15 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
     // TIER 4: Image + Context Detection
     // ══════════════════════════════════════════════════════════════════════════
-    
+
     if (hasImage) {
         const templateType = detectTemplateType(text, input.modeContext || '');
-        
+
         // Any hint of outreach/pay package with image
         if (isOutreachRequest(text) || PATTERNS.payPackage.test(text.toLowerCase())) {
             return createResult(Intent.DRAFT_OUTREACH, templateType, 'Image + outreach keywords');
         }
-        
+
         // Default: image in recruiting context = pay package
         return createResult(
             Intent.DRAFT_OUTREACH,
@@ -226,11 +241,11 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
     // TIER 5: Pre-Gates (Block certain patterns)
     // ══════════════════════════════════════════════════════════════════════════
-    
+
     if (isInfoQuestion(text)) {
         return createResult(Intent.GENERAL_CHAT, null, 'Info question');
     }
-    
+
     if (isCodeLike(text) && !isEmailRequest(text)) {
         return createResult(Intent.GENERAL_CHAT, null, 'Code detected');
     }
@@ -238,7 +253,7 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
     // TIER 6: Content-Based Detection
     // ══════════════════════════════════════════════════════════════════════════
-    
+
     const lower = text.toLowerCase();
 
     // Outreach request
@@ -250,15 +265,15 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     if (PATTERNS.reference.test(lower) && isEmailRequest(text)) {
         return createResult(Intent.DRAFT_EMAIL, TemplateType.REFERENCE_REQUEST, 'Reference request');
     }
-    
+
     if (PATTERNS.document.test(lower) && isEmailRequest(text)) {
         return createResult(Intent.DRAFT_EMAIL, TemplateType.DOC_REQUEST, 'Document request');
     }
-    
+
     if (PATTERNS.reassign.test(lower)) {
         return createResult(Intent.REASSIGNMENT_REQUEST, TemplateType.REASSIGNMENT, 'Reassignment request');
     }
-    
+
     if (PATTERNS.licensing.test(lower)) {
         return createResult(Intent.LICENSING_REQUEST, TemplateType.LICENSING, 'Licensing request');
     }
@@ -272,7 +287,7 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
     // TIER 7: LLM Fallback (only when necessary)
     // ══════════════════════════════════════════════════════════════════════════
-    
+
     if (googleClient) {
         try {
             const { object } = await generateObject({
@@ -305,7 +320,7 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
     // TIER 8: Default
     // ══════════════════════════════════════════════════════════════════════════
-    
+
     return createResult(Intent.GENERAL_CHAT, null, 'Default fallback', true, 0.5);
 }
 
