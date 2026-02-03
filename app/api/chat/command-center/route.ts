@@ -249,13 +249,16 @@ export async function POST(request: Request) {
     }
 
     // DEBUG: Log raw request body structure
+    const lastRawMsg = body?.messages?.[body?.messages?.length - 1];
     logger.info('raw_request_body', {
         hasMessages: !!body?.messages,
         messageCount: body?.messages?.length ?? 0,
         firstMessageKeys: body?.messages?.[0] ? Object.keys(body.messages[0]) : [],
-        lastMessageKeys: body?.messages?.[body?.messages?.length - 1] ? Object.keys(body.messages[body.messages.length - 1]) : [],
-        hasParts: !!body?.messages?.[body?.messages?.length - 1]?.parts,
-        hasContent: !!body?.messages?.[body?.messages?.length - 1]?.content,
+        lastMessageKeys: lastRawMsg ? Object.keys(lastRawMsg) : [],
+        hasParts: !!lastRawMsg?.parts,
+        hasContent: !!lastRawMsg?.content,
+        partsCount: lastRawMsg?.parts?.length ?? 0,
+        partTypes: lastRawMsg?.parts?.map((p: any) => ({ type: p.type, hasMime: !!p.mimeType, hasData: !!p.data, dataLen: p.data?.length ?? 0 })) ?? [],
     });
 
     const parseResult = RequestSchema.safeParse(body);
