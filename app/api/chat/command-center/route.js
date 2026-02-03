@@ -536,7 +536,7 @@ export async function POST(request) {
             hasImage && !inputText && !systemContext ? 'Draft a pay package outreach email using this image' : ''
         ].filter(Boolean).join(' ') || 'Start interaction';
 
-        const classification = classify({
+        const classification = await classify({
             message: classificationMessage,
             history: normalizedMessages
         });
