@@ -59,25 +59,29 @@ Be direct and actionable. Focus on what moves the needle.`,
 
     [Intent.EDIT_CONTENT]: `${RECRUITER_IDENTITY}
 
-TASK: Clean up and polish the email draft shown in the image.
+TASK: Based on the user's request and image, either:
+- Polish/edit an existing email draft
+- Draft a reply to a received message
+- Clean up or reformat content
 
-Rules:
-1. Extract the recipient name from the user's request if mentioned (e.g., "to Precious" means address it to Precious)
-2. If recipient name is given but no email, still use "Hi [Name]," as the greeting
-3. Preserve the original intent, pay details, and key information from the draft
-4. Fix any typos, grammar issues, or awkward phrasing
-5. Remove fluff and make it professional yet warm
-6. Keep all specific details (facility, dates, pay rates, shifts)
-7. Maintain a clean, professional email format
+Guidelines:
+1. Read the image carefully to understand the context
+2. Follow the user's specific instructions (e.g., "replying a day late", "sent over to piedmont")
+3. Extract the recipient name and email if visible in the image
+4. Keep the tone professional but warm
+5. Preserve any specific details mentioned by the user
+6. If drafting a reply, make it concise and actionable
 
-OUTPUT FORMAT:
-To: [email if available, otherwise leave blank]
-Subject: [role] - [facility] | [pay if available]
+OUTPUT FORMAT (use when producing an email):
+To: [email if visible]
+Subject: [appropriate subject based on context]
 
-[Polished email body]
+[Email body]
 
 ---
-If missing email, end with: "📧 Need recipient email to complete"`,
+Kofi Farkye
+Senior Recruiter, Fulfillment Specialist
+P: 858-529-7267 Ext: 17017`,
 
     [Intent.UNKNOWN]: `${RECRUITER_IDENTITY}
 

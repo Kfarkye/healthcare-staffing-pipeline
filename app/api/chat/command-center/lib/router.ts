@@ -42,6 +42,7 @@ const PATTERNS = {
     infoQuestion: /^(who|what|where|when|why|how)\b/i,
     draftVerb: /\b(draft|write|compose|create|generate)\b/i,
     editVerb: /\b(clean\s*up|edit|fix|rewrite|revise|polish|improve|refine|tweak)\b/i,
+    replyVerb: /\b(reply|respond|response|replying|responding|answer|answering)\b/i,
     emailMedium: /\b(email|message|draft)\b/i,
     outreach: /\boutreach\b/i,
     payPackage: /\bpay\s*package\b/i,
@@ -128,6 +129,12 @@ function isEditRequest(text: string): boolean {
     return PATTERNS.editVerb.test(t);
 }
 
+function isReplyRequest(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    return PATTERNS.replyVerb.test(t);
+}
+
 function isOutreachRequest(text: string): boolean {
     const t = text.toLowerCase();
     if (PATTERNS.negation.test(t)) return false;
@@ -153,11 +160,15 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // TIER 1.5: Edit/Cleanup Requests (with image = LLM editing, not templating)
+    // TIER 1.5: Edit/Reply Requests (with image = LLM editing, not templating)
     // ══════════════════════════════════════════════════════════════════════════
 
     if (hasImage && isEditRequest(text)) {
         return createResult(Intent.EDIT_CONTENT, null, 'Edit request with image');
+    }
+
+    if (hasImage && isReplyRequest(text)) {
+        return createResult(Intent.EDIT_CONTENT, null, 'Reply/response request with image');
     }
 
     // ══════════════════════════════════════════════════════════════════════════

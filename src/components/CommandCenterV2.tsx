@@ -889,7 +889,6 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                                 signature={email.signature}
                             />
                             <NextStepsPanel steps={nextSteps} />
-                            <IntelPanel intel={intel} />
                         </>
                     );
                 }
@@ -920,7 +919,6 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
 
             return <>
                 <EmailCard to={tagTo} cc={DEFAULT_CC} subject={tagSubject} body={tagBody} />
-                <IntelPanel intel={intel} />
             </>;
         }
 
@@ -967,7 +965,6 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
             if (sub || recipientEmail) {
                 return <>
                     <EmailCard to={recipientEmail} cc={DEFAULT_CC} subject={sub || '(No Subject)'} body={body} />
-                    <IntelPanel intel={intel} />
                 </>;
             }
         }
