@@ -267,6 +267,10 @@ export async function POST(request: Request) {
         hasImage: imagePresent,
         mode,
         modeLocked,
+        messageCount: messages.length,
+        lastMessageRole: messages[messages.length - 1]?.role,
+        lastMessageContentType: typeof messages[messages.length - 1]?.content,
+        hasAttachments: !!(messages[messages.length - 1]?.experimental_attachments?.length || messages[messages.length - 1]?.attachments?.length),
     });
 
     // ══════════════════════════════════════════════════════════════════════════
