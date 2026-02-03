@@ -729,30 +729,52 @@ export async function POST(request) {
                         missing: extractedData.missing || []
                     });
 
-                    // PASS 2: Draft email using ONLY the extracted JSON (Pure Writing)
-                    const draftPrompt = getPass2DraftPrompt(extractedData);
+                    // PASS 2: DETERMINISTIC TEMPLATE FILL (No LLM — zero freestyle risk)
+                    // Map extracted data to template variables
+                    const templateVars = {
+                        first_name: extractedData.candidateName?.split(' ')[0] || 'there',
+                        specialty: extractedData.specialty || extractedData.role || '',
+                        facility_name: extractedData.facility || '',
+                        city: extractedData.location?.split(',')[0]?.trim() || '',
+                        state: extractedData.location?.split(',')[1]?.trim() || '',
+                        start_date: extractedData.startDate || '',
+                        end_date: extractedData.endDate || '',
+                        shift_type: extractedData.shifts || '',
+                        hours_per_week: extractedData.hoursPerWeek || '40',
+                        taxable_rate: extractedData.hourlyRate || '',
+                        stipend_weekly: extractedData.stipend || '',
+                        gross_weekly_pay: extractedData.weeklyTotal || '',
+                        closing: 'I came across this opening and wanted to reach out.',
+                    };
 
-                    const draftResult = await generateText({
-                        model: google(MODEL_CONFIG.primary, { safetySettings: MODEL_CONFIG.safetySettings }),
-                        system: draftPrompt,
-                        messages: [{ role: 'user', content: 'Draft the outreach email using the provided data.' }],
-                        maxRetries: MODEL_CONFIG.maxRetries,
-                        temperature: MODEL_CONFIG.temperature,
-                        abortSignal: abortController.signal,
-                    });
+                    // Fetch the pay package template
+                    const template = await fetchTemplate(supabase, 'pay_package_outreach', logger);
 
-                    clearTimeout(softTimeout);
-                    globalBreaker.recordSuccess();
+                    if (template) {
+                        // Direct template rendering — no LLM
+                        const subject = renderTemplate(template.subject, templateVars);
+                        const body = renderTemplate(template.body, templateVars);
 
-                    const rawText = draftResult.text || 'Draft generation failed.';
+                        // Build the plain-text email
+                        const toLine = extractedData.candidateEmail ? `To: ${extractedData.candidateEmail}\n` : '';
+                        const output = `${toLine}Subject: ${subject}\n\nHi ${templateVars.first_name},\n\n${body}`;
 
-                    // Final safety: ensure the output is properly processed by validation
-                    const validation = validate(rawText, { autoFix: true });
+                        clearTimeout(softTimeout);
+                        globalBreaker.recordSuccess();
 
-                    logger.info('two_pass_complete', { pass1Fields: Object.keys(extractedData).length });
-                    waitUntil(performAuditLog(supabase, traceId, 'DRAFT_OUTREACH_2PASS', inputText, validation));
+                        const validation = validate(output, { autoFix: true });
 
-                    return createBufferedUIResponse(validation.text, { traceId, status: 'two_pass_complete', issues: validation.issues });
+                        logger.info('deterministic_template_complete', {
+                            templateUsed: 'pay_package_outreach',
+                            pass1Fields: Object.keys(extractedData).length
+                        });
+                        waitUntil(performAuditLog(supabase, traceId, 'DRAFT_OUTREACH_DETERMINISTIC', inputText, validation));
+
+                        return createBufferedUIResponse(validation.text, { traceId, status: 'deterministic_template', issues: validation.issues });
+                    }
+
+                    // Fallback to LLM if template fetch fails
+                    logger.warn('template_fetch_failed_fallback_to_llm');
                 }
 
                 // Fallback to single-pass if extraction failed
