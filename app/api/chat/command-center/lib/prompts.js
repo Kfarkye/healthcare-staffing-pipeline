@@ -150,12 +150,19 @@ function buildBaseInstructions() {
     OPERATIONAL_RULES,
     '',
     OUTPUT_CONTRACT,
-    '',
-    NOVA_URL_RULES,
   ].join('\n');
 }
 
 const BASE_INSTRUCTIONS = buildBaseInstructions();
+
+// Internal-only rule: only inject into internal prompts (REASSIGNMENT, DATABASE_ACTION)
+const INTERNAL_NOVA_RULE = `${NOVA_URL_RULES}`;
+
+// Candidate-facing rule: explicitly block Nova links
+const CANDIDATE_EMAIL_RULE = `INTERNAL LINKS:
+- NEVER include Nova profile links in candidate-facing emails.
+- Nova links are internal-only and must not be shared with clinicians.
+- If you need to reference a candidate profile, use their name only.`;
 
 // ════════════════════════════════════════════════════════════════════════════
 // SECTION 4: Data Extraction & Strategy Analysis
@@ -331,6 +338,10 @@ export function getPass2DraftPrompt(data) {
 
   return `You are a healthcare recruiter drafting an outreach email.
 
+INTERNAL LINKS RULE:
+- NEVER include Nova profile links in this email.
+- Nova links are internal-only and must not be shared with candidates.
+
 USE ONLY THE FOLLOWING EXTRACTED DATA. Do not add, infer, or modify values:
 ${serializedData}
 ${strategySection}
@@ -392,6 +403,8 @@ Hi [name],
 // ════════════════════════════════════════════════════════════════════════════
 
 const DRAFT_OUTREACH_PROMPT = `${BASE_INSTRUCTIONS}
+
+${CANDIDATE_EMAIL_RULE}
 
 <mental_model>
 User is a busy recruiter who values speed and accuracy.
@@ -480,6 +493,8 @@ Output only:
 // Note: Actual drafting is handled by email-contract.js in route.js
 // This prompt is a fallback if the structured flow fails
 const DRAFT_EMAIL_PROMPT = `${BASE_INSTRUCTIONS}
+
+${CANDIDATE_EMAIL_RULE}
 
 <mental_model>
 User needs a specific type of email: reference consent, document request, or similar.
