@@ -272,6 +272,7 @@ const MODE_CHIPS = [
     { label: 'Licensing', context: 'Licensing Request' },
     { label: 'Extension Request', context: 'Extension Request' },
     { label: 'Screen Resume', context: 'Screen Resume' },
+    { label: 'Reply Mode', context: 'Reply to Email' },
 ] as const;
 
 type RouterMode = 'default' | 'cold_outreach' | 'batch_reassign' | 'reply_mode';
@@ -279,6 +280,7 @@ type RouterMode = 'default' | 'cold_outreach' | 'batch_reassign' | 'reply_mode';
 const MODE_CONTEXT_TO_ROUTER_MODE: Record<string, RouterMode> = {
     'Pay Package Email': 'cold_outreach',
     'Internal Reassignment Request': 'batch_reassign',
+    'Reply to Email': 'reply_mode',
 };
 
 
