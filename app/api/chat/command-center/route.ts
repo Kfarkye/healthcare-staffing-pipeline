@@ -217,6 +217,8 @@ export async function POST(request: Request) {
             hasSupabaseUrl: !!supabaseUrl,
             hasSupabaseKey: !!supabaseKey,
             hasGoogleKey: !!googleKey,
+            supabaseUrlPreview: supabaseUrl?.substring(0, 30),
+            zodErrors: envResult.error.flatten().fieldErrors,
         });
         return createErrorResponse('Configuration error', traceId);
     }
