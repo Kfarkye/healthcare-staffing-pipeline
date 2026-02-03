@@ -93,6 +93,14 @@ export async function handleChatIntent(
 
         logger.info('chat_handler_start', { intent, hasTools: !!tools });
 
+        // Guard: Handle empty input gracefully
+        if (!input.inputText && !input.hasImage) {
+            return {
+                type: 'chat',
+                content: 'How can I help you today? I can draft emails, search candidates, or answer recruiting questions.',
+            };
+        }
+
         const result = await generateText({
             model: google(MODEL_CONFIG.primary, {
                 safetySettings: MODEL_CONFIG.safetySettings
