@@ -163,6 +163,7 @@ function lastAssistantWasEmail(history: NormalizedMessage[]): boolean {
 export async function classify(input: ClassifyInput, googleClient?: any): Promise<ClassifyResult> {
     const { message, mode, modeLocked, hasImage } = input;
     const text = (message || '').trim();
+    const lower = text.toLowerCase();
 
     // ══════════════════════════════════════════════════════════════════════════
     // TIER 1: Empty/Trivial
@@ -182,6 +183,12 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
 
     if (hasImage && isReplyRequest(text)) {
         return createResult(Intent.EDIT_CONTENT, null, 'Reply/response request with image');
+    }
+
+    // Reassignment requests should always route to the internal reassignment template,
+    // even when an image is attached.
+    if (PATTERNS.reassign.test(lower) || /reassign/i.test(input.modeContext || '')) {
+        return createResult(Intent.REASSIGNMENT_REQUEST, TemplateType.REASSIGNMENT, 'Reassignment request');
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -290,8 +297,6 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
     // TIER 6: Content-Based Detection
     // ══════════════════════════════════════════════════════════════════════════
-
-    const lower = text.toLowerCase();
 
     // Outreach request
     if (isOutreachRequest(text)) {
