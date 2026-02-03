@@ -66,6 +66,8 @@ export interface SendMessageOptions {
     mode?: 'default' | 'cold_outreach' | 'batch_reassign' | 'reply_mode';
     /** When true, mode is locked and Tier 0 routing overrides. */
     modeLocked?: boolean;
+    /** Link-only attachments (e.g., when base64 is skipped for payload safety). */
+    attachmentLinks?: Array<{ url: string; mimeType: string; fileName?: string }>;
     /**
      * Force bypasses duplicate-payload guard.
      * Used for reload / explicit retries.
@@ -411,11 +413,23 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                 const truncatedHistory =
                     historyForApi.length > MAX_HISTORY_MESSAGES ? historyForApi.slice(-MAX_HISTORY_MESSAGES) : historyForApi;
 
+                const attachmentLinks = sendOptions?.attachmentLinks ?? [];
+
                 const requestMessages = truncatedHistory.map((m) => {
-                    if (m.parts && m.parts.length > 0) {
-                        return { role: m.role, parts: m.parts };
+                    const msg: any = m.parts && m.parts.length > 0
+                        ? { role: m.role, parts: m.parts }
+                        : { role: m.role, content: m.content };
+
+                    // Attach link-only files for the current user message (if provided)
+                    if (m.id === userMessage.id && attachmentLinks.length > 0) {
+                        msg.attachments = attachmentLinks.map((att) => ({
+                            contentType: att.mimeType,
+                            url: att.url,
+                            fileName: att.fileName,
+                        }));
                     }
-                    return { role: m.role, content: m.content };
+
+                    return msg;
                 });
 
                 // Extract hidden system context (mode chips set this)

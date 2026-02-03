@@ -1268,6 +1268,9 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
         if ((!text && attachments.length === 0) || isLoading || isUploading) return;
 
         let safeFileAttachments = undefined;
+        const linkAttachments = attachments
+            .filter(a => a.publicUrl && a.mimeType?.startsWith('image/') && (a.skippedAnalysis || !a.base64Data || totalPayloadSize > MAX_PAYLOAD_BYTES))
+            .map(a => ({ url: a.publicUrl!, mimeType: a.mimeType, fileName: a.fileName }));
 
         if (totalPayloadSize > MAX_PAYLOAD_BYTES) {
             const mb = (totalPayloadSize / (1024 * 1024)).toFixed(1);
@@ -1292,7 +1295,7 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
         const modeLocked = routerMode !== 'default';
 
         setInputValue(''); clearAttachments(); scrollToBottomNow(); triggerHaptic();
-        await sendMessage(msg, safeFileAttachments, { systemContext: modeContext, mode: routerMode, modeLocked });
+        await sendMessage(msg, safeFileAttachments, { systemContext: modeContext, mode: routerMode, modeLocked, attachmentLinks: linkAttachments });
     }, [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments, showToast, totalPayloadSize, modeContext]);
 
     const containerStyle = useMemo(() => {

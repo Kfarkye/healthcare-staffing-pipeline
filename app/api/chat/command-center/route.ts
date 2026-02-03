@@ -321,6 +321,7 @@ export async function POST(request: Request) {
         mode: (mode || 'default') as ChatModeType,
         modeLocked: Boolean(modeLocked),
         hasImage: imagePresent,
+        modeContext: systemContext || '',
     }, google);
 
     logger.info('intent_classified', {
