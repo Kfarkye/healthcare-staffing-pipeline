@@ -151,13 +151,19 @@ const SEMANTIC_BUDGET_MS = 1000;
 const SYSTEM_PROMPT = `
 You are the Intent Router for a Healthcare ATS. Classify the user's request.
 
+Intents:
+- DRAFT_OUTREACH: cold outreach, pay package emails, first contact campaigns
+- DRAFT_EMAIL: reference requests, document requests, check interest, reply drafting
+- OFFER_DETAILS: offer details, compare offers, draft offer letter
+- DATABASE_ACTION: find/lookup candidate, Nova profile, status check
+- REASSIGNMENT_REQUEST: reassign candidate, change recruiter
+- GENERAL_CHAT: info questions, negation, general conversation
+
 Rules:
 1) Negation ("don't send", "cancel", "no email") -> GENERAL_CHAT
 2) Info questions ("why/how/what...") -> GENERAL_CHAT
-3) DRAFT_EMAIL only for: ask for references, request docs, check interest, reply drafting
-4) OFFER_DETAILS: offer details, compare offers, draft offer letter
-5) DATABASE_ACTION: find/lookup candidate, Nova profile
-Return only the schema fields.
+3) "outreach" + (draft/pay package) -> DRAFT_OUTREACH
+4) Return only the schema fields.
 `;
 
 /**
@@ -252,6 +258,10 @@ function sanitizeHistory(history, maxMessages) {
 const RX_INFO_STARTERS = /^(who|what|where|when|why|how)\b/i;
 const RX_DRAFT_VERBS = /\b(draft|write|compose|rewrite|revise|edit|create|generate|reply|respond|follow\s*up)\b/i;
 const RX_MEDIUMS = /\b(emails?|messages?|notes?|texts?)\b/i;
+
+// Outreach-specific: "outreach" + (draft verb OR "pay package")
+const RX_OUTREACH = /\boutreach\b/i;
+const RX_PAY_PACKAGE = /\bpay\s*package\b/i;
 
 const RX_ENTITIES = /\b(references?|docs?|documents?|certifications?)\b/i;
 const RX_ENTITY_ACTIONS = /\b(ask|request|get|send|collect|confirm)\b/i;
@@ -354,6 +364,32 @@ function isExplicitEmailRequest(text) {
 
   if (hasEntity && hasEntityAction) return true;
   if (hasEntity && hasMedium) return true;
+
+  return false;
+}
+
+/**
+ * Outreach Gate (deterministic):
+ * - "outreach" + draft verb → DRAFT_OUTREACH
+ * - "outreach" + "pay package" → DRAFT_OUTREACH
+ * - Blocks negation and info questions
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isOutreachRequest(text) {
+  const t = (text || '').toLowerCase();
+  if (!t) return false;
+  if (isInfoQuestion(t)) return false;
+  if (RX_NEGATION_STRONG.test(t)) return false;
+
+  const hasOutreach = RX_OUTREACH.test(t);
+  if (!hasOutreach) return false;
+
+  // "draft/write/compose outreach" OR "outreach draft/write/compose"
+  if (RX_DRAFT_VERBS.test(t)) return true;
+
+  // "pay package outreach" or "outreach pay package"
+  if (RX_PAY_PACKAGE.test(t)) return true;
 
   return false;
 }
@@ -664,6 +700,22 @@ export async function classify({
       requiresTools: TOOL_REQUIREMENTS[Intent.GENERAL_CHAT],
       confidence: 1.0,
       reason: 'Blocked by Code/Stacktrace Pre-Gate.',
+      parameters: {},
+      fastPath: true,
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // TIER 2D: Pre-Gate (Outreach)
+  // "outreach" + (draft verb OR pay package) → DRAFT_OUTREACH (deterministic)
+  // --------------------------------------------------------------------------
+  if (isOutreachRequest(normalized)) {
+    return {
+      intent: Intent.DRAFT_OUTREACH,
+      kind: RESPONSE_KIND[Intent.DRAFT_OUTREACH],
+      requiresTools: TOOL_REQUIREMENTS[Intent.DRAFT_OUTREACH],
+      confidence: 1.0,
+      reason: 'Outreach request override.',
       parameters: {},
       fastPath: true,
     };
