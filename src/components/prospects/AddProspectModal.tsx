@@ -667,35 +667,37 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({
     try {
       const finalNovaUrl = formData.nova_url || generateNovaUrl(Number(formData.candidate_id));
 
-      // Build metadata object only with non-empty values
-      const metadata: Record<string, string> = {};
+      const supplementalNotes: string[] = [];
       if (personalFields.shift_preference?.trim()) {
-        metadata.shift_preference = personalFields.shift_preference.trim();
+        supplementalNotes.push(`Shift preference: ${personalFields.shift_preference.trim()}`);
       }
       if (personalFields.certifications?.trim()) {
-        metadata.certifications = personalFields.certifications.trim();
+        supplementalNotes.push(`Certifications: ${personalFields.certifications.trim()}`);
       }
       if (personalFields.years_experience?.trim()) {
-        metadata.years_experience = personalFields.years_experience.trim();
+        supplementalNotes.push(`Years experience: ${personalFields.years_experience.trim()}`);
       }
       if (personalFields.preferred_units?.trim()) {
-        metadata.preferred_units = personalFields.preferred_units.trim();
+        supplementalNotes.push(`Preferred units: ${personalFields.preferred_units.trim()}`);
       }
 
+      const baseNotes = personalFields.general_notes?.trim();
+      const combinedNotes = [baseNotes, ...supplementalNotes].filter(Boolean).join('\n');
+
       // Construct clean prospect data with correct database field names
-      // This matches the candidates table schema expected by ProspectsDashboard
+      // This matches the prospects table schema
       const prospectData = {
         candidate_id: Number(formData.candidate_id),
         nova_url: finalNovaUrl,
-        full_name: formData.name.trim(),
+        name: formData.name.trim(),
         email: formData.email.toLowerCase().trim(),
         phone: formData.phone?.trim() || null,
         profession: formData.profession.trim(),
-        primary_specialty: formData.specialty?.trim() || null,
+        specialty: formData.specialty?.trim() || null,
         home_state: formData.home_state?.toUpperCase().trim() || null,
-        notes: personalFields.general_notes?.trim() || null,
+        notes: combinedNotes || null,
         licenses: formData.licenses || [],
-        metadata: Object.keys(metadata).length > 0 ? metadata : null,
+        status: formData.status || 'New',
       };
 
       await onSave(prospectData);

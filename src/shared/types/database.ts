@@ -149,6 +149,20 @@ export interface Prospect extends BaseRecord {
 }
 
 // ============================================================================
+// CANDIDATE NOTES
+// ============================================================================
+
+export interface CandidateNote extends BaseRecord {
+    id: string;
+    prospect_id: number;
+    author_id?: string | null;
+    note_type?: string | null;
+    content: string;
+    created_at: string;
+    updated_at?: string | null;
+}
+
+// ============================================================================
 // PAY PACKAGE TYPE
 // ============================================================================
 

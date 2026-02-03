@@ -55,6 +55,10 @@ const PATTERNS = {
     addCandidate: /\b(add|create|new)\s+(candidate|prospect)\b/i,
     addNote: /\b(add|create|leave|log|write|save)\s+(a\s+)?note\b/i,
     noteFor: /\b(note\s+for|note\s+to)\b/i,
+    updateCandidate: /\b(update|edit|change)\s+(candidate|prospect)\b/i,
+    noteHistory: /\b(notes?\s+(history|log)|note\s+history)\b/i,
+    stateBoard: /\b(state\s+board|board\s+verification|license\s+verification|verify\s+license|license\s+lookup)\b/i,
+    novaLink: /\b(nova\s+link|nova\s+url)\b/i,
 
     // Negation
     negation: /\b(don't|do not|cancel|stop|no)\b/i,
@@ -158,6 +162,30 @@ function isAddNoteRequest(text: string): boolean {
     return PATTERNS.addNote.test(t) || PATTERNS.noteFor.test(t);
 }
 
+function isUpdateCandidateRequest(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    return PATTERNS.updateCandidate.test(t);
+}
+
+function isNoteHistoryRequest(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    return PATTERNS.noteHistory.test(t);
+}
+
+function isStateBoardRequest(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    return PATTERNS.stateBoard.test(t);
+}
+
+function isNovaLinkRequest(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    return PATTERNS.novaLink.test(t);
+}
+
 function lastAssistantWasEmail(history: NormalizedMessage[]): boolean {
     if (!Array.isArray(history) || history.length === 0) return false;
     const last = [...history].reverse().find(m => m.role === 'assistant');
@@ -229,8 +257,15 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
         return createResult(Intent.DATABASE_ACTION, null, 'Nova ID/URL detected');
     }
 
-    // Explicit DB mutations: add candidate / leave note
-    if (isAddCandidateRequest(text) || isAddNoteRequest(text)) {
+    // Explicit DB mutations: add/update candidate / leave note / note history / links
+    if (
+        isAddCandidateRequest(text) ||
+        isUpdateCandidateRequest(text) ||
+        isAddNoteRequest(text) ||
+        isNoteHistoryRequest(text) ||
+        isStateBoardRequest(text) ||
+        isNovaLinkRequest(text)
+    ) {
         return createResult(Intent.DATABASE_ACTION, null, 'Database mutation request');
     }
 

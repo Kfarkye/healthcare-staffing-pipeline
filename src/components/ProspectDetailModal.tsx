@@ -5,7 +5,7 @@ import { X, Phone, Mail, MapPin, Calendar, CircleCheck as CheckCircle, Circle, E
 import { supabase } from '../lib/supabase';
 import EditProspectModal from './prospects/EditProspectModal';
 import EmailTemplateModal from './prospects/EmailTemplateModal';
-import type { Prospect } from '../shared/types/database';
+import type { Prospect, CandidateNote } from '../shared/types/database';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -40,6 +40,17 @@ const formatDate = (dateString: string | null | undefined) => {
     month: 'short',
     day: 'numeric',
     year: 'numeric'
+  });
+};
+
+const formatDateTime = (dateString: string | null | undefined) => {
+  if (!dateString) return '—';
+  return new Date(dateString).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
   });
 };
 
@@ -79,6 +90,9 @@ export default function ProspectDetailModal({
   const [showEditModal, setShowEditModal] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [extractedData, setExtractedData] = useState<any>(null);
+  const [noteHistory, setNoteHistory] = useState<CandidateNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
 
   // Load pay package data for email template
   useEffect(() => {
@@ -100,6 +114,40 @@ export default function ProspectDetailModal({
 
     loadPayPackage();
   }, []);
+
+  // Load note history
+  useEffect(() => {
+    let isActive = true;
+
+    const loadNotes = async () => {
+      if (!prospect?.id) return;
+      setNotesLoading(true);
+      setNotesError(null);
+
+      try {
+        const { data, error } = await supabase
+          .from('candidate_notes')
+          .select('id, prospect_id, author_id, note_type, content, created_at, updated_at')
+          .eq('prospect_id', prospect.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (!isActive) return;
+        if (error) throw error;
+        setNoteHistory((data || []) as CandidateNote[]);
+      } catch (e: any) {
+        if (!isActive) return;
+        setNotesError(e?.message ? String(e.message) : 'Failed to load notes');
+      } finally {
+        if (isActive) setNotesLoading(false);
+      }
+    };
+
+    loadNotes();
+    return () => {
+      isActive = false;
+    };
+  }, [prospect?.id]);
 
   // Requirements calculation
   const requirements: Requirement[] = [
@@ -405,6 +453,50 @@ export default function ProspectDetailModal({
                       </div>
                     )}
                   </div>
+                </section>
+              )}
+
+              {/* Notes History */}
+              {(notesLoading || notesError || noteHistory.length > 0) && (
+                <section>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                    Notes History
+                  </h3>
+
+                  {notesLoading && (
+                    <div className="text-xs text-gray-500">Loading notes…</div>
+                  )}
+
+                  {notesError && (
+                    <div className="text-xs text-rose-500">{notesError}</div>
+                  )}
+
+                  {!notesLoading && !notesError && noteHistory.length === 0 && (
+                    <div className="text-xs text-gray-500">No notes yet.</div>
+                  )}
+
+                  {!notesLoading && !notesError && noteHistory.length > 0 && (
+                    <div className="space-y-3">
+                      {noteHistory.map((note) => (
+                        <div
+                          key={note.id}
+                          className="rounded-lg border border-gray-100 bg-gray-50/50 p-3"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                              {note.note_type || 'general'}
+                            </span>
+                            <span className="text-[11px] text-gray-500">
+                              {formatDateTime(note.created_at)}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-800 mt-2 whitespace-pre-wrap">
+                            {note.content}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
               )}
 

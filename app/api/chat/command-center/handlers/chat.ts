@@ -38,13 +38,23 @@ When providing Nova links, use the full format:
 https://nova.ayahealthcare.com/#/recruiting/candidates/{ID}/new-profile/about
 
 TOOLS:
+- lookup_candidate: Find candidates by ID, email, or name.
 - add_candidate: Add a new candidate/prospect to the system.
+- update_candidate: Update an existing candidate/prospect.
 - add_candidate_note: Leave a note on a candidate/prospect.
+- get_candidate_notes: Fetch recent candidate notes.
+- get_nova_link: Build Nova links (supports custom path).
+- get_state_board_link: Return state board verification links.
+- upsert_state_board_link: Save or update a state board link.
 
 RULES:
 1. If the user asks to add a candidate, use add_candidate.
-2. If the user asks to leave/add/log a note, use add_candidate_note.
-3. If required fields are missing, ask ONE concise follow-up question.
+2. If the user asks to update a candidate, use update_candidate.
+3. If the user asks to leave/add/log a note, use add_candidate_note.
+4. If the user asks for note history, use get_candidate_notes.
+5. If the user asks for Nova links, use get_nova_link.
+6. If the user asks for state board verification links, use get_state_board_link.
+7. If required fields are missing, ask ONE concise follow-up question.
 
 Be concise. Lead with the answer.`,
 
@@ -130,6 +140,7 @@ export async function handleChatIntent(
             system: systemPrompt,
             messages: input.messages as any,
             tools,
+            toolChoice: tools ? 'auto' : undefined,
             temperature: MODEL_CONFIG.chat.temperature,
             maxRetries: MODEL_CONFIG.chat.maxRetries,
         });
@@ -140,15 +151,41 @@ export async function handleChatIntent(
             result: undefined, // Would be populated if we executed tools
         }));
 
+        let text = result.text || '';
+        if (!text.trim()) {
+            const toolResults = (result as any).toolResults as any[] | undefined;
+            if (toolResults?.length) {
+                const first = toolResults[0];
+                const res = first?.result || {};
+                if (res?.ok && res?.action === 'created') {
+                    text = 'Candidate added successfully.';
+                } else if (res?.ok && res?.action === 'updated') {
+                    text = 'Candidate updated successfully.';
+                } else if (res?.ok && res?.note) {
+                    text = 'Note saved successfully.';
+                } else if (res?.ok && res?.notes) {
+                    text = `Found ${res.notes.length} note(s).`;
+                } else if (res?.ok && res?.link) {
+                    text = `Here’s the link: ${res.link}`;
+                } else if (res?.ok) {
+                    text = 'Done.';
+                } else if (res?.error) {
+                    text = `Unable to complete that: ${res.error}`;
+                } else {
+                    text = 'Done.';
+                }
+            }
+        }
+
         logger.info('chat_handler_complete', {
             intent,
             hasToolCalls: (toolCalls?.length || 0) > 0,
-            responseLength: result.text?.length || 0
+            responseLength: text.length || 0
         });
 
         return {
             type: 'chat',
-            content: result.text || 'No response generated.',
+            content: text || 'No response generated.',
             toolCalls,
         };
 
@@ -184,6 +221,7 @@ export function handleChatIntentStreaming(
         system: systemPrompt,
         messages: input.messages as any,
         tools,
+        toolChoice: tools ? 'auto' : undefined,
         temperature: MODEL_CONFIG.chat.temperature,
         maxRetries: MODEL_CONFIG.chat.maxRetries,
         onFinish: ({ text, finishReason }) => {
