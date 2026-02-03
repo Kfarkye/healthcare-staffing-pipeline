@@ -201,14 +201,23 @@ export async function POST(request: Request) {
     // 1. Validate Environment
     // ══════════════════════════════════════════════════════════════════════════
 
+    // Support multiple env var naming conventions
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    const googleKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+
     const envResult = EnvSchema.safeParse({
-        SUPABASE_URL: process.env.SUPABASE_URL,
-        SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-        GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY,
+        SUPABASE_URL: supabaseUrl,
+        SUPABASE_SERVICE_ROLE_KEY: supabaseKey,
+        GOOGLE_GENERATIVE_AI_API_KEY: googleKey,
     });
 
     if (!envResult.success) {
-        logger.error('env_validation_failed', new Error('Missing environment variables'));
+        logger.error('env_validation_failed', new Error('Missing environment variables'), {
+            hasSupabaseUrl: !!supabaseUrl,
+            hasSupabaseKey: !!supabaseKey,
+            hasGoogleKey: !!googleKey,
+        });
         return createErrorResponse('Configuration error', traceId);
     }
 
