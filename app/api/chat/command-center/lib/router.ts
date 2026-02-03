@@ -52,6 +52,9 @@ const PATTERNS = {
     document: /\b(document|bls|acls|resume|certification)/i,
     reassign: /\breassign/i,
     licensing: /\blicensing?\b/i,
+    addCandidate: /\b(add|create|new)\s+(candidate|prospect)\b/i,
+    addNote: /\b(add|create|leave|log|write|save)\s+(a\s+)?note\b/i,
+    noteFor: /\b(note\s+for|note\s+to)\b/i,
 
     // Negation
     negation: /\b(don't|do not|cancel|stop|no)\b/i,
@@ -143,6 +146,18 @@ function isOutreachRequest(text: string): boolean {
     return false;
 }
 
+function isAddCandidateRequest(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    return PATTERNS.addCandidate.test(t);
+}
+
+function isAddNoteRequest(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    return PATTERNS.addNote.test(t) || PATTERNS.noteFor.test(t);
+}
+
 function lastAssistantWasEmail(history: NormalizedMessage[]): boolean {
     if (!Array.isArray(history) || history.length === 0) return false;
     const last = [...history].reverse().find(m => m.role === 'assistant');
@@ -212,6 +227,11 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
 
     if (PATTERNS.novaId.test(text) || PATTERNS.novaUrl.test(text)) {
         return createResult(Intent.DATABASE_ACTION, null, 'Nova ID/URL detected');
+    }
+
+    // Explicit DB mutations: add candidate / leave note
+    if (isAddCandidateRequest(text) || isAddNoteRequest(text)) {
+        return createResult(Intent.DATABASE_ACTION, null, 'Database mutation request');
     }
 
     // ══════════════════════════════════════════════════════════════════════════

@@ -37,6 +37,15 @@ TASK: Help with database lookups and candidate searches.
 When providing Nova links, use the full format:
 https://nova.ayahealthcare.com/#/recruiting/candidates/{ID}/new-profile/about
 
+TOOLS:
+- add_candidate: Add a new candidate/prospect to the system.
+- add_candidate_note: Leave a note on a candidate/prospect.
+
+RULES:
+1. If the user asks to add a candidate, use add_candidate.
+2. If the user asks to leave/add/log a note, use add_candidate_note.
+3. If required fields are missing, ask ONE concise follow-up question.
+
 Be concise. Lead with the answer.`,
 
     [Intent.CAMPAIGN_WORKFLOW]: `${RECRUITER_IDENTITY}
@@ -78,10 +87,7 @@ To: [email if visible]
 Subject: [appropriate subject based on context]
 
 [Email body]
-
-Kofi Farkye
-Senior Recruiter, Fulfillment Specialist
-P: 858-529-7267 Ext: 17017`,
+`,
 
     [Intent.UNKNOWN]: `${RECRUITER_IDENTITY}
 

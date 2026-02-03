@@ -33,6 +33,7 @@ import type {
 import { Intent, ChatMode } from './types/index';
 import { classify } from './lib/router';
 import { getIntentConfig, HTTP_CONFIG } from './lib/config';
+import { createCommandCenterTools } from './lib/tools';
 import { handleEmailIntent } from './handlers/email';
 import { handleChatIntent } from './handlers/chat';
 
@@ -358,6 +359,7 @@ export async function POST(request: Request) {
 
     try {
         const intentConfig = getIntentConfig(classification.intent);
+        const tools = intentConfig.requiresTools ? createCommandCenterTools(supabase, logger) : undefined;
 
         // Email intents → Email Handler
         if (intentConfig.handler === 'email') {
@@ -380,9 +382,6 @@ export async function POST(request: Request) {
         if (intentConfig.handler === 'tools') {
             logger.info('routing_to_tools_handler', { intent: classification.intent });
 
-            // TODO: Import and pass tools from tools.js
-            const tools = undefined; // createCommandCenterTools(supabase);
-
             const result = await handleChatIntent(
                 handlerInput,
                 handlerContext,
@@ -403,7 +402,8 @@ export async function POST(request: Request) {
         const result = await handleChatIntent(
             handlerInput,
             handlerContext,
-            classification.intent
+            classification.intent,
+            tools
         );
 
         if (result.type === 'error') {
