@@ -143,6 +143,19 @@ function isOutreachRequest(text: string): boolean {
     return false;
 }
 
+function lastAssistantWasEmail(history: NormalizedMessage[]): boolean {
+    if (!Array.isArray(history) || history.length === 0) return false;
+    const last = [...history].reverse().find(m => m.role === 'assistant');
+    if (!last) return false;
+    const text = last.content
+        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+        .map(c => c.text)
+        .join('\n')
+        .trim();
+    if (!text) return false;
+    return /(^|\n)\s*Subject\s*:/i.test(text) || /(^|\n)\s*To\s*:/i.test(text) || /\[EMAIL_DRAFT_JSON\]/i.test(text);
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // Main Classifier
 // ════════════════════════════════════════════════════════════════════════════════
@@ -169,6 +182,17 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
 
     if (hasImage && isReplyRequest(text)) {
         return createResult(Intent.EDIT_CONTENT, null, 'Reply/response request with image');
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // TIER 1.6: Short Follow-up After Email Draft
+    // Example: "The response", "Make it shorter", "Reply with this tone"
+    // ══════════════════════════════════════════════════════════════════════════
+
+    const isShortFollowup = text.length > 0 && text.length <= 80;
+    const isEditFollowup = /\b(reply|response|revise|edit|shorten|shorter|longer|tone|polish|tweak|update|adjust)\b/i.test(text);
+    if (lastAssistantWasEmail(input.history) && !isInfoQuestion(text) && (isEditFollowup || isShortFollowup)) {
+        return createResult(Intent.EDIT_CONTENT, null, 'Short follow-up after email draft');
     }
 
     // ══════════════════════════════════════════════════════════════════════════

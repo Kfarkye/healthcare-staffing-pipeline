@@ -78,7 +78,6 @@ Subject: [appropriate subject based on context]
 
 [Email body]
 
----
 Kofi Farkye
 Senior Recruiter, Fulfillment Specialist
 P: 858-529-7267 Ext: 17017`,

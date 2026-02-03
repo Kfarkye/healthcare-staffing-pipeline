@@ -85,7 +85,8 @@ function stripMarkdownForEmail(text: string): string {
 const REGEX_EMAIL_HEADER = /^#?\s*(?:EMAIL|DRAFT)\s*(?:DRAFT|EMAIL)?[\r\n]+/i;
 const REGEX_EMAIL_TO = /(?:\*\*|__)?To:(?:\*\*|__)?\s*([^\r\n]+)/i;
 const REGEX_EMAIL_SUBJECT = /(?:\*\*|__)?Subject:(?:\*\*|__)?\s*([^\r\n]+)/i;
-const REGEX_EMAIL_BODY = /---[\r\n]+([\s\S]+?)(?:[\r\n]+---[\r\n]*(?:$|[\r\n])|$)/;
+// Only treat body as delimited when BOTH opening and closing --- are present.
+const REGEX_EMAIL_BODY = /(?:^|\n)---[\r\n]+([\s\S]+?)[\r\n]+---(?:\s|$)/;
 
 // New format: [SUBJECT]...[/SUBJECT] [BODY]...[/BODY] (from AI system)
 const REGEX_TAG_SUBJECT = /\[SUBJECT\]([\s\S]*?)\[\/SUBJECT\]/i;
