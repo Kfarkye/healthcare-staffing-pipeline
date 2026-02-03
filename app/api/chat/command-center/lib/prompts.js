@@ -395,7 +395,12 @@ Hi [name],
 [CTA bullet block]
 
 [Closing statement: next step, no question]
-</draft>`;
+</draft>
+
+OUTPUT RULES:
+- Output ONLY the <draft>...</draft> block.
+- Do NOT add any text before or after the draft tags.
+- No summaries, no "Send this..." instructions, no commentary.`;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -483,7 +488,7 @@ Reply with the 3 confirmations above and I will move the submission forward.
 </examples>
 
 <task>
-Output only:
+Output ONLY the draft block. No commentary, no "Send this..." text.
 <draft>
 ...email...
 </draft>
