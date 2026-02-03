@@ -137,8 +137,9 @@ const ClassificationSchema = z.object({
  * @typedef {{ name?: string; message: string }} NormalizedError
  */
 
-const DEFAULT_PARAMETERS = Object.freeze({});
 const HISTORY_WINDOW = 2;
+/** @type {{ candidate_name?: string; topic?: string; urgency?: 'high' | 'normal' }} */
+const DEFAULT_PARAMETERS = Object.freeze({});
 const MAX_MESSAGE_CHARS = 12000;
 const MAX_LLM_CHARS = 4000;
 const MAX_HISTORY_MESSAGE_CHARS = 2000;
@@ -218,18 +219,26 @@ function normalizeText(input, maxLen) {
 
 /**
  * @param {HistoryMessage[]} history
+ * @param {number} maxMessages
  * @returns {Array<{ role: 'user' | 'assistant'; content: string }>}
  */
-function sanitizeHistory(history) {
+function sanitizeHistory(history, maxMessages) {
   if (!Array.isArray(history) || history.length === 0) return [];
+  if (!Number.isFinite(maxMessages) || maxMessages <= 0) return [];
+
   /** @type {Array<{ role: 'user' | 'assistant'; content: string }>} */
   const sanitized = [];
-  for (const message of history) {
+
+  // Walk from the end so huge histories stay cheap; keep chronological order.
+  for (let i = history.length - 1; i >= 0 && sanitized.length < maxMessages; i--) {
+    const message = history[i];
     if (!message || (message.role !== 'user' && message.role !== 'assistant')) continue;
     const content = normalizeText(message.content, MAX_HISTORY_MESSAGE_CHARS);
     if (!content) continue;
     sanitized.push({ role: message.role, content });
   }
+
+  sanitized.reverse();
   return sanitized;
 }
 
@@ -244,14 +253,18 @@ const RX_MEDIUMS = /\b(emails?|messages?|notes?|texts?)\b/i;
 const RX_ENTITIES = /\b(references?|docs?|documents?|certifications?)\b/i;
 const RX_ENTITY_ACTIONS = /\b(ask|request|get|send|collect|confirm)\b/i;
 
-const RX_NEGATION = /\b(don't|do not|cancel|stop|no)\b/i;
+// Use a *narrow* definition of negation to avoid false negatives like:
+// "No, draft an email..." or "No problem — draft an email..."
+const RX_NEGATION_STRONG = /\b(don't|do not|cancel|stop)\b/i;
+const RX_NEGATION_NO_MEDIUM = /\bno\s+(emails?|messages?|texts?|notes?)\b/i;
 
-const RX_DB_QUERY = /\b(nova|candidate|lookup|find|search|profile|status|application|recruiting)\b/i;
-const RX_NOVA = /https:\/\/nova\.ayahealthcare\.com\/#\/?/i;
+const RX_DB_QUERY = /\b(nova|candidates?|lookup|find|search|profiles?|status|applications?|recruiting)\b/i;
+const RX_NOVA = /https?:\/\/nova\.ayahealthcare\.com\/#\/?/i;
 
 const RX_CODE_FENCE = /```[\s\S]*?```/g;
 const RX_STACKTRACE = /\b(error:|exception|at\s+\S+\s+\(|stack\s+trace)\b/i;
-const RX_CODE_TOKENS = /\b(import|export|interface|type|class|function|const|let|var|=>)\b/i;
+// NOTE: `=>` isn't a word token, so it can't live inside a `\b...\b` group.
+const RX_CODE_TOKENS = /(?:\b(import|export|interface|type|class|function|const|let|var)\b|=>)/i;
 const RX_KIND_MARKER_JSON = /"kind"\s*:\s*"(email_response|email_draft)"/i;
 
 const EMAIL_KIND_VALUES = new Set(['email_response', 'email_draft']);
@@ -323,7 +336,7 @@ function isExplicitEmailRequest(text) {
   if (isInfoQuestion(t)) return false;
 
   // Negation beats everything (prevents "no email" routing into email UI)
-  if (RX_NEGATION.test(t) && RX_MEDIUMS.test(t)) return false;
+  if ((RX_NEGATION_STRONG.test(t) && RX_MEDIUMS.test(t)) || RX_NEGATION_NO_MEDIUM.test(t)) return false;
 
   const hasDraftVerb = RX_DRAFT_VERBS.test(t);
   const hasMedium = RX_MEDIUMS.test(t);
@@ -346,7 +359,15 @@ function isExplicitEmailRequest(text) {
 function lastAssistantWasEmail(history) {
   if (!Array.isArray(history) || history.length === 0) return false;
 
-  const last = [...history].reverse().find((m) => m && m.role === 'assistant');
+  /** @type {HistoryMessage | undefined} */
+  let last;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    if (m && m.role === 'assistant') {
+      last = m;
+      break;
+    }
+  }
   if (!last) return false;
 
   const seen = new WeakSet();
@@ -601,7 +622,7 @@ export async function classify({
   // TIER 3: Semantic Path (Gemini 3 Flash) with hard budget
   // --------------------------------------------------------------------------
   try {
-    const safeHistory = sanitizeHistory(history);
+    const safeHistory = sanitizeHistory(history, HISTORY_WINDOW);
     const llmText = normalizeText(normalized, MAX_LLM_CHARS);
 
     const { object } = await generateWithBudget(
@@ -609,7 +630,7 @@ export async function classify({
         model: google('gemini-3-flash-preview', { structuredOutputs: true }),
         schema: ClassificationSchema,
         temperature: 0,
-        messages: [...safeHistory.slice(-HISTORY_WINDOW), { role: 'user', content: llmText }],
+        messages: [...safeHistory, { role: 'user', content: llmText }],
         system: SYSTEM_PROMPT,
       },
       SEMANTIC_BUDGET_MS
@@ -657,7 +678,7 @@ export async function classify({
       requiresTools: TOOL_REQUIREMENTS[Intent.GENERAL_CHAT],
       confidence: 0.0,
       reason: isTimeout ? 'Router time budget exceeded' : 'Router error',
-      parameters: /** @type {ClassificationResult['parameters']} */ (DEFAULT_PARAMETERS),
+      parameters: DEFAULT_PARAMETERS,
     };
   }
 }
