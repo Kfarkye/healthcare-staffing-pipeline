@@ -219,10 +219,11 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
                 );
 
             case ChatMode.REPLY_MODE:
+                // Reply mode always uses LLM to draft contextual replies
                 return createResult(
-                    Intent.DRAFT_EMAIL,
+                    Intent.EDIT_CONTENT,
                     null,
-                    'REPLY_MODE'
+                    'REPLY_MODE - LLM handles reply drafting'
                 );
         }
     }
@@ -234,18 +235,19 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     if (hasImage) {
         const templateType = detectTemplateType(text, input.modeContext || '');
 
-        // Any hint of outreach/pay package with image
+        // Explicit outreach/pay package keywords with image → deterministic template
         if (isOutreachRequest(text) || PATTERNS.payPackage.test(text.toLowerCase())) {
             return createResult(Intent.DRAFT_OUTREACH, templateType, 'Image + outreach keywords');
         }
 
-        // Default: image in recruiting context = pay package
+        // Image + ambiguous text → LLM handles it (don't assume pay package)
+        // This catches: "draft response", "clean up", "reply", etc.
         return createResult(
-            Intent.DRAFT_OUTREACH,
-            TemplateType.PAY_PACKAGE,
-            'Image upload assumed as pay package',
-            true,
-            0.9
+            Intent.EDIT_CONTENT,
+            null,
+            'Image with ambiguous context - LLM handles',
+            false,
+            0.8
         );
     }
 
