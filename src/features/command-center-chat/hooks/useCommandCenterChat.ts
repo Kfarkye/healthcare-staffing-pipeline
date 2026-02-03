@@ -68,6 +68,8 @@ export interface SendMessageOptions {
     modeLocked?: boolean;
     /** Link-only attachments (e.g., when base64 is skipped for payload safety). */
     attachmentLinks?: Array<{ url: string; mimeType: string; fileName?: string }>;
+    /** Called once the request is accepted (after in-flight guard passes). */
+    onAccepted?: () => void;
     /**
      * Force bypasses duplicate-payload guard.
      * Used for reload / explicit retries.
@@ -404,8 +406,11 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                 setMessages(newHistory);
 
                 setIsLoading(true);
-                setIsStreaming(false);
+                setIsStreaming(true);
                 // Intentionally do NOT clear error here; clear only after stream starts successfully.
+
+                // Signal acceptance so the caller can clear input safely.
+                try { sendOptions?.onAccepted?.(); } catch { /* no-op */ }
 
                 // TRUNCATE: message-count based (add byte-cap on server for true safety)
                 const MAX_HISTORY_MESSAGES = 40;
@@ -460,7 +465,6 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
 
                 if (!response.body) throw new Error('No response body');
 
-                setIsStreaming(true);
                 setError(null); // Clear error only once we have a successful stream.
 
                 didStartStream = true;

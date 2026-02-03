@@ -1295,8 +1295,18 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
         const routerMode: RouterMode = MODE_CONTEXT_TO_ROUTER_MODE[modeContext] ?? 'default';
         const modeLocked = routerMode !== 'default';
 
-        setInputValue(''); clearAttachments(); scrollToBottomNow(); triggerHaptic();
-        await sendMessage(msg, safeFileAttachments, { systemContext: modeContext, mode: routerMode, modeLocked, attachmentLinks: linkAttachments });
+        await sendMessage(msg, safeFileAttachments, {
+            systemContext: modeContext,
+            mode: routerMode,
+            modeLocked,
+            attachmentLinks: linkAttachments,
+            onAccepted: () => {
+                setInputValue('');
+                clearAttachments();
+                scrollToBottomNow();
+                triggerHaptic();
+            },
+        });
     }, [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments, showToast, totalPayloadSize, modeContext]);
 
     const containerStyle = useMemo(() => {
