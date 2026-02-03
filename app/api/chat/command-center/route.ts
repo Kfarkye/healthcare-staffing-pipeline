@@ -105,8 +105,22 @@ function normalizeMessages(messages: any[]): NormalizedMessage[] {
     return messages.map((msg, index) => {
         const parts: MessageContent[] = [];
 
-        // Handle content
-        if (typeof msg.content === 'string') {
+        // Handle 'parts' array format (from useCommandCenterChat hook)
+        if (Array.isArray(msg.parts)) {
+            for (const part of msg.parts) {
+                if (part.type === 'text' && typeof part.text === 'string') {
+                    parts.push({ type: 'text', text: part.text });
+                } else if (part.type === 'file' && part.data) {
+                    // File parts (images, PDFs, etc.) - only include for last message
+                    if (index === lastIndex && part.mimeType?.startsWith('image/')) {
+                        const prefix = part.data.startsWith('data:') ? '' : `data:${part.mimeType};base64,`;
+                        parts.push({ type: 'image', image: `${prefix}${part.data}` });
+                    }
+                }
+            }
+        }
+        // Handle 'content' format (string or array)
+        else if (typeof msg.content === 'string') {
             parts.push({ type: 'text', text: msg.content });
         } else if (Array.isArray(msg.content)) {
             for (const part of msg.content) {
@@ -120,7 +134,7 @@ function normalizeMessages(messages: any[]): NormalizedMessage[] {
             }
         }
 
-        // Handle attachments
+        // Handle attachments (legacy format)
         const attachments = [...(msg.experimental_attachments || []), ...(msg.attachments || [])];
         for (const att of attachments) {
             if (att.contentType?.startsWith('image/') && index === lastIndex) {
