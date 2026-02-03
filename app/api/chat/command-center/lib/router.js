@@ -10,7 +10,7 @@
  * 4) Substring Bugs: All trigger detection uses \b boundaries (no "context" => "text").
  * 5) Pre-Gate Optimization: Info questions + code/stack traces skip LLM entirely (<1ms).
  * 6) Mode Layer (Tier 0): Deterministic routing when modeLocked is enabled.
- * 7) DB Query Override: "Where is candidate 123?" → DATABASE_ACTION (no LLM).
+ * 7) DB Query Narrowing: Only ATS terms or search+ID combos route to DATABASE_ACTION.
  *
  * Drop-in path:
  *   app/api/chat/command-center/lib/router.js
@@ -123,11 +123,13 @@ const ClassificationSchema = z.object({
   reason: z.string().describe('Short 1-sentence reason for classification.'),
   intent: z.enum(INTENT_ENUM),
   confidence: z.number().min(0).max(1),
-  parameters: z.object({
-    candidate_name: z.string().optional(),
-    topic: z.string().optional(),
-    urgency: z.enum(['high', 'normal']).optional(),
-  }),
+  parameters: z
+    .object({
+      candidate_name: z.string().optional(),
+      topic: z.string().optional(),
+      urgency: z.enum(['high', 'normal']).optional(),
+    })
+    .default({}),
 });
 
 /**
@@ -259,7 +261,10 @@ const RX_ENTITY_ACTIONS = /\b(ask|request|get|send|collect|confirm)\b/i;
 const RX_NEGATION_STRONG = /\b(don't|do not|cancel|stop)\b/i;
 const RX_NEGATION_NO_MEDIUM = /\bno\s+(emails?|messages?|texts?|notes?)\b/i;
 
-const RX_DB_QUERY = /\b(nova|candidates?|lookup|find|search|profiles?|status|applications?|recruiting)\b/i;
+// Tightened: only treat as DB when ATS terms or IDs are present.
+const RX_DB_QUERY_CORE = /\b(nova|candidates?|profile|profiles?|recruiting|applications?|job\s*id|req\s*id)\b/i;
+const RX_DB_QUERY_SEARCH = /\b(lookup|find|search)\b/i;
+const RX_DB_QUERY_ID = /(?:^|\s)(#\d{4,8}|CAND-\d+)\b/i;
 const RX_NOVA = /https?:\/\/nova\.ayahealthcare\.com\/#\/?/i;
 
 const RX_CODE_FENCE = /```[\s\S]*?```/g;
@@ -351,6 +356,22 @@ function isExplicitEmailRequest(text) {
   if (hasEntity && hasMedium) return true;
 
   return false;
+}
+
+/**
+ * Tightened DB query detection:
+ * - Nova URLs → always DB
+ * - Core ATS terms (candidate, profile, recruiting, applications) → always DB
+ * - Generic search verbs (find, lookup, search) → only if paired with IDs
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isDatabaseQuery(text) {
+  if (!text) return false;
+  if (RX_NOVA.test(text)) return true;
+  if (RX_DB_QUERY_CORE.test(text)) return true;
+  // Only allow search/find if it's clearly tied to ATS terms or IDs.
+  return RX_DB_QUERY_SEARCH.test(text) && RX_DB_QUERY_ID.test(text);
 }
 
 /**
@@ -589,11 +610,11 @@ export async function classify({
   }
 
   // --------------------------------------------------------------------------
-  // TIER 2A: Pre-Gate (Database Query Override)
+  // TIER 2A: Pre-Gate (DB/Nova)
   // DB queries win even when phrased as questions like "Where is candidate 123?"
   // --------------------------------------------------------------------------
-  const isDatabaseQuery = RX_DB_QUERY.test(normalized) || RX_NOVA.test(normalized);
-  if (isDatabaseQuery && !isExplicitEmailRequest(normalized)) {
+  const isDatabaseQueryHit = isDatabaseQuery(normalized);
+  if (isDatabaseQueryHit && !isExplicitEmailRequest(normalized)) {
     // Code pastes still blocked
     if (isCodeLike(normalized)) {
       return {
