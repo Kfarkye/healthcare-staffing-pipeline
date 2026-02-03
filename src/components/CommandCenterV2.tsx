@@ -59,6 +59,27 @@ const REGEX_ATTACHMENT = /\[Attached:\s*([^\]]+)\]\(([^)]+)\)/g;
 const REGEX_VERDICT = /VERDICT:\s*(STRONG MATCH|REVIEW NEEDED|NOT A FIT)/i;
 const REGEX_INSIGHT = /(?:INSIGHT|ASSESSMENT|KEY QUALIFICATIONS):\s*(.+)/is;
 
+/**
+ * CRITICAL: Strip all markdown formatting from text for Outlook-ready plain text.
+ * This ensures email bodies don't render with bold/italic/bullets even if LLM outputs markdown.
+ */
+function stripMarkdownForEmail(text: string): string {
+    if (!text) return '';
+    return text
+        .replace(/\*\*([^*]+)\*\*/g, '$1')  // Bold **text**
+        .replace(/__([^_]+)__/g, '$1')       // Bold __text__
+        .replace(/\*([^*]+)\*/g, '$1')       // Italic *text*
+        .replace(/_([^_]+)_/g, '$1')         // Italic _text_
+        .replace(/^\s*[\*\+]\s+/gm, '- ')    // Bullet * or + to -
+        .replace(/^\s*•\s*/gm, '- ')         // Unicode bullet to -
+        .replace(/^#+\s*/gm, '')             // Headers
+        .replace(/`([^`]+)`/g, '$1')         // Inline code
+        .replace(/^>\s*/gm, '')              // Blockquotes
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Links
+        .replace(/\r\n/g, '\n')
+        .trim();
+}
+
 // Permissive Email Headers (Case insensitive, flexible spacing)
 // This catches almost any draft format, even if AI forgets the standard header.
 const REGEX_EMAIL_HEADER = /^#?\s*(?:EMAIL|DRAFT)\s*(?:DRAFT|EMAIL)?[\r\n]+/i;
@@ -322,8 +343,12 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string; s
     const [isExpanded, setIsExpanded] = useState(false);
     const { showToast } = useToast();
 
+    // CRITICAL FIX: Strip markdown BEFORE any processing
+    const cleanBody = useMemo(() => stripMarkdownForEmail(body), [body]);
+    const cleanSubject = useMemo(() => stripMarkdownForEmail(subject), [subject]);
+
     // Body only for copy (no signature - Outlook auto-appends)
-    const bodyOnly = useMemo(() => body.replace(/  \n/g, '\n').replace(/^---\s*$/gm, '').trim(), [body]);
+    const bodyOnly = useMemo(() => cleanBody.replace(/  \n/g, '\n').replace(/^---\s*$/gm, '').trim(), [cleanBody]);
 
     // Full preview (body + signature) for on-screen display only
     const previewBody = useMemo(() => {
@@ -336,7 +361,7 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string; s
     // Premium copy: clipboard + audio cue + haptic (user gesture required)
     // Copies body-only (no signature) since Outlook auto-appends
     const handleQuickCopyAll = useCallback(async () => {
-        const fullDraft = `Subject: ${subject}\n\n${bodyOnly}`;
+        const fullDraft = `Subject: ${cleanSubject}\n\n${bodyOnly}`;
         const success = await systemCopyToClipboard(fullDraft);
         if (success) {
             setCopiedField('all');
@@ -346,7 +371,7 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string; s
         } else {
             showToast('Clipboard access blocked. Try manual copy.');
         }
-    }, [subject, bodyOnly, showToast]);
+    }, [cleanSubject, bodyOnly, showToast]);
 
     const handleCopy = useCallback(async (text: string, field: string) => {
         const success = await systemCopyToClipboard(text);
@@ -365,7 +390,7 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string; s
 
         // Outlook requires \r\n for line breaks - use body-only (no signature)
         const outlookBody = normalizeBodyForMailto(bodyOnly);
-        const safeSubject = encodeURIComponent(subject);
+        const safeSubject = encodeURIComponent(cleanSubject);
         const safeBody = encodeURIComponent(outlookBody);
         const safeCc = cc ? `&cc=${encodeURIComponent(cc)}` : '';
 
@@ -381,7 +406,7 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string; s
         } else {
             window.open(mailtoLink, '_blank');
         }
-    }, [to, cc, subject, bodyOnly, handleCopy, showToast]);
+    }, [to, cc, cleanSubject, bodyOnly, handleCopy, showToast]);
 
     return (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={SYSTEM.anim.fluid} className={cn('rounded-[20px] overflow-hidden bg-white/[0.02] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_-8px_rgba(0,0,0,0.4)]')}>
@@ -421,13 +446,22 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string; s
 
             {/* Content */}
             {to && <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01] flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>To</span><p className="text-[14px] font-medium text-white mt-0.5 select-all">{to}</p></div><button onClick={() => handleCopy(to, 'to')} className="text-zinc-400 hover:text-white p-1">{copiedField === 'to' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}</button></div>}
-            <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01] flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>Subject</span><p className="text-[14px] font-medium text-white mt-0.5 line-clamp-2 select-all">{subject}</p></div><button onClick={() => handleCopy(subject, 'subject')} className="text-zinc-400 hover:text-white p-1">{copiedField === 'subject' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}</button></div>
+            <div className="px-5 py-3 border-b border-white/[0.04] bg-white/[0.01] flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><span className={cn(SYSTEM.type.mono, 'text-zinc-500 text-[10px]')}>Subject</span><p className="text-[14px] font-medium text-white mt-0.5 line-clamp-2 select-all">{cleanSubject}</p></div><button onClick={() => handleCopy(cleanSubject, 'subject')} className="text-zinc-400 hover:text-white p-1">{copiedField === 'subject' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}</button></div>
 
             <div className="px-5 py-4 relative group">
                 <div className={cn('flex-1 min-w-0 relative', !isExpanded && isLongBody && 'max-h-[280px] overflow-hidden')}>
-                    {/* Render body with markdown support for proper formatting */}
-                    <div className={cn('prose prose-invert prose-sm max-w-none', 'prose-p:text-[#C4C4C4] prose-p:leading-relaxed prose-strong:text-white prose-li:text-[#C4C4C4]')}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{previewBody}</ReactMarkdown>
+                    {/* CRITICAL FIX: Render body as plain text, NOT ReactMarkdown */}
+                    <div className="text-[14px] text-[#C4C4C4] leading-relaxed whitespace-pre-wrap font-sans">
+                        {previewBody.split(/\n\n+/).map((paragraph, i) => (
+                            <p key={i} className="mb-4 last:mb-0">
+                                {paragraph.split('\n').map((line, j, arr) => (
+                                    <React.Fragment key={j}>
+                                        {line}
+                                        {j < arr.length - 1 && <br />}
+                                    </React.Fragment>
+                                ))}
+                            </p>
+                        ))}
                     </div>
                     {!isExpanded && isLongBody && <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0A0A0B] to-transparent pointer-events-none" />}
                 </div>
@@ -446,7 +480,7 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string; s
                         triggerHaptic();
                         playDraftReadyCue();
                         const ccParam = cc ? `&cc=${encodeURIComponent(cc)}` : '';
-                        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1${to ? `&to=${encodeURIComponent(to)}` : ''}${ccParam}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyOnly)}`;
+                        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1${to ? `&to=${encodeURIComponent(to)}` : ''}${ccParam}&su=${encodeURIComponent(cleanSubject)}&body=${encodeURIComponent(bodyOnly)}`;
                         if (gmailUrl.length > 2000) {
                             handleCopy(bodyOnly, 'all');
                             showToast("Draft too long for link. Content copied to clipboard.");
@@ -693,7 +727,7 @@ const IntelPanel: FC<{ intel: IntelData }> = memo(({ intel }) => {
                     )}
                     {intel.location && (
                         <span className="px-2 py-1 rounded-md bg-white/[0.03] border border-white/[0.06] text-[10px] text-zinc-400">
-                            📍 {intel.location}
+                            📍 {stripMarkdownForEmail(intel.location)}
                         </span>
                     )}
                     {intel.weeklyPay && (
