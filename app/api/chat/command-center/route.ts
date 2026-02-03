@@ -248,6 +248,16 @@ export async function POST(request: Request) {
         return createErrorResponse('Invalid JSON', traceId, 400);
     }
 
+    // DEBUG: Log raw request body structure
+    logger.info('raw_request_body', {
+        hasMessages: !!body?.messages,
+        messageCount: body?.messages?.length ?? 0,
+        firstMessageKeys: body?.messages?.[0] ? Object.keys(body.messages[0]) : [],
+        lastMessageKeys: body?.messages?.[body?.messages?.length - 1] ? Object.keys(body.messages[body.messages.length - 1]) : [],
+        hasParts: !!body?.messages?.[body?.messages?.length - 1]?.parts,
+        hasContent: !!body?.messages?.[body?.messages?.length - 1]?.content,
+    });
+
     const parseResult = RequestSchema.safeParse(body);
     if (!parseResult.success) {
         return createErrorResponse('Invalid request schema', traceId, 400);
