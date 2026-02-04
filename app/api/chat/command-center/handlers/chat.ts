@@ -124,6 +124,8 @@ Subject: [appropriate subject based on context]
 The request is unclear. Ask ONE specific clarifying question to understand what is needed.`,
 };
 
+const REFRESH_MARKER = '[[REFRESH_DASHBOARD]]';
+
 function getPrompt(intent: IntentType): string {
     return PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
 }
@@ -159,8 +161,27 @@ function extractEmailFromText(text: string): string | null {
 }
 
 function extractNameFromAddRequest(text: string): string | null {
-    const match = text.match(/\b(?:add|save|enter|register|onboard)\s+([A-Z][a-z'.-]+(?:\s+[A-Z][a-z'.-]+){0,3})\s+(?:to|in)\s+(?:the\s+)?system\b/i);
+    const match = text.match(/\b(?:add|save|enter|register|onboard)\s+([a-z][a-z'.-]+(?:\s+[a-z][a-z'.-]+){0,3})\s+(?:to|in)\s+(?:the\s+)?system\b/i);
     return match?.[1] || null;
+}
+
+function toTitleCaseName(name: string): string {
+    return name
+        .split(/\s+/)
+        .map((part) => (part ? part[0].toUpperCase() + part.slice(1).toLowerCase() : ''))
+        .join(' ')
+        .trim();
+}
+
+function sanitizeCandidateName(raw: string | null): string | null {
+    if (!raw) return null;
+    const cleaned = raw.replace(/[^a-zA-Z.'-\\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!cleaned) return null;
+    const lower = cleaned.toLowerCase();
+    const invalid = new Set(['her', 'him', 'them', 'this', 'that', 'candidate', 'prospect', 'unknown', 'n/a']);
+    if (invalid.has(lower)) return null;
+    if (lower.length < 2) return null;
+    return toTitleCaseName(cleaned);
 }
 
 function stripSignatureBlock(text: string): string {
@@ -261,6 +282,8 @@ export async function handleChatIntent(
                 }
             }
 
+            candidateName = sanitizeCandidateName(candidateName);
+
             if (input.hasImage && !candidateId && !candidateNovaUrl) {
                 const linkExtracted = await extractNovaLinkFromMessages(input.messages, google);
                 if (linkExtracted.success) {
@@ -280,8 +303,12 @@ export async function handleChatIntent(
             }
 
             if (!candidateName && candidateEmail) {
-                const nameFromEmail = candidateEmail.split('@')[0].replace(/[._-]+/g, ' ').trim();
-                if (nameFromEmail) candidateName = nameFromEmail;
+                const nameFromEmail = candidateEmail
+                    .split('@')[0]
+                    .replace(/[._-]+/g, ' ')
+                    .replace(/\d+/g, '')
+                    .trim();
+                candidateName = sanitizeCandidateName(nameFromEmail);
             }
 
             if (!candidateId && !candidateNovaUrl) {
@@ -316,7 +343,7 @@ export async function handleChatIntent(
             if (!isReassign) {
                 return {
                     type: 'chat',
-                    content: `Candidate ${candidateName || 'added'} ${addResult.action === 'updated' ? 'updated' : 'added'} successfully.`,
+                    content: `Candidate ${candidateName || 'added'} ${addResult.action === 'updated' ? 'updated' : 'added'} successfully. ${REFRESH_MARKER}`,
                 };
             }
 
@@ -326,7 +353,7 @@ export async function handleChatIntent(
                 novaId: candidateId ? String(candidateId) : null,
             });
 
-            const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\nCandidate ${addResult.action === 'updated' ? 'updated' : 'added'} in system.`;
+            const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\nCandidate ${addResult.action === 'updated' ? 'updated' : 'added'} in system. ${REFRESH_MARKER}`;
             return {
                 type: 'chat',
                 content: tagged,

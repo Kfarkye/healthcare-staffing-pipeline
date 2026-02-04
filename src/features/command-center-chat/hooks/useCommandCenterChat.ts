@@ -93,6 +93,9 @@ export interface UseCommandCenterChatReturn {
 // UTILITIES
 // ============================================================================
 
+const STORAGE_KEY = 'command_center_messages_v1';
+const REFRESH_MARKER = '[[REFRESH_DASHBOARD]]';
+
 function generateId(): string {
     return typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
 }
@@ -306,7 +309,42 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
     const lastPayloadHashRef = useRef<string | null>(null);
 
     useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const raw = window.localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && messagesRef.current.length === 0) {
+                const restored: CommandCenterMessage[] = parsed.map((m: any) => ({
+                    id: String(m.id || generateId()),
+                    role: m.role === 'assistant' ? 'assistant' : 'user',
+                    content: String(m.content || ''),
+                    createdAt: m.createdAt ? new Date(m.createdAt) : undefined,
+                }));
+                setMessages(restored);
+            }
+        } catch {
+            // ignore restore errors
+        }
+    }, []);
+
+    useEffect(() => {
         messagesRef.current = messages;
+    }, [messages]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const trimmed = messages.slice(-50).map((m) => ({
+                id: m.id,
+                role: m.role,
+                content: m.content,
+                createdAt: m.createdAt ? m.createdAt.toISOString() : null,
+            }));
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+        } catch {
+            // ignore persistence errors
+        }
     }, [messages]);
 
     useEffect(() => {
@@ -324,6 +362,7 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
             let normalizedAtts: ImageAttachment[] = [];
             let payloadHash: string | null = null;
             let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+            let didDispatchRefresh = false;
 
             // Track outcome for dedupe clearing policy
             let didStartStream = false;
@@ -481,6 +520,17 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                     accumulatedText += s;
                 };
 
+                const applyClientMarkers = (text: string) => {
+                    if (text.includes(REFRESH_MARKER)) {
+                        text = text.replaceAll(REFRESH_MARKER, '').trim();
+                        if (!didDispatchRefresh && typeof window !== 'undefined') {
+                            window.dispatchEvent(new CustomEvent('refresh_dashboard'));
+                            didDispatchRefresh = true;
+                        }
+                    }
+                    return text;
+                };
+
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done || signal.aborted) break;
@@ -500,10 +550,11 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                         setMessages((prev) => {
                             const lastIdx = prev.length - 1;
                             if (lastIdx < 0 || prev[lastIdx].role !== 'assistant') return prev;
-                            if (prev[lastIdx].content === accumulatedText) return prev;
+                            const displayText = applyClientMarkers(accumulatedText);
+                            if (prev[lastIdx].content === displayText) return prev;
 
                             const updated = [...prev];
-                            updated[lastIdx] = { ...updated[lastIdx], content: accumulatedText };
+                            updated[lastIdx] = { ...updated[lastIdx], content: displayText };
                             return updated;
                         });
 
@@ -527,7 +578,8 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                         const updated = [...prev];
                         const lastIdx = updated.length - 1;
                         if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
-                            updated[lastIdx] = { ...updated[lastIdx], content: accumulatedText };
+                            const displayText = applyClientMarkers(accumulatedText);
+                            updated[lastIdx] = { ...updated[lastIdx], content: displayText };
                         }
                         return updated;
                     });
@@ -591,6 +643,9 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
         setIsStreaming(false);
         inFlightRef.current = false;
         lastPayloadHashRef.current = null;
+        if (typeof window !== 'undefined') {
+            window.localStorage.removeItem(STORAGE_KEY);
+        }
     }, []);
 
     const stop = useCallback(() => {

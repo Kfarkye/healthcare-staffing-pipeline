@@ -461,6 +461,14 @@ const ProspectsDashboard: React.FC = () => {
   }, [isStale, error, online]);
 
   useEffect(() => {
+    const onRefresh = () => {
+      loadData('refresh').catch(() => { });
+    };
+    window.addEventListener('refresh_dashboard', onRefresh);
+    return () => window.removeEventListener('refresh_dashboard', onRefresh);
+  }, [loadData]);
+
+  useEffect(() => {
     const channel = supabase
       .channel('prospects:realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'prospects' }, (payload: any) => {
