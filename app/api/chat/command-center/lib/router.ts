@@ -42,6 +42,7 @@ const PATTERNS = {
     infoQuestion: /^(who|what|where|when|why|how)\b/i,
     draftVerb: /\b(draft|write|compose|create|generate)\b/i,
     editVerb: /\b(clean\s*up|edit|fix|rewrite|revise|polish|improve|refine|tweak)\b/i,
+    editFollowup: /\b(remove|omit|leave\s+this\s+out|leave\s+out|delete|cut|exclude|strip|take\s+out|drop|change)\b|\b(shorter|longer|tone|polish|tweak|adjust|revise|edit|rewrite|reply|response|respond|answer)\b/i,
     replyVerb: /\b(reply|respond|response|replying|responding|answer|answering)\b/i,
     emailMedium: /\b(email|message|draft)\b/i,
     outreach: /\boutreach\b/i,
@@ -59,6 +60,7 @@ const PATTERNS = {
     noteHistory: /\b(notes?\s+(history|log)|note\s+history)\b/i,
     stateBoard: /\b(state\s+board|board\s+verification|license\s+verification|verify\s+license|license\s+lookup)\b/i,
     novaLink: /\b(nova\s+(link|url|page|deal|deals|jobs|job\s+openings|live|search|tickets|margins|contract\s+requests))\b/i,
+    credentialVerify: /\b(verify|verification|check|confirm)\b.*\b(certification|credential|license|csfa|cst|nbstsa)\b|\b(csfa|cst|nbstsa)\b.*\b(verify|verification|check)\b/i,
 
     // Negation
     negation: /\b(don't|do not|cancel|stop|no)\b/i,
@@ -186,6 +188,12 @@ function isNovaLinkRequest(text: string): boolean {
     return PATTERNS.novaLink.test(t);
 }
 
+function isCredentialVerifyRequest(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    return PATTERNS.credentialVerify.test(t);
+}
+
 function lastAssistantWasEmail(history: NormalizedMessage[]): boolean {
     if (!Array.isArray(history) || history.length === 0) return false;
     const last = [...history].reverse().find(m => m.role === 'assistant');
@@ -196,7 +204,13 @@ function lastAssistantWasEmail(history: NormalizedMessage[]): boolean {
         .join('\n')
         .trim();
     if (!text) return false;
-    return /(^|\n)\s*Subject\s*:/i.test(text) || /(^|\n)\s*To\s*:/i.test(text) || /\[EMAIL_DRAFT_JSON\]/i.test(text);
+    return (
+        /(^|\n)\s*Subject\s*:/i.test(text) ||
+        /(^|\n)\s*To\s*:/i.test(text) ||
+        /\[EMAIL_DRAFT_JSON\]/i.test(text) ||
+        /\[SUBJECT\]/i.test(text) ||
+        /\[BODY\]/i.test(text)
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -252,7 +266,7 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
 
     const isShortFollowup = text.length > 0 && text.length <= 80;
-    const isEditFollowup = /\b(reply|response|revise|edit|shorten|shorter|longer|tone|polish|tweak|update|adjust)\b/i.test(text);
+    const isEditFollowup = PATTERNS.editFollowup.test(text);
     if (lastAssistantWasEmail(input.history) && !isInfoQuestion(text) && (isEditFollowup || isShortFollowup)) {
         return createResult(Intent.EDIT_CONTENT, null, 'Short follow-up after email draft');
     }
@@ -276,7 +290,8 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
         isAddNoteRequest(text) ||
         isNoteHistoryRequest(text) ||
         isStateBoardRequest(text) ||
-        isNovaLinkRequest(text)
+        isNovaLinkRequest(text) ||
+        isCredentialVerifyRequest(text)
     ) {
         return createResult(Intent.DATABASE_ACTION, null, 'Database mutation request');
     }

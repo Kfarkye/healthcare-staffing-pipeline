@@ -19,6 +19,7 @@ import type {
     HandlerOutput,
     HandlerContext,
     IntentType,
+    NormalizedMessage,
 } from '../types/index';
 import { Intent, TemplateType } from '../types/index';
 import { CONFIG, MODEL_CONFIG } from '../lib/config';
@@ -111,6 +112,8 @@ Guidelines:
 5. Preserve any specific details mentioned by the user
 6. If drafting a reply, make it concise and actionable
 7. Do NOT include any signature or contact block (the email client already adds it)
+8. If a previous draft is provided, edit that draft directly and keep its structure.
+9. Do NOT invent new details or a brand-new email when the user asked for a small edit.
 
 OUTPUT FORMAT (use when producing an email):
 To: [email if visible]
@@ -126,8 +129,68 @@ The request is unclear. Ask ONE specific clarifying question to understand what 
 
 const REFRESH_MARKER = '[[REFRESH_DASHBOARD]]';
 
-function getPrompt(intent: IntentType): string {
-    return PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
+function getMessageText(message: NormalizedMessage): string {
+    if (!message?.content?.length) return '';
+    return message.content
+        .filter((part): part is { type: 'text'; text: string } => part.type === 'text' && typeof part.text === 'string')
+        .map(part => part.text)
+        .join('\n')
+        .trim();
+}
+
+function extractDraftFromText(text: string): string | null {
+    if (!text) return null;
+
+    const jsonMatch = text.match(/\[EMAIL_DRAFT_JSON\]\s*([\s\S]*?)\s*\[\/EMAIL_DRAFT_JSON\]/i);
+    if (jsonMatch?.[1]) {
+        try {
+            const parsed = JSON.parse(jsonMatch[1]);
+            const email = parsed?.email;
+            if (email?.subject && email?.body) {
+                return `Subject: ${email.subject}\n\n${email.body}`.trim();
+            }
+        } catch {
+            // fall through to other formats
+        }
+    }
+
+    const subjectMatch = text.match(/\[SUBJECT\]([\s\S]*?)\[\/SUBJECT\]/i);
+    const bodyMatch = text.match(/\[BODY\]([\s\S]*?)\[\/BODY\]/i);
+    if (subjectMatch?.[1] && bodyMatch?.[1]) {
+        return `Subject: ${subjectMatch[1].trim()}\n\n${bodyMatch[1].trim()}`.trim();
+    }
+
+    if (/(^|\n)\s*Subject\s*:/i.test(text) || /(^|\n)\s*To\s*:/i.test(text)) {
+        return text.trim();
+    }
+
+    return null;
+}
+
+function getLastAssistantDraft(messages: NormalizedMessage[]): string | null {
+    if (!Array.isArray(messages) || messages.length === 0) return null;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const msg = messages[i];
+        if (msg?.role !== 'assistant') continue;
+        const text = getMessageText(msg);
+        const draft = extractDraftFromText(text);
+        if (draft) return draft;
+    }
+    return null;
+}
+
+function getPrompt(intent: IntentType, draftContext?: string): string {
+    const base = PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
+    if (intent !== Intent.EDIT_CONTENT || !draftContext) return base;
+    return `${base}
+
+PREVIOUS DRAFT (edit this directly, keep the structure):
+${draftContext}
+
+EDITING RULES:
+- Apply ONLY the user's requested changes.
+- Keep subject/body unless the user explicitly asked to change them.
+- Do not create a new email or add new details.`;
 }
 
 function hasAddCandidateIntent(text: string): boolean {
@@ -360,7 +423,8 @@ export async function handleChatIntent(
             };
         }
 
-        const systemPrompt = getPrompt(intent);
+        const lastDraft = intent === Intent.EDIT_CONTENT ? getLastAssistantDraft(input.messages) : null;
+        const systemPrompt = getPrompt(intent, lastDraft || undefined);
 
         logger.info('chat_handler_start', { intent, hasTools: !!tools });
 
@@ -369,6 +433,13 @@ export async function handleChatIntent(
             return {
                 type: 'chat',
                 content: 'How can I help you today? I can draft emails, search candidates, or answer recruiting questions.',
+            };
+        }
+
+        if (intent === Intent.EDIT_CONTENT && !input.hasImage && !lastDraft) {
+            return {
+                type: 'chat',
+                content: 'Please paste the email you want me to edit, and tell me the exact changes you want.',
             };
         }
 
@@ -452,7 +523,8 @@ export function handleChatIntentStreaming(
     tools?: Record<string, any>
 ) {
     const { google, logger } = context;
-    const systemPrompt = getPrompt(intent);
+    const lastDraft = intent === Intent.EDIT_CONTENT ? getLastAssistantDraft(input.messages) : null;
+    const systemPrompt = getPrompt(intent, lastDraft || undefined);
 
     logger.info('chat_stream_start', { intent, hasTools: !!tools });
 
