@@ -1266,6 +1266,8 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
         keyboardWasOpenRef.current = isOpen;
     }, [isMobile, keyboardOffset, scrollToBottomNow]);
 
+    const isKeyboardOpen = isMobile && keyboardOffset > 0;
+
     const { messages, isLoading, isStreaming, error, sendMessage, clearChat, stop } = useCommandCenterChat({
         onToolCall: useCallback((toolName: string, args: any) => {
             if (toolName === 'set_ui_state') window.dispatchEvent(new CustomEvent('set_dashboard_ui_state', { detail: args }));
@@ -1407,8 +1409,11 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
             <motion.div layoutId="chat" className={cn('fixed z-50 flex flex-col overflow-hidden isolate border border-white/[0.08] shadow-[0_40px_120px_-20px_rgba(0,0,0,0.9)]', SYSTEM.surface.void)} style={{ ...containerStyle, willChange: 'transform' }}>
                 <FilmGrain />
                 <header className={cn(
-                    'flex items-center justify-between px-4 sm:px-8 pt-[calc(env(safe-area-inset-top)+12px)] sm:pt-6 pb-3 sm:pb-2 shrink-0 z-20 select-none backdrop-blur-[40px] saturate-[180%] bg-[#050505]/60 border-b border-white/[0.08]',
-                    SYSTEM.surface.glass
+                    'flex items-center justify-between px-4 sm:px-8 shrink-0 z-20 select-none backdrop-blur-[40px] saturate-[180%] bg-[#050505]/60 border-b border-white/[0.08]',
+                    SYSTEM.surface.glass,
+                    isKeyboardOpen
+                        ? 'pt-[calc(env(safe-area-inset-top)+4px)] pb-1'
+                        : 'pt-[calc(env(safe-area-inset-top)+12px)] sm:pt-6 pb-3 sm:pb-2'
                 )}>
                     <div className="flex items-center gap-3"><Zap size={16} className="text-indigo-500" /><span className={SYSTEM.type.h1}>Command Center <span className="text-white/30 font-normal ml-1">Weissach</span></span></div>
                     <div className="flex items-center gap-2">
