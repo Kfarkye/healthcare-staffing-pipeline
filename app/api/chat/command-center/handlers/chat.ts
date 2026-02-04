@@ -20,8 +20,10 @@ import type {
     HandlerContext,
     IntentType,
 } from '../types/index';
-import { Intent } from '../types/index';
+import { Intent, TemplateType } from '../types/index';
 import { CONFIG, MODEL_CONFIG } from '../lib/config';
+import { buildEmail } from '../lib/email-builder';
+import { extractCandidateData, extractCandidateDataFromMessages } from '../lib/extractor';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // System Prompts
@@ -126,6 +128,41 @@ function getPrompt(intent: IntentType): string {
     return PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
 }
 
+function hasAddCandidateIntent(text: string): boolean {
+    const t = text.toLowerCase();
+    return /\b(?:add|save|enter|register|onboard)\s+(?:candidate|prospect)\b|\b(?:add|save|enter|register|onboard)\s+(?:him|her|them|this)\s*(?:to|in)\s+(?:the\s+)?system\b|\b(?:add|save|enter|register|onboard)\s+(?!note\b)(?:[a-z][a-z'.-]+(?:\s+[a-z][a-z'.-]+){0,3})\s+(?:to|in)\s+(?:the\s+)?system\b/i.test(t);
+}
+
+function hasReassignIntent(text: string, modeContext?: string): boolean {
+    return /\breassign/i.test(text) || /\breassign/i.test(modeContext || '');
+}
+
+function extractCandidateIdFromText(text: string): number | null {
+    if (!text) return null;
+    const urlMatch = text.match(/\/candidates?\/(\d+)/i);
+    if (urlMatch?.[1]) {
+        const id = Number(urlMatch[1]);
+        return Number.isFinite(id) ? id : null;
+    }
+    const idMatch = text.match(/\b(\d{6,8})\b/);
+    if (idMatch?.[1]) {
+        const id = Number(idMatch[1]);
+        return Number.isFinite(id) ? id : null;
+    }
+    return null;
+}
+
+function extractEmailFromText(text: string): string | null {
+    if (!text) return null;
+    const match = text.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    return match?.[1] || null;
+}
+
+function extractNameFromAddRequest(text: string): string | null {
+    const match = text.match(/\b(?:add|save|enter|register|onboard)\s+([A-Z][a-z'.-]+(?:\s+[A-Z][a-z'.-]+){0,3})\s+(?:to|in)\s+(?:the\s+)?system\b/i);
+    return match?.[1] || null;
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // Main Handler
 // ════════════════════════════════════════════════════════════════════════════════
@@ -139,6 +176,80 @@ export async function handleChatIntent(
     const { google, logger, traceId } = context;
 
     try {
+        const isAddCandidate = intent === Intent.DATABASE_ACTION && hasAddCandidateIntent(input.inputText || '');
+        const isReassign = hasReassignIntent(input.inputText || '', input.modeContext);
+
+        if (isAddCandidate && tools?.add_candidate?.execute) {
+            const text = input.inputText || '';
+            let candidateName: string | null = extractNameFromAddRequest(text);
+            let candidateEmail: string | null = extractEmailFromText(text);
+            let candidateId: number | null = extractCandidateIdFromText(text);
+
+            if (input.hasImage) {
+                const extracted = await extractCandidateDataFromMessages(input.messages, google);
+                if (extracted.success) {
+                    const data = extracted.data;
+                    candidateName = candidateName || data.candidateName || null;
+                    candidateEmail = candidateEmail || data.candidateEmail || null;
+                    if (!candidateId && data.novaId) {
+                        const idNum = Number(String(data.novaId).replace(/\\D/g, ''));
+                        if (Number.isFinite(idNum) && idNum > 0) candidateId = idNum;
+                    }
+                }
+            } else if (text) {
+                const extracted = await extractCandidateData(text, google);
+                if (extracted.success) {
+                    const data = extracted.data;
+                    candidateName = candidateName || data.candidateName || null;
+                    candidateEmail = candidateEmail || data.candidateEmail || null;
+                    if (!candidateId && data.novaId) {
+                        const idNum = Number(String(data.novaId).replace(/\\D/g, ''));
+                        if (Number.isFinite(idNum) && idNum > 0) candidateId = idNum;
+                    }
+                }
+            }
+
+            if (!candidateId) {
+                return {
+                    type: 'chat',
+                    content: 'I need the Nova candidate ID or full Nova URL to add her. Please paste it.',
+                };
+            }
+
+            const addResult = await tools.add_candidate.execute({
+                candidate_id: candidateId,
+                name: candidateName || 'Unknown',
+                email: candidateEmail || undefined,
+                update_if_exists: true,
+            });
+
+            if (!addResult?.ok) {
+                return {
+                    type: 'chat',
+                    content: `Unable to add candidate: ${addResult?.error || 'Unknown error'}`,
+                };
+            }
+
+            if (!isReassign) {
+                return {
+                    type: 'chat',
+                    content: `Candidate ${candidateName || 'added'} ${addResult.action === 'updated' ? 'updated' : 'added'} successfully.`,
+                };
+            }
+
+            const email = buildEmail(TemplateType.REASSIGNMENT, {
+                candidateName: candidateName,
+                candidateEmail: candidateEmail,
+                novaId: String(candidateId),
+            });
+
+            const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\nCandidate ${addResult.action === 'updated' ? 'updated' : 'added'} in system.`;
+            return {
+                type: 'chat',
+                content: tagged,
+            };
+        }
+
         const systemPrompt = getPrompt(intent);
 
         logger.info('chat_handler_start', { intent, hasTools: !!tools });

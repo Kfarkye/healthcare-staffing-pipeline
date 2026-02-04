@@ -51,7 +51,7 @@ RULES:
 
 OUTPUT THE JSON OBJECT ONLY:`;
 
-const CANDIDATE_EXTRACTION_PROMPT = `Extract candidate information from the text.
+const CANDIDATE_EXTRACTION_PROMPT = `Extract candidate information from the text or image.
 
 OUTPUT: JSON only.
 
@@ -172,6 +172,38 @@ export async function extractCandidateData(
             system: CANDIDATE_EXTRACTION_PROMPT,
             messages: [{ role: 'user', content: text }],
             temperature: MODEL_CONFIG.extraction.temperature,
+        });
+
+        const data = parseJson<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null }>(result.text);
+        
+        return {
+            success: true,
+            data: data || { candidateName: null, candidateEmail: null, novaId: null },
+        };
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error : new Error(String(error)),
+        };
+    }
+}
+
+/**
+ * Extract candidate info from messages (supports images)
+ */
+export async function extractCandidateDataFromMessages(
+    messages: NormalizedMessage[],
+    googleClient: any
+): Promise<Result<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null }>> {
+    try {
+        const result = await generateText({
+            model: googleClient(MODEL_CONFIG.primary, { 
+                safetySettings: MODEL_CONFIG.safetySettings 
+            }),
+            system: CANDIDATE_EXTRACTION_PROMPT,
+            messages: messages as any,
+            temperature: MODEL_CONFIG.extraction.temperature,
+            maxRetries: MODEL_CONFIG.extraction.maxRetries,
         });
 
         const data = parseJson<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null }>(result.text);
