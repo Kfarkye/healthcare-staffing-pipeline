@@ -70,7 +70,9 @@ RULES:
 
      Thank you!
    - If add_candidate fails due to missing candidate_id/nova_url, ask for it but still draft the email with "Nova link: [Nova link needed]".
-8. If required fields are missing, ask ONE concise follow-up question.
+8. Do NOT claim the candidate was added unless add_candidate returns ok=true.
+9. If add_candidate fails, clearly say it was not added and ask for candidate_id or Nova URL.
+10. If required fields are missing, ask ONE concise follow-up question.
 
 Be concise. Lead with the answer.`,
 
