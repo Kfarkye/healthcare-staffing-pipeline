@@ -163,6 +163,47 @@ function extractNameFromAddRequest(text: string): string | null {
     return match?.[1] || null;
 }
 
+function stripSignatureBlock(text: string): string {
+    if (!text) return text;
+    const markers = [
+        CONFIG.signature?.name,
+        CONFIG.signature?.title,
+        CONFIG.signature?.phone,
+        CONFIG.signature?.assistant?.name,
+        CONFIG.signature?.assistant?.email,
+    ]
+        .filter(Boolean)
+        .map((s) => String(s).toLowerCase());
+
+    if (markers.length === 0) return text;
+
+    const lines = text.split('\n');
+    const lowerLines = lines.map((l) => l.trim().toLowerCase());
+    let sigStart = -1;
+
+    for (let i = lowerLines.length - 1; i >= 0; i--) {
+        const line = lowerLines[i];
+        if (!line) continue;
+        if (markers.some((m) => line.includes(m))) {
+            sigStart = i;
+            break;
+        }
+    }
+
+    if (sigStart === -1) return text;
+
+    const signoffs = ['best', 'best,', 'regards', 'regards,', 'sincerely', 'sincerely,', 'thanks', 'thanks,', 'thank you', 'thank you,'];
+    for (let i = sigStart; i >= 0; i--) {
+        const line = lowerLines[i];
+        if (signoffs.some((s) => line.startsWith(s))) {
+            sigStart = i;
+            break;
+        }
+    }
+
+    return lines.slice(0, sigStart).join('\n').trimEnd();
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // Main Handler
 // ════════════════════════════════════════════════════════════════════════════════
@@ -184,6 +225,7 @@ export async function handleChatIntent(
             let candidateName: string | null = extractNameFromAddRequest(text);
             let candidateEmail: string | null = extractEmailFromText(text);
             let candidateId: number | null = extractCandidateIdFromText(text);
+            let candidateNovaUrl: string | null = null;
 
             if (input.hasImage) {
                 const extracted = await extractCandidateDataFromMessages(input.messages, google);
@@ -191,9 +233,14 @@ export async function handleChatIntent(
                     const data = extracted.data;
                     candidateName = candidateName || data.candidateName || null;
                     candidateEmail = candidateEmail || data.candidateEmail || null;
-                    if (!candidateId && data.novaId) {
-                        const idNum = Number(String(data.novaId).replace(/\\D/g, ''));
-                        if (Number.isFinite(idNum) && idNum > 0) candidateId = idNum;
+                    candidateNovaUrl = candidateNovaUrl || data.novaUrl || null;
+                    if (!candidateId) {
+                        if (data.novaId) {
+                            const idNum = Number(String(data.novaId).replace(/\\D/g, ''));
+                            if (Number.isFinite(idNum) && idNum > 0) candidateId = idNum;
+                        } else if (data.novaUrl) {
+                            candidateId = extractCandidateIdFromText(String(data.novaUrl));
+                        }
                     }
                 }
             } else if (text) {
@@ -202,23 +249,45 @@ export async function handleChatIntent(
                     const data = extracted.data;
                     candidateName = candidateName || data.candidateName || null;
                     candidateEmail = candidateEmail || data.candidateEmail || null;
-                    if (!candidateId && data.novaId) {
-                        const idNum = Number(String(data.novaId).replace(/\\D/g, ''));
-                        if (Number.isFinite(idNum) && idNum > 0) candidateId = idNum;
+                    candidateNovaUrl = candidateNovaUrl || data.novaUrl || null;
+                    if (!candidateId) {
+                        if (data.novaId) {
+                            const idNum = Number(String(data.novaId).replace(/\\D/g, ''));
+                            if (Number.isFinite(idNum) && idNum > 0) candidateId = idNum;
+                        } else if (data.novaUrl) {
+                            candidateId = extractCandidateIdFromText(String(data.novaUrl));
+                        }
                     }
                 }
             }
 
-            if (!candidateId) {
+            if (!candidateId && candidateNovaUrl) {
+                candidateId = extractCandidateIdFromText(candidateNovaUrl);
+            }
+
+            if (!candidateName && candidateEmail) {
+                const nameFromEmail = candidateEmail.split('@')[0].replace(/[._-]+/g, ' ').trim();
+                if (nameFromEmail) candidateName = nameFromEmail;
+            }
+
+            if (!candidateId && !candidateNovaUrl) {
                 return {
                     type: 'chat',
                     content: 'I need the Nova candidate ID or full Nova URL to add her. Please paste it.',
                 };
             }
 
+            if (!candidateName) {
+                return {
+                    type: 'chat',
+                    content: 'I need the candidate name to add them. Please provide the name.',
+                };
+            }
+
             const addResult = await tools.add_candidate.execute({
-                candidate_id: candidateId,
-                name: candidateName || 'Unknown',
+                candidate_id: candidateId ?? undefined,
+                nova_url: candidateNovaUrl ?? undefined,
+                name: candidateName,
                 email: candidateEmail || undefined,
                 update_if_exists: true,
             });
@@ -240,7 +309,7 @@ export async function handleChatIntent(
             const email = buildEmail(TemplateType.REASSIGNMENT, {
                 candidateName: candidateName,
                 candidateEmail: candidateEmail,
-                novaId: String(candidateId),
+                novaId: candidateId ? String(candidateId) : null,
             });
 
             const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\nCandidate ${addResult.action === 'updated' ? 'updated' : 'added'} in system.`;
@@ -281,6 +350,9 @@ export async function handleChatIntent(
         }));
 
         let text = result.text || '';
+        if (intent === Intent.EDIT_CONTENT) {
+            text = stripSignatureBlock(text);
+        }
         if (!text.trim()) {
             const toolResults = (result as any).toolResults as any[] | undefined;
             if (toolResults?.length) {

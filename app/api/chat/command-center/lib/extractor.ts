@@ -58,13 +58,21 @@ OUTPUT: JSON only.
 {
     "candidateName": string | null,
     "candidateEmail": string | null,
-    "novaId": string | null
+    "novaId": string | null,
+    "novaUrl": string | null
 }
 
 Look for:
 - Names (first and last)
 - Email addresses
 - Nova IDs (6-8 digit numbers)
+- Full Nova URLs (look in the browser URL bar or any visible link text)
+
+Rules:
+1. If you see a Nova URL, return it exactly in novaUrl.
+2. If you see a Nova ID in a URL like "/candidates/1234567", return "1234567" in novaId.
+3. If both are present, return both.
+4. Do NOT guess. Use null if not visible.
 
 OUTPUT JSON ONLY:`;
 
@@ -163,7 +171,7 @@ export async function extractPayPackageData(
 export async function extractCandidateData(
     text: string,
     googleClient: any
-): Promise<Result<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null }>> {
+): Promise<Result<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null; novaUrl: string | null }>> {
     try {
         const result = await generateText({
             model: googleClient(MODEL_CONFIG.primary, { 
@@ -174,11 +182,19 @@ export async function extractCandidateData(
             temperature: MODEL_CONFIG.extraction.temperature,
         });
 
-        const data = parseJson<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null }>(result.text);
+        const data = parseJson<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null; novaUrl?: string | null; nova_url?: string | null }>(result.text);
+        const normalized = data
+            ? {
+                  candidateName: data.candidateName ?? null,
+                  candidateEmail: data.candidateEmail ?? null,
+                  novaId: data.novaId ?? null,
+                  novaUrl: data.novaUrl ?? (data as any).nova_url ?? null,
+              }
+            : null;
         
         return {
             success: true,
-            data: data || { candidateName: null, candidateEmail: null, novaId: null },
+            data: normalized || { candidateName: null, candidateEmail: null, novaId: null, novaUrl: null },
         };
     } catch (error) {
         return {
@@ -194,7 +210,7 @@ export async function extractCandidateData(
 export async function extractCandidateDataFromMessages(
     messages: NormalizedMessage[],
     googleClient: any
-): Promise<Result<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null }>> {
+): Promise<Result<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null; novaUrl: string | null }>> {
     try {
         const result = await generateText({
             model: googleClient(MODEL_CONFIG.primary, { 
@@ -206,11 +222,19 @@ export async function extractCandidateDataFromMessages(
             maxRetries: MODEL_CONFIG.extraction.maxRetries,
         });
 
-        const data = parseJson<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null }>(result.text);
+        const data = parseJson<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null; novaUrl?: string | null; nova_url?: string | null }>(result.text);
+        const normalized = data
+            ? {
+                  candidateName: data.candidateName ?? null,
+                  candidateEmail: data.candidateEmail ?? null,
+                  novaId: data.novaId ?? null,
+                  novaUrl: data.novaUrl ?? (data as any).nova_url ?? null,
+              }
+            : null;
         
         return {
             success: true,
-            data: data || { candidateName: null, candidateEmail: null, novaId: null },
+            data: normalized || { candidateName: null, candidateEmail: null, novaId: null, novaUrl: null },
         };
     } catch (error) {
         return {

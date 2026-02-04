@@ -217,7 +217,19 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // TIER 1.5: Edit/Reply Requests (with image = LLM editing, not templating)
+    // TIER 1.5: Add Candidate (must win over edit/reply)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    if (isAddCandidateRequest(text)) {
+        return createResult(
+            Intent.DATABASE_ACTION,
+            null,
+            PATTERNS.reassign.test(lower) ? 'Add candidate + reassignment request' : 'Add candidate request'
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // TIER 1.6: Edit/Reply Requests (with image = LLM editing, not templating)
     // ══════════════════════════════════════════════════════════════════════════
 
     if (hasImage && isEditRequest(text)) {
@@ -226,11 +238,6 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
 
     if (hasImage && isReplyRequest(text)) {
         return createResult(Intent.EDIT_CONTENT, null, 'Reply/response request with image');
-    }
-
-    // Compound: add candidate + reassignment email → use tools + draft in one response.
-    if (isAddCandidateRequest(text) && PATTERNS.reassign.test(lower)) {
-        return createResult(Intent.DATABASE_ACTION, null, 'Add candidate + reassignment request');
     }
 
     // Reassignment requests should always route to the internal reassignment template,
