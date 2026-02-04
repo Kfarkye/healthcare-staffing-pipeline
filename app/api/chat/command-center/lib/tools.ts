@@ -11,6 +11,37 @@ const NOVA_SECTION_PATHS: Record<string, string> = {
   profile: '/new-profile/about',
 };
 
+const NOVA_PAGE_PATHS: Record<string, string> = {
+  search: '#/recruiting/search-all-candidates',
+  search_all_candidates: '#/recruiting/search-all-candidates',
+  live: '#/recruiting/live-nurses-new',
+  live_list: '#/recruiting/live-nurses-new',
+  livelist: '#/recruiting/live-nurses-new',
+  deals: '#/recruiting/deals',
+  jobs: '#/recruiting/jobs',
+  margins: '#/recruiting/margins',
+  contract_requests: '#/recruiting/contract-requests-new',
+  contract_requests_new: '#/recruiting/contract-requests-new',
+  tickets: '#/travelx/tickets',
+  job_openings: '#/recruiting/job-openings/{job_id}',
+  job_opening: '#/recruiting/job-openings/{job_id}',
+  job: '#/recruiting/jobs/{job_id}',
+};
+
+function normalizeNovaKey(input?: string | null): string {
+  return String(input || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+}
+
+function normalizeNovaPath(path?: string | null): string {
+  const raw = String(path || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('#')) return `/${raw}`;
+  return raw.startsWith('/') ? raw : `/${raw}`;
+}
+
 function parseCandidateIdFromNovaUrl(url?: string | null): number | null {
   if (!url) return null;
   const match = url.match(/\/candidates?\/(\d+)/i);
@@ -362,35 +393,66 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
     },
 
     get_nova_link: {
-      description: 'Build a Nova link for a candidate. Supports optional section or custom_path.',
+      description:
+        'Build a Nova link. Supports candidate profile links, global pages, and optional custom_path.',
       parameters: z.object({
         candidate_id: z.number().int().positive().optional(),
         nova_url: z.string().url().optional(),
         section: z.string().optional(),
+        page: z.string().optional(),
         custom_path: z.string().optional(),
+        job_id: z.union([z.string(), z.number()]).optional(),
       }),
       execute: async (args: any) => {
         const candidateId = args.candidate_id ?? parseCandidateIdFromNovaUrl(args.nova_url);
-        if (!candidateId) {
-          return { ok: false, error: 'candidate_id is required (or a valid nova_url).' };
+        const sectionKey = normalizeNovaKey(args.section);
+        const pageKey = normalizeNovaKey(args.page);
+
+        // If candidate info is present, build candidate-scoped link.
+        if (candidateId) {
+          let path = '';
+          if (args.custom_path) {
+            path = normalizeNovaPath(args.custom_path);
+          } else if (sectionKey) {
+            path = NOVA_SECTION_PATHS[sectionKey] || '';
+          }
+
+          const base = `${CONFIG.nova.baseUrl}${CONFIG.nova.candidatePath}/${candidateId}`;
+          const link = path ? `${base}${path}` : `${base}${CONFIG.nova.profileSuffix}`;
+
+          return {
+            ok: true,
+            link,
+            section: sectionKey || 'about',
+            candidate_id: candidateId,
+          };
         }
 
-        let path = '';
+        // Otherwise, build a global Nova page link.
+        let pagePath = '';
         if (args.custom_path) {
-          path = String(args.custom_path).trim();
-          if (!path.startsWith('/')) path = `/${path}`;
-        } else if (args.section) {
-          const key = String(args.section).trim().toLowerCase();
-          path = NOVA_SECTION_PATHS[key] || '';
+          pagePath = normalizeNovaPath(args.custom_path);
+        } else if (pageKey) {
+          pagePath = NOVA_PAGE_PATHS[pageKey] || '';
+          if (pagePath && pagePath.includes('{job_id}')) {
+            const jobId = args.job_id ? String(args.job_id).trim() : '';
+            if (jobId) pagePath = pagePath.replace('{job_id}', jobId);
+          }
         }
 
-        const base = `${CONFIG.nova.baseUrl}${CONFIG.nova.candidatePath}/${candidateId}`;
-        const link = path ? `${base}${path}` : `${base}${CONFIG.nova.profileSuffix}`;
+        if (!pagePath) {
+          return {
+            ok: false,
+            error:
+              'Provide candidate_id/nova_url for candidate links, or page/custom_path for global links.',
+          };
+        }
 
+        const link = `${CONFIG.nova.baseUrl}${pagePath}`;
         return {
           ok: true,
           link,
-          section: args.section || 'about',
+          page: pageKey || 'custom',
         };
       },
     },

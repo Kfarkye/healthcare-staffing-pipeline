@@ -34,8 +34,9 @@ const PROMPTS: Record<string, string> = {
 
 TASK: Help with database lookups and candidate searches.
 
-When providing Nova links, use the full format:
-https://nova.ayahealthcare.com/#/recruiting/candidates/{ID}/new-profile/about
+When providing Nova links, use get_nova_link. It supports both:
+- Candidate links (candidate_id or nova_url + optional section)
+- Global Nova pages (page or custom_path)
 
 TOOLS:
 - lookup_candidate: Find candidates by ID, email, or name.
@@ -43,7 +44,7 @@ TOOLS:
 - update_candidate: Update an existing candidate/prospect.
 - add_candidate_note: Leave a note on a candidate/prospect.
 - get_candidate_notes: Fetch recent candidate notes.
-- get_nova_link: Build Nova links (supports custom path).
+- get_nova_link: Build Nova links (candidate or global pages).
 - get_state_board_link: Return state board verification links.
 - upsert_state_board_link: Save or update a state board link.
 
@@ -52,7 +53,7 @@ RULES:
 2. If the user asks to update a candidate, use update_candidate.
 3. If the user asks to leave/add/log a note, use add_candidate_note.
 4. If the user asks for note history, use get_candidate_notes.
-5. If the user asks for Nova links, use get_nova_link.
+5. If the user asks for Nova links or Nova pages, use get_nova_link.
 6. If the user asks for state board verification links, use get_state_board_link.
 7. If required fields are missing, ask ONE concise follow-up question.
 

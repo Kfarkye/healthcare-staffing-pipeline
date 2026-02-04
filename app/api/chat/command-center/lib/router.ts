@@ -58,7 +58,7 @@ const PATTERNS = {
     updateCandidate: /\b(update|edit|change)\s+(candidate|prospect)\b/i,
     noteHistory: /\b(notes?\s+(history|log)|note\s+history)\b/i,
     stateBoard: /\b(state\s+board|board\s+verification|license\s+verification|verify\s+license|license\s+lookup)\b/i,
-    novaLink: /\b(nova\s+link|nova\s+url)\b/i,
+    novaLink: /\b(nova\s+(link|url|page|deal|deals|jobs|job\s+openings|live|search|tickets|margins|contract\s+requests))\b/i,
 
     // Negation
     negation: /\b(don't|do not|cancel|stop|no)\b/i,
