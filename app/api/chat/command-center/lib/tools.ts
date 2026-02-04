@@ -167,6 +167,11 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           return { ok: false, error: lookupErr.message };
         }
 
+        const rawNovaUrl = args.nova_url ? String(args.nova_url).trim() : null;
+        const normalizedNovaUrl = rawNovaUrl && /^https?:\/\//i.test(rawNovaUrl)
+          ? rawNovaUrl
+          : buildNovaUrl(candidateId);
+
         const payload: Record<string, any> = {
           candidate_id: candidateId,
           name: candidateName,
@@ -182,7 +187,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           facility: args.facility ? String(args.facility).trim() : null,
           followup_stage: args.followup_stage ? String(args.followup_stage).trim() : null,
           engagement_level: args.engagement_level ? String(args.engagement_level).trim() : null,
-          nova_url: args.nova_url ? String(args.nova_url).trim() : buildNovaUrl(candidateId),
+          nova_url: normalizedNovaUrl,
         };
 
         if (existing) {

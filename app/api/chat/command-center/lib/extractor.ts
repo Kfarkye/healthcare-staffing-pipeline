@@ -87,6 +87,27 @@ OUTPUT: JSON only.
 
 OUTPUT JSON ONLY:`;
 
+const NOVA_LINK_EXTRACTION_PROMPT = `Extract Nova link information from the image.
+
+OUTPUT: JSON only.
+
+{
+    "novaUrl": string | null,
+    "novaId": string | null
+}
+
+Look for:
+- Full Nova URLs in the browser address bar
+- Candidate IDs in paths like "/recruiting/candidates/1234567"
+
+Rules:
+1. If you see a Nova URL, return it exactly in novaUrl.
+2. If you see an ID, return the digits only in novaId.
+3. If both are present, return both.
+4. If not visible, use null.
+
+OUTPUT JSON ONLY:`;
+
 // ════════════════════════════════════════════════════════════════════════════════
 // Extraction Functions
 // ════════════════════════════════════════════════════════════════════════════════
@@ -235,6 +256,44 @@ export async function extractCandidateDataFromMessages(
         return {
             success: true,
             data: normalized || { candidateName: null, candidateEmail: null, novaId: null, novaUrl: null },
+        };
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error : new Error(String(error)),
+        };
+    }
+}
+
+/**
+ * Extract Nova URL/ID from messages (fast fallback)
+ */
+export async function extractNovaLinkFromMessages(
+    messages: NormalizedMessage[],
+    googleClient: any
+): Promise<Result<{ novaUrl: string | null; novaId: string | null }>> {
+    try {
+        const result = await generateText({
+            model: googleClient(MODEL_CONFIG.primary, { 
+                safetySettings: MODEL_CONFIG.safetySettings 
+            }),
+            system: NOVA_LINK_EXTRACTION_PROMPT,
+            messages: messages as any,
+            temperature: 0,
+            maxRetries: 1,
+        });
+
+        const data = parseJson<{ novaUrl?: string | null; nova_url?: string | null; novaId?: string | null }>(result.text);
+        const normalized = data
+            ? {
+                  novaUrl: data.novaUrl ?? (data as any).nova_url ?? null,
+                  novaId: data.novaId ?? null,
+              }
+            : null;
+
+        return {
+            success: true,
+            data: normalized || { novaUrl: null, novaId: null },
         };
     } catch (error) {
         return {

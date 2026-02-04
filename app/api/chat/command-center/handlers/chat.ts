@@ -23,7 +23,7 @@ import type {
 import { Intent, TemplateType } from '../types/index';
 import { CONFIG, MODEL_CONFIG } from '../lib/config';
 import { buildEmail } from '../lib/email-builder';
-import { extractCandidateData, extractCandidateDataFromMessages } from '../lib/extractor';
+import { extractCandidateData, extractCandidateDataFromMessages, extractNovaLinkFromMessages } from '../lib/extractor';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // System Prompts
@@ -257,6 +257,20 @@ export async function handleChatIntent(
                         } else if (data.novaUrl) {
                             candidateId = extractCandidateIdFromText(String(data.novaUrl));
                         }
+                    }
+                }
+            }
+
+            if (input.hasImage && !candidateId && !candidateNovaUrl) {
+                const linkExtracted = await extractNovaLinkFromMessages(input.messages, google);
+                if (linkExtracted.success) {
+                    const data = linkExtracted.data;
+                    candidateNovaUrl = candidateNovaUrl || data.novaUrl || null;
+                    if (!candidateId && data.novaId) {
+                        const idNum = Number(String(data.novaId).replace(/\\D/g, ''));
+                        if (Number.isFinite(idNum) && idNum > 0) candidateId = idNum;
+                    } else if (!candidateId && data.novaUrl) {
+                        candidateId = extractCandidateIdFromText(String(data.novaUrl));
                     }
                 }
             }
