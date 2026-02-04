@@ -320,7 +320,7 @@ const ModeChips: FC<{ value: string; onChange: (v: string) => void }> = memo(({ 
                     whileHover={{ scale: 1.02, y: -1, backgroundColor: 'rgba(255,255,255,0.06)' }}
                     whileTap={{ scale: 0.98 }}
                     className={cn(
-                        'flex-shrink-0 px-3.5 py-2 border transition-all backdrop-blur-sm',
+                        'flex-shrink-0 px-3.5 py-2 min-h-[48px] border transition-all backdrop-blur-sm',
                         SYSTEM.geo.pill,
                         active
                             ? 'bg-indigo-500/15 border-indigo-500/30 text-indigo-200'
@@ -978,10 +978,14 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
     return (
         <motion.div layout="position" initial={{ opacity: 0, y: 20, filter: 'blur(4px)' }} animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }} transition={SYSTEM.anim.fluid} className={cn('flex flex-col mb-10 w-full relative group isolate', isUser ? 'items-end' : 'items-start')}>
             {!isUser && (content || isStreaming) && <div className="flex items-center gap-2 mb-2 ml-1"><div className="w-[3px] h-[3px] bg-zinc-600 rounded-full" /><span className={SYSTEM.type.mono}>Command Center</span></div>}
-            <div className={cn('relative max-w-[92%] md:max-w-[88%]', isUser ? 'bg-white text-black rounded-[20px] rounded-tr-md shadow-[0_2px_10px_rgba(0,0,0,0.1)] px-5 py-3.5' : 'bg-transparent text-white px-0')}>
+            <div className={cn('relative max-w-[96%] sm:max-w-[92%] md:max-w-[88%]', isUser ? 'bg-white text-black rounded-[20px] rounded-tr-md shadow-[0_2px_10px_rgba(0,0,0,0.1)] px-5 py-3.5' : 'bg-transparent text-white px-0')}>
                 <div className={cn('prose prose-invert max-w-none', isUser && 'prose-p:text-black/90')}>{renderContent}</div>
                 {isStreaming && !content && <div className="flex items-center gap-2"><OrbitalRadar /><span className={SYSTEM.type.mono}>Processing...</span></div>}
-                {!isUser && !isStreaming && content && <div className="absolute -right-8 top-0 opacity-0 group-hover:opacity-100 transition-opacity delay-75"><CopyButton content={content} /></div>}
+                {!isUser && !isStreaming && content && (
+                    <div className="absolute -right-8 top-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity delay-75">
+                        <CopyButton content={content} />
+                    </div>
+                )}
             </div>
             {toolInvocations?.map((tool, idx) => <ToolResultCard key={tool.toolCallId || idx} toolName={tool.toolName} result={tool.result} state={tool.state} />)}
             {/* Post-draft modifier chips - only show on latest assistant message with email */}
@@ -1122,7 +1126,7 @@ const InputDeck: FC<InputDeckProps> = memo(({ value, onChange, onSend, onStop, i
             </AnimatePresence>
 
             {/* Input Deck */}
-            <motion.div layout className={cn('flex flex-col p-1.5 relative overflow-hidden transition-all duration-300 will-change-transform', SYSTEM.geo.input, 'bg-[#0A0A0B] shadow-2xl', SYSTEM.surface.milled, 'focus-within:border-indigo-500/30', isDragActive && 'border-indigo-500/50 scale-[1.01]')} transition={SYSTEM.anim.fluid} {...dragHandlers}>
+            <motion.div layout className={cn('flex flex-col p-1.5 relative overflow-hidden transition-all duration-300 will-change-transform backdrop-blur-[40px] saturate-[180%] bg-[#050505]/70 shadow-2xl', SYSTEM.geo.input, SYSTEM.surface.milled, 'focus-within:border-indigo-500/30', isDragActive && 'border-indigo-500/50 scale-[1.01]')} transition={SYSTEM.anim.fluid} {...dragHandlers}>
                 <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf,.doc,.docx" className="hidden" onChange={(e) => onFilesSelected(e.target.files)} />
                 <AnimatePresence>
                     {attachments.length > 0 && (
@@ -1174,9 +1178,9 @@ const InputDeck: FC<InputDeckProps> = memo(({ value, onChange, onSend, onStop, i
                     )}
                 </AnimatePresence>
                 <div className="flex items-end gap-2">
-                    <button onClick={triggerFileSelect} disabled={isProcessing} className="p-3.5 rounded-[18px] transition-colors text-zinc-500 hover:text-white hover:bg-white/5 disabled:opacity-50" aria-label="Attach"><Paperclip size={18} strokeWidth={1.5} /></button>
+                    <button onClick={triggerFileSelect} disabled={isProcessing} className="p-3.5 min-h-[48px] min-w-[48px] rounded-[18px] transition-colors text-zinc-500 hover:text-white hover:bg-white/5 disabled:opacity-50" aria-label="Attach"><Paperclip size={18} strokeWidth={1.5} /></button>
                     <textarea ref={inputRef} value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={handleKeyDown} onPaste={handlePaste} placeholder={isDragActive ? 'Drop files here...' : 'Message Command Center...'} rows={1} disabled={isProcessing} className={cn('flex-1 bg-transparent border-none outline-none resize-none py-4 min-h-[52px] max-h-[160px]', SYSTEM.type.body, 'text-white placeholder:text-zinc-500 disabled:opacity-50', isDragActive && 'placeholder:text-indigo-400')} />
-                    <motion.button initial={{ scale: 0.9 }} animate={{ scale: 1 }} whileTap={{ scale: 0.92 }} onClick={() => isProcessing ? onStop() : onSend()} disabled={!isProcessing && !canSend} className={cn('p-3 rounded-[18px] transition-all duration-300', canSend || isProcessing ? 'bg-white text-black' : 'bg-white/5 text-zinc-600 cursor-not-allowed')}>{isProcessing ? <Square size={18} className="animate-pulse" /> : isUploading ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} strokeWidth={2.5} />}</motion.button>
+                    <motion.button initial={{ scale: 0.9 }} animate={{ scale: 1 }} whileTap={{ scale: 0.92 }} onClick={() => isProcessing ? onStop() : onSend()} disabled={!isProcessing && !canSend} className={cn('p-3 min-h-[48px] min-w-[48px] rounded-[18px] transition-all duration-300', canSend || isProcessing ? 'bg-white text-black' : 'bg-white/5 text-zinc-600 cursor-not-allowed')}>{isProcessing ? <Square size={18} className="animate-pulse" /> : isUploading ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} strokeWidth={2.5} />}</motion.button>
                 </div>
                 <AnimatePresence>{isDragActive && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-indigo-500/5 border-2 border-dashed border-indigo-500/30 rounded-[24px] pointer-events-none flex items-center justify-center backdrop-blur-sm"><div className="flex items-center gap-2 text-indigo-400"><Paperclip size={20} /><span className="text-[13px] font-medium">Drop to attach</span></div></motion.div>}</AnimatePresence>
             </motion.div>
@@ -1204,6 +1208,7 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
     const { workspaceMode, setWorkspaceMode } = useLayout();
     const [inputValue, setInputValue] = useState('');
     const [modeContext, setModeContext] = useState(''); // Hidden mode context from chips
+    const [isMobile, setIsMobile] = useState(false);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mountedRef = useRef(true);
     const { showToast } = useToast();
@@ -1214,6 +1219,19 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
     });
 
     useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const mq = window.matchMedia('(max-width: 768px)');
+        const update = () => setIsMobile(mq.matches);
+        update();
+        if (typeof mq.addEventListener === 'function') mq.addEventListener('change', update);
+        else mq.addListener(update);
+        return () => {
+            if (typeof mq.removeEventListener === 'function') mq.removeEventListener('change', update);
+            else mq.removeListener(update);
+        };
+    }, []);
 
     const { messages, isLoading, isStreaming, error, sendMessage, clearChat, stop } = useCommandCenterChat({
         onToolCall: useCallback((toolName: string, args: any) => {
@@ -1311,19 +1329,54 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
 
     const containerStyle = useMemo(() => {
         if (isMinimized) return { height: 48, width: 200, bottom: 32, right: 32, borderRadius: 9999 };
+        if (isMobile) return { height: '100dvh', width: '100%', bottom: 0, right: 0, borderRadius: 0 };
         if (workspaceMode === 'full') return { height: '100dvh', width: '100%', bottom: 0, right: 0, borderRadius: '40px 0 0 40px' };
         if (workspaceMode === 'split') return { height: '100dvh', width: '50%', bottom: 0, right: 0, borderRadius: '40px 0 0 40px' };
         return { height: 'min(840px, 90dvh)', width: 460, bottom: 32, right: 32, borderRadius: 28 };
-    }, [isMinimized, workspaceMode]);
+    }, [isMinimized, isMobile, workspaceMode]);
 
-    if (!isOpen) return <motion.button onClick={() => setIsOpen(true)} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="fixed bottom-8 right-8 z-50 flex items-center gap-3 px-6 py-3 rounded-full bg-[#0A0A0B] border border-white/10 shadow-2xl hover:border-white/20 transition-colors" aria-label="Open Chat"><div className="w-2 h-2 bg-indigo-500 rounded-full shadow-[0_0_10px_rgba(99,102,241,0.5)]" /><span className={SYSTEM.type.h1}>Command Center</span></motion.button>;
-    if (isMinimized) return <motion.button layoutId="chat" onClick={() => setIsMinimized(false)} className={cn('fixed z-50 flex items-center gap-3 px-6 py-3 rounded-full shadow-2xl border-t border-white/10', SYSTEM.surface.glass)} style={{ bottom: 32, right: 32 }} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} aria-label="Expand">{isLoading && <OrbitalRadar />}<span className={SYSTEM.type.h1}>{isLoading ? 'Working...' : 'Command Center'}</span></motion.button>;
+    if (!isOpen) return (
+        <motion.button
+            onClick={() => setIsOpen(true)}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className={cn(
+                'fixed z-50 flex items-center gap-3 px-6 py-3 rounded-full bg-[#0A0A0B] border border-white/10 shadow-2xl hover:border-white/20 transition-colors',
+                isMobile ? 'left-4 right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] justify-center' : 'bottom-8 right-8'
+            )}
+            aria-label="Open Chat"
+        >
+            <div className="w-2 h-2 bg-indigo-500 rounded-full shadow-[0_0_10px_rgba(99,102,241,0.5)]" />
+            <span className={SYSTEM.type.h1}>Command Center</span>
+        </motion.button>
+    );
+    if (isMinimized) return (
+        <motion.button
+            layoutId="chat"
+            onClick={() => setIsMinimized(false)}
+            className={cn(
+                'fixed z-50 flex items-center gap-3 px-6 py-3 rounded-full shadow-2xl border-t border-white/10',
+                SYSTEM.surface.glass,
+                isMobile ? 'left-4 right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] justify-center' : ''
+            )}
+            style={isMobile ? undefined : { bottom: 32, right: 32 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            aria-label="Expand"
+        >
+            {isLoading && <OrbitalRadar />}
+            <span className={SYSTEM.type.h1}>{isLoading ? 'Working...' : 'Command Center'}</span>
+        </motion.button>
+    );
 
     return (
         <LayoutGroup>
             <motion.div layoutId="chat" className={cn('fixed z-50 flex flex-col overflow-hidden isolate border border-white/[0.08] shadow-[0_40px_120px_-20px_rgba(0,0,0,0.9)]', SYSTEM.surface.void)} style={{ ...containerStyle, willChange: 'transform' }}>
                 <FilmGrain />
-                <header className={cn('flex items-center justify-between px-8 pt-6 pb-2 shrink-0 z-20 select-none', SYSTEM.surface.glass)}>
+                <header className={cn(
+                    'flex items-center justify-between px-4 sm:px-8 pt-[calc(env(safe-area-inset-top)+12px)] sm:pt-6 pb-3 sm:pb-2 shrink-0 z-20 select-none backdrop-blur-[40px] saturate-[180%] bg-[#050505]/60 border-b border-white/[0.08]',
+                    SYSTEM.surface.glass
+                )}>
                     <div className="flex items-center gap-3"><Zap size={16} className="text-indigo-500" /><span className={SYSTEM.type.h1}>Command Center <span className="text-white/30 font-normal ml-1">Weissach</span></span></div>
                     <div className="flex items-center gap-2">
                         {/* PATCH 3: Only show Clear when session has state */}
@@ -1335,12 +1388,22 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
                                 Clear
                             </button>
                         )}
-                        <button onClick={() => setWorkspaceMode(workspaceMode === 'floating' ? 'split' : 'floating')} className="p-2 text-zinc-600 hover:text-white transition-colors">{workspaceMode === 'floating' ? <Maximize2 size={16} /> : <Minimize2 size={16} />}</button>
-                        <button onClick={() => setIsMinimized(true)} className="p-2 text-zinc-600 hover:text-white transition-colors"><Minimize2 size={16} /></button>
+                        <button
+                            onClick={() => setWorkspaceMode(workspaceMode === 'floating' ? 'split' : 'floating')}
+                            className={cn('p-2 text-zinc-600 hover:text-white transition-colors', isMobile && 'hidden')}
+                        >
+                            {workspaceMode === 'floating' ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
+                        </button>
+                        <button
+                            onClick={() => setIsMinimized(true)}
+                            className={cn('p-2 text-zinc-600 hover:text-white transition-colors', isMobile && 'hidden')}
+                        >
+                            <Minimize2 size={16} />
+                        </button>
                         <button onClick={() => { setIsOpen(false); setWorkspaceMode('floating'); }} className="p-2 text-zinc-600 hover:text-white transition-colors"><X size={16} /></button>
                     </div>
                 </header>
-                <div ref={scrollRef} className="relative flex-1 overflow-y-auto px-6 pt-4 pb-44 scroll-smooth no-scrollbar z-10">
+                <div ref={scrollRef} className="relative flex-1 overflow-y-auto px-4 sm:px-6 pt-3 sm:pt-4 pb-40 sm:pb-44 scroll-smooth no-scrollbar z-10">
                     <div ref={contentRef}>
                         <AnimatePresence mode="popLayout">
                             {stableHistory.length === 0 && !streamingMessage ? (
@@ -1390,7 +1453,7 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
                         </button>
                     )}
                 </div>
-                <footer className={cn('absolute bottom-0 left-0 right-0 z-30 px-5 pt-20 pb-[max(2rem,env(safe-area-inset-bottom,0.5rem))] bg-gradient-to-t from-[#030303] via-[#030303]/95 to-transparent pointer-events-none')}>
+                <footer className={cn('absolute bottom-0 left-0 right-0 z-30 px-4 sm:px-5 pt-16 sm:pt-20 pb-[max(2rem,env(safe-area-inset-bottom,0.5rem))] bg-gradient-to-t from-[#030303] via-[#030303]/95 to-transparent pointer-events-none')}>
                     <div className="pointer-events-auto relative">
                         <AnimatePresence>{isLoading && <ThinkingPill onStop={stop} status={isStreaming ? 'streaming' : 'thinking'} />}</AnimatePresence>
                         {/* Mode Pill: Shows selected mode with clear button */}
