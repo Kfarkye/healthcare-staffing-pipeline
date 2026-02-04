@@ -21,7 +21,7 @@ import type {
     IntentType,
 } from '../types/index';
 import { Intent } from '../types/index';
-import { MODEL_CONFIG } from '../lib/config';
+import { CONFIG, MODEL_CONFIG } from '../lib/config';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // System Prompts
@@ -55,7 +55,22 @@ RULES:
 4. If the user asks for note history, use get_candidate_notes.
 5. If the user asks for Nova links or Nova pages, use get_nova_link.
 6. If the user asks for state board verification links, use get_state_board_link.
-7. If required fields are missing, ask ONE concise follow-up question.
+7. If the user asks to add a candidate AND draft a reassignment email, do both in one response:
+   - Call add_candidate first.
+   - Then draft the reassignment email using this format:
+     To: ${CONFIG.teamEmails.reassignments}
+     Subject: Please Reassign - {Candidate Name}
+     Body:
+     Hi Team,
+
+     Can we please reassign {Candidate Name}?
+
+     Nova link: {Nova Link}
+     Email: {Candidate Email if available}
+
+     Thank you!
+   - If add_candidate fails due to missing candidate_id/nova_url, ask for it but still draft the email with "Nova link: [Nova link needed]".
+8. If required fields are missing, ask ONE concise follow-up question.
 
 Be concise. Lead with the answer.`,
 

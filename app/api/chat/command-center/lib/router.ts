@@ -52,7 +52,7 @@ const PATTERNS = {
     document: /\b(document|bls|acls|resume|certification)/i,
     reassign: /\breassign/i,
     licensing: /\blicensing?\b/i,
-    addCandidate: /\b(add|create|new)\s+(candidate|prospect)\b/i,
+    addCandidate: /\b(?:add|create|new)\s+(?:candidate|prospect)\b|\badd\s+(?:him|her|them|this)?\s*(?:to\s+)?(?:the\s+)?system\b/i,
     addNote: /\b(add|create|leave|log|write|save)\s+(a\s+)?note\b/i,
     noteFor: /\b(note\s+for|note\s+to)\b/i,
     updateCandidate: /\b(update|edit|change)\s+(candidate|prospect)\b/i,
@@ -226,6 +226,11 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
 
     if (hasImage && isReplyRequest(text)) {
         return createResult(Intent.EDIT_CONTENT, null, 'Reply/response request with image');
+    }
+
+    // Compound: add candidate + reassignment email → use tools + draft in one response.
+    if (isAddCandidateRequest(text) && PATTERNS.reassign.test(lower)) {
+        return createResult(Intent.DATABASE_ACTION, null, 'Add candidate + reassignment request');
     }
 
     // Reassignment requests should always route to the internal reassignment template,
