@@ -1209,6 +1209,7 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
     const [inputValue, setInputValue] = useState('');
     const [modeContext, setModeContext] = useState(''); // Hidden mode context from chips
     const [isMobile, setIsMobile] = useState(false);
+    const [keyboardOffset, setKeyboardOffset] = useState(0);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const mountedRef = useRef(true);
     const { showToast } = useToast();
@@ -1232,6 +1233,38 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
             else mq.removeListener(update);
         };
     }, []);
+
+    useEffect(() => {
+        if (!isMobile || typeof window === 'undefined') return;
+        const vv = window.visualViewport;
+        if (!vv) return;
+        let raf = 0;
+        const update = () => {
+            if (raf) cancelAnimationFrame(raf);
+            raf = requestAnimationFrame(() => {
+                const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+                setKeyboardOffset(offset);
+            });
+        };
+        update();
+        vv.addEventListener('resize', update);
+        vv.addEventListener('scroll', update);
+        return () => {
+            if (raf) cancelAnimationFrame(raf);
+            vv.removeEventListener('resize', update);
+            vv.removeEventListener('scroll', update);
+        };
+    }, [isMobile]);
+
+    const keyboardWasOpenRef = useRef(false);
+    useEffect(() => {
+        if (!isMobile) return;
+        const isOpen = keyboardOffset > 0;
+        if (isOpen && !keyboardWasOpenRef.current) {
+            scrollToBottomNow();
+        }
+        keyboardWasOpenRef.current = isOpen;
+    }, [isMobile, keyboardOffset, scrollToBottomNow]);
 
     const { messages, isLoading, isStreaming, error, sendMessage, clearChat, stop } = useCommandCenterChat({
         onToolCall: useCallback((toolName: string, args: any) => {
@@ -1403,7 +1436,11 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
                         <button onClick={() => { setIsOpen(false); setWorkspaceMode('floating'); }} className="p-2 text-zinc-600 hover:text-white transition-colors"><X size={16} /></button>
                     </div>
                 </header>
-                <div ref={scrollRef} className="relative flex-1 overflow-y-auto px-4 sm:px-6 pt-3 sm:pt-4 pb-40 sm:pb-44 scroll-smooth no-scrollbar z-10">
+                <div
+                    ref={scrollRef}
+                    className="relative flex-1 overflow-y-auto px-4 sm:px-6 pt-3 sm:pt-4 pb-40 sm:pb-44 scroll-smooth no-scrollbar z-10"
+                    style={isMobile ? { paddingBottom: 220 + keyboardOffset } : undefined}
+                >
                     <div ref={contentRef}>
                         <AnimatePresence mode="popLayout">
                             {stableHistory.length === 0 && !streamingMessage ? (
@@ -1453,7 +1490,10 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
                         </button>
                     )}
                 </div>
-                <footer className={cn('absolute bottom-0 left-0 right-0 z-30 px-4 sm:px-5 pt-16 sm:pt-20 pb-[max(2rem,env(safe-area-inset-bottom,0.5rem))] bg-gradient-to-t from-[#030303] via-[#030303]/95 to-transparent pointer-events-none')}>
+                <footer
+                    className={cn('absolute bottom-0 left-0 right-0 z-30 px-4 sm:px-5 pt-16 sm:pt-20 pb-[max(2rem,env(safe-area-inset-bottom,0.5rem))] bg-gradient-to-t from-[#030303] via-[#030303]/95 to-transparent pointer-events-none')}
+                    style={isMobile && keyboardOffset ? { transform: `translateY(-${keyboardOffset}px)`, transition: 'transform 160ms ease' } : undefined}
+                >
                     <div className="pointer-events-auto relative">
                         <AnimatePresence>{isLoading && <ThinkingPill onStop={stop} status={isStreaming ? 'streaming' : 'thinking'} />}</AnimatePresence>
                         {/* Mode Pill: Shows selected mode with clear button */}
