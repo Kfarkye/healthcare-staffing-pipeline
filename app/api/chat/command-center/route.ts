@@ -357,6 +357,7 @@ export async function POST(request: Request) {
         fastPath: classification.fastPath,
         confidence: classification.confidence,
         reason: classification.reason,
+        debug: classification.debug,
     });
 
     // ══════════════════════════════════════════════════════════════════════════

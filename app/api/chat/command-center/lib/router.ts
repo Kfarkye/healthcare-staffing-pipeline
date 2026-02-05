@@ -196,8 +196,8 @@ function isCredentialVerifyRequest(text: string): boolean {
     return PATTERNS.credentialVerify.test(t);
 }
 
-function lastAssistantWasEmail(history: NormalizedMessage[], scanLimit: number = 6): boolean {
-    if (!Array.isArray(history) || history.length === 0) return false;
+function getLastAssistantEmailScan(history: NormalizedMessage[], scanLimit: number = 6): { found: boolean; scanned: number } {
+    if (!Array.isArray(history) || history.length === 0) return { found: false, scanned: 0 };
     let scanned = 0;
     for (let i = history.length - 1; i >= 0; i -= 1) {
         const msg = history[i];
@@ -216,11 +216,11 @@ function lastAssistantWasEmail(history: NormalizedMessage[], scanLimit: number =
             /\[SUBJECT\]/i.test(text) ||
             /\[BODY\]/i.test(text)
         ) {
-            return true;
+            return { found: true, scanned };
         }
         if (scanned >= scanLimit) break;
     }
-    return false;
+    return { found: false, scanned };
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -231,13 +231,23 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     const { message, mode, modeLocked, hasImage } = input;
     const text = (message || '').trim();
     const lower = text.toLowerCase();
+    const lastEmailScan = getLastAssistantEmailScan(input.history, 6);
+    const lastEmailFound = lastEmailScan.found;
 
     // ══════════════════════════════════════════════════════════════════════════
     // TIER 1: Empty/Trivial
     // ══════════════════════════════════════════════════════════════════════════
 
     if (!text && !hasImage) {
-        return createResult(Intent.GENERAL_CHAT, null, 'Empty input');
+        return {
+            ...createResult(Intent.GENERAL_CHAT, null, 'Empty input'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -245,11 +255,19 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
 
     if (isAddCandidateRequest(text)) {
-        return createResult(
+        return {
+            ...createResult(
             Intent.DATABASE_ACTION,
             null,
             PATTERNS.reassign.test(lower) ? 'Add candidate + reassignment request' : 'Add candidate request'
-        );
+            ),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -257,17 +275,41 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
 
     if (hasImage && isEditRequest(text)) {
-        return createResult(Intent.EDIT_CONTENT, null, 'Edit request with image');
+        return {
+            ...createResult(Intent.EDIT_CONTENT, null, 'Edit request with image'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     if (hasImage && isReplyRequest(text)) {
-        return createResult(Intent.EDIT_CONTENT, null, 'Reply/response request with image');
+        return {
+            ...createResult(Intent.EDIT_CONTENT, null, 'Reply/response request with image'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     // Reassignment requests should always route to the internal reassignment template,
     // even when an image is attached.
     if (PATTERNS.reassign.test(lower) || /reassign/i.test(input.modeContext || '')) {
-        return createResult(Intent.REASSIGNMENT_REQUEST, TemplateType.REASSIGNMENT, 'Reassignment request');
+        return {
+            ...createResult(Intent.REASSIGNMENT_REQUEST, TemplateType.REASSIGNMENT, 'Reassignment request'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -279,19 +321,39 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     const isEditFollowup = PATTERNS.editFollowup.test(text);
     const isContinuation = PATTERNS.continueDraft.test(text);
     if (
-        lastAssistantWasEmail(input.history) &&
+        lastEmailFound &&
         (isEditFollowup || isContinuation || (isShortFollowup && !isInfoQuestion(text)))
     ) {
-        return createResult(
+        return {
+            ...createResult(
             Intent.EDIT_CONTENT,
             null,
             isContinuation ? 'Draft continuation request' : 'Short follow-up after email draft'
-        );
+            ),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+                isShortFollowup,
+                isEditFollowup,
+                isContinuation,
+            },
+        };
     }
 
     const isContextUpdate = PATTERNS.contextUpdate.test(text);
-    if (lastAssistantWasEmail(input.history) && !isInfoQuestion(text) && isContextUpdate) {
-        return createResult(Intent.EDIT_CONTENT, null, 'Context update after email draft');
+    if (lastEmailFound && !isInfoQuestion(text) && isContextUpdate) {
+        return {
+            ...createResult(Intent.EDIT_CONTENT, null, 'Context update after email draft'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+                isContextUpdate,
+            },
+        };
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -299,11 +361,27 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
 
     if (PATTERNS.slashCommand.test(text)) {
-        return createResult(Intent.GENERAL_CHAT, null, 'Slash command');
+        return {
+            ...createResult(Intent.GENERAL_CHAT, null, 'Slash command'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     if (PATTERNS.novaId.test(text) || PATTERNS.novaUrl.test(text)) {
-        return createResult(Intent.DATABASE_ACTION, null, 'Nova ID/URL detected');
+        return {
+            ...createResult(Intent.DATABASE_ACTION, null, 'Nova ID/URL detected'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     // Explicit DB mutations: add/update candidate / leave note / note history / links
@@ -316,7 +394,15 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
         isNovaLinkRequest(text) ||
         isCredentialVerifyRequest(text)
     ) {
-        return createResult(Intent.DATABASE_ACTION, null, 'Database mutation request');
+        return {
+            ...createResult(Intent.DATABASE_ACTION, null, 'Database mutation request'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -332,35 +418,75 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
         switch (mode) {
             case ChatMode.COLD_OUTREACH:
                 if (hasImage) {
-                    return createResult(
+                    return {
+                        ...createResult(
                         Intent.DRAFT_OUTREACH,
                         TemplateType.PAY_PACKAGE,
                         'COLD_OUTREACH mode + image'
-                    );
+                        ),
+                        debug: {
+                            messageLength: text.length,
+                            hasImage,
+                            lastEmailFound,
+                            lastEmailScanDepth: lastEmailScan.scanned,
+                        },
+                    };
                 }
                 if (isEmailRequest(text) || isOutreachRequest(text)) {
-                    return createResult(
+                    return {
+                        ...createResult(
                         Intent.DRAFT_OUTREACH,
                         TemplateType.PAY_PACKAGE,
                         'COLD_OUTREACH mode + email request'
-                    );
+                        ),
+                        debug: {
+                            messageLength: text.length,
+                            hasImage,
+                            lastEmailFound,
+                            lastEmailScanDepth: lastEmailScan.scanned,
+                        },
+                    };
                 }
-                return createResult(Intent.CAMPAIGN_WORKFLOW, null, 'COLD_OUTREACH mode default');
+                return {
+                    ...createResult(Intent.CAMPAIGN_WORKFLOW, null, 'COLD_OUTREACH mode default'),
+                    debug: {
+                        messageLength: text.length,
+                        hasImage,
+                        lastEmailFound,
+                        lastEmailScanDepth: lastEmailScan.scanned,
+                    },
+                };
 
             case ChatMode.BATCH_REASSIGN:
-                return createResult(
+                return {
+                    ...createResult(
                     Intent.REASSIGNMENT_REQUEST,
                     TemplateType.REASSIGNMENT,
                     'BATCH_REASSIGN mode'
-                );
+                    ),
+                    debug: {
+                        messageLength: text.length,
+                        hasImage,
+                        lastEmailFound,
+                        lastEmailScanDepth: lastEmailScan.scanned,
+                    },
+                };
 
             case ChatMode.REPLY_MODE:
                 // Reply mode always uses LLM to draft contextual replies
-                return createResult(
+                return {
+                    ...createResult(
                     Intent.EDIT_CONTENT,
                     null,
                     'REPLY_MODE - LLM handles reply drafting'
-                );
+                    ),
+                    debug: {
+                        messageLength: text.length,
+                        hasImage,
+                        lastEmailFound,
+                        lastEmailScanDepth: lastEmailScan.scanned,
+                    },
+                };
         }
     }
 
@@ -373,18 +499,34 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
 
         // Explicit outreach/pay package keywords with image → deterministic template
         if (isOutreachRequest(text) || PATTERNS.payPackage.test(text.toLowerCase())) {
-            return createResult(Intent.DRAFT_OUTREACH, templateType, 'Image + outreach keywords');
+            return {
+                ...createResult(Intent.DRAFT_OUTREACH, templateType, 'Image + outreach keywords'),
+                debug: {
+                    messageLength: text.length,
+                    hasImage,
+                    lastEmailFound,
+                    lastEmailScanDepth: lastEmailScan.scanned,
+                },
+            };
         }
 
         // Image + ambiguous text → LLM handles it (don't assume pay package)
         // This catches: "draft response", "clean up", "reply", etc.
-        return createResult(
+        return {
+            ...createResult(
             Intent.EDIT_CONTENT,
             null,
             'Image with ambiguous context - LLM handles',
             false,
             0.8
-        );
+            ),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -392,11 +534,27 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
 
     if (isInfoQuestion(text)) {
-        return createResult(Intent.GENERAL_CHAT, null, 'Info question');
+        return {
+            ...createResult(Intent.GENERAL_CHAT, null, 'Info question'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     if (isCodeLike(text) && !isEmailRequest(text)) {
-        return createResult(Intent.GENERAL_CHAT, null, 'Code detected');
+        return {
+            ...createResult(Intent.GENERAL_CHAT, null, 'Code detected'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -405,30 +563,78 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
 
     // Outreach request
     if (isOutreachRequest(text)) {
-        return createResult(Intent.DRAFT_OUTREACH, TemplateType.PAY_PACKAGE, 'Outreach keywords');
+        return {
+            ...createResult(Intent.DRAFT_OUTREACH, TemplateType.PAY_PACKAGE, 'Outreach keywords'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     // Specific email types
     if (PATTERNS.reference.test(lower) && isEmailRequest(text)) {
-        return createResult(Intent.DRAFT_EMAIL, TemplateType.REFERENCE_REQUEST, 'Reference request');
+        return {
+            ...createResult(Intent.DRAFT_EMAIL, TemplateType.REFERENCE_REQUEST, 'Reference request'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     if (PATTERNS.document.test(lower) && isEmailRequest(text)) {
-        return createResult(Intent.DRAFT_EMAIL, TemplateType.DOC_REQUEST, 'Document request');
+        return {
+            ...createResult(Intent.DRAFT_EMAIL, TemplateType.DOC_REQUEST, 'Document request'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     if (PATTERNS.reassign.test(lower)) {
-        return createResult(Intent.REASSIGNMENT_REQUEST, TemplateType.REASSIGNMENT, 'Reassignment request');
+        return {
+            ...createResult(Intent.REASSIGNMENT_REQUEST, TemplateType.REASSIGNMENT, 'Reassignment request'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     if (PATTERNS.licensing.test(lower)) {
-        return createResult(Intent.LICENSING_REQUEST, TemplateType.LICENSING, 'Licensing request');
+        return {
+            ...createResult(Intent.LICENSING_REQUEST, TemplateType.LICENSING, 'Licensing request'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     // General email request
     if (isEmailRequest(text)) {
         const templateType = detectTemplateType(text, '');
-        return createResult(Intent.DRAFT_EMAIL, templateType, 'Email request');
+        return {
+            ...createResult(Intent.DRAFT_EMAIL, templateType, 'Email request'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -457,6 +663,12 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
                     confidence: parsed.data.confidence,
                     reason: parsed.data.reason,
                     fastPath: false,
+                    debug: {
+                        messageLength: text.length,
+                        hasImage,
+                        lastEmailFound,
+                        lastEmailScanDepth: lastEmailScan.scanned,
+                    },
                 };
             }
         } catch (error) {
@@ -468,7 +680,15 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // TIER 8: Default
     // ══════════════════════════════════════════════════════════════════════════
 
-    return createResult(Intent.GENERAL_CHAT, null, 'Default fallback', true, 0.5);
+    return {
+        ...createResult(Intent.GENERAL_CHAT, null, 'Default fallback', true, 0.5),
+        debug: {
+            messageLength: text.length,
+            hasImage,
+            lastEmailFound,
+            lastEmailScanDepth: lastEmailScan.scanned,
+        },
+    };
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

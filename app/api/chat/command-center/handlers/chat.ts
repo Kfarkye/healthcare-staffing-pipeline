@@ -516,6 +516,9 @@ export async function handleChatIntent(
         const basePrompt = PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
         const regenerate = intent === Intent.EDIT_CONTENT && lastDraft ? shouldRegenerateDraft(input.inputText || '') : false;
         const continuation = intent === Intent.EDIT_CONTENT && lastDraft ? isContinuationRequest(input.inputText || '') : false;
+        const editMode = intent === Intent.EDIT_CONTENT
+            ? (continuation ? 'continue' : regenerate ? 'regenerate' : lastDraft ? 'edit' : 'none')
+            : 'none';
         const systemPrompt =
             intent === Intent.EDIT_CONTENT && lastDraft
                 ? buildEditPrompt(basePrompt, lastDraft, {
@@ -525,7 +528,13 @@ export async function handleChatIntent(
                 })
                 : basePrompt + getMessageTypeRules(input.messageType);
 
-        logger.info('chat_handler_start', { intent, hasTools: !!tools });
+        logger.info('chat_handler_start', {
+            intent,
+            hasTools: !!tools,
+            hasLastDraft: !!lastDraft,
+            editMode,
+            messageType: input.messageType,
+        });
 
         // Guard: Handle empty input gracefully
         if (!input.inputText && !input.hasImage) {
@@ -626,6 +635,9 @@ export function handleChatIntentStreaming(
     const basePrompt = PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
     const regenerate = intent === Intent.EDIT_CONTENT && lastDraft ? shouldRegenerateDraft(input.inputText || '') : false;
     const continuation = intent === Intent.EDIT_CONTENT && lastDraft ? isContinuationRequest(input.inputText || '') : false;
+    const editMode = intent === Intent.EDIT_CONTENT
+        ? (continuation ? 'continue' : regenerate ? 'regenerate' : lastDraft ? 'edit' : 'none')
+        : 'none';
     const systemPrompt =
         intent === Intent.EDIT_CONTENT && lastDraft
             ? buildEditPrompt(basePrompt, lastDraft, {
@@ -635,7 +647,13 @@ export function handleChatIntentStreaming(
             })
             : basePrompt + getMessageTypeRules(input.messageType);
 
-    logger.info('chat_stream_start', { intent, hasTools: !!tools });
+    logger.info('chat_stream_start', {
+        intent,
+        hasTools: !!tools,
+        hasLastDraft: !!lastDraft,
+        editMode,
+        messageType: input.messageType,
+    });
 
     return streamText({
         model: google(MODEL_CONFIG.primary, {

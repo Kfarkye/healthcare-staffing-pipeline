@@ -174,10 +174,15 @@ export async function handleEmailIntent(
 
         // 2. Extract data
         const data = await extractDataForTemplate(templateType, input, context);
+        const requirementsCount = Array.isArray((data as PayPackageData).requirements)
+            ? (data as PayPackageData).requirements!.length
+            : 0;
         logger.info('data_prepared', {
             templateType,
             hasImage: input.hasImage,
-            dataKeys: Object.keys(data).filter(k => data[k])
+            dataKeys: Object.keys(data).filter(k => data[k]),
+            requirementsCount,
+            messageType: input.messageType,
         });
 
         // 3. Build email (DETERMINISTIC - no LLM)

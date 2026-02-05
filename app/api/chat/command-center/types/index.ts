@@ -219,6 +219,16 @@ export interface ClassifyResult {
     confidence: number;
     reason: string;
     fastPath: boolean;
+    debug?: {
+        messageLength?: number;
+        hasImage?: boolean;
+        lastEmailFound?: boolean;
+        lastEmailScanDepth?: number;
+        isShortFollowup?: boolean;
+        isEditFollowup?: boolean;
+        isContinuation?: boolean;
+        isContextUpdate?: boolean;
+    };
 }
 
 /**
