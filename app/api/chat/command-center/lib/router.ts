@@ -43,10 +43,12 @@ const PATTERNS = {
     draftVerb: /\b(draft|write|compose|create|generate)\b/i,
     editVerb: /\b(clean\s*up|edit|fix|rewrite|revise|polish|improve|refine|tweak)\b/i,
     editFollowup: /\b(remove|omit|leave\s+this\s+out|leave\s+out|delete|cut|exclude|strip|take\s+out|drop|change)\b|\b(shorter|longer|tone|polish|tweak|adjust|revise|edit|rewrite|reply|response|respond|answer)\b/i,
+    continueDraft: /\b(rest\s+of|the\s+rest|finish|complete|full|entire|continue|resume|remaining|keep\s+going|carry\s+on)\b/i,
     replyVerb: /\b(reply|respond|response|replying|responding|answer|answering)\b/i,
     emailMedium: /\b(email|message|draft)\b/i,
     outreach: /\boutreach\b/i,
     payPackage: /\bpay\s*package\b/i,
+    contextUpdate: /\b(update|fyi|new\s+info|correction|approved|denied|declined|confirmed|extension|rate|offer|accepted|rejected|start\s+date|end\s+date|shift|facility|location|pay|stipend|weekly|bonus|rto|time[-\s]?off)\b/i,
 
     // Entity detection
     reference: /\breference/i,
@@ -267,8 +269,21 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
 
     const isShortFollowup = text.length > 0 && text.length <= 80;
     const isEditFollowup = PATTERNS.editFollowup.test(text);
-    if (lastAssistantWasEmail(input.history) && !isInfoQuestion(text) && (isEditFollowup || isShortFollowup)) {
-        return createResult(Intent.EDIT_CONTENT, null, 'Short follow-up after email draft');
+    const isContinuation = PATTERNS.continueDraft.test(text);
+    if (
+        lastAssistantWasEmail(input.history) &&
+        (isEditFollowup || isContinuation || (isShortFollowup && !isInfoQuestion(text)))
+    ) {
+        return createResult(
+            Intent.EDIT_CONTENT,
+            null,
+            isContinuation ? 'Draft continuation request' : 'Short follow-up after email draft'
+        );
+    }
+
+    const isContextUpdate = PATTERNS.contextUpdate.test(text);
+    if (lastAssistantWasEmail(input.history) && !isInfoQuestion(text) && isContextUpdate) {
+        return createResult(Intent.EDIT_CONTENT, null, 'Context update after email draft');
     }
 
     // ══════════════════════════════════════════════════════════════════════════

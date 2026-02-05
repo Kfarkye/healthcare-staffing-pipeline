@@ -20,8 +20,9 @@ import type {
     HandlerContext,
     IntentType,
     NormalizedMessage,
+    MessageTypeValue,
 } from '../types/index';
-import { Intent, TemplateType } from '../types/index';
+import { Intent, TemplateType, MessageType } from '../types/index';
 import { CONFIG, MODEL_CONFIG } from '../lib/config';
 import { buildEmail } from '../lib/email-builder';
 import { extractCandidateData, extractCandidateDataFromMessages, extractNovaLinkFromMessages } from '../lib/extractor';
@@ -129,6 +130,11 @@ The request is unclear. Ask ONE specific clarifying question to understand what 
 
 const REFRESH_MARKER = '[[REFRESH_DASHBOARD]]';
 
+const EDIT_INSTRUCTION_RX = /\b(remove|omit|leave\s+out|shorter|tone|polish|rewrite|revise|edit|fix|tweak|adjust|cut|trim|clean\s*up|change|replace|swap)\b/i;
+const CONTEXT_UPDATE_RX = /\b(update|fyi|new\s+info|correction|approved|denied|declined|confirmed|extension|rate|offer|accepted|rejected|start\s+date|end\s+date|shift|facility|location|pay|stipend|weekly|bonus|rto|time[-\s]?off)\b/i;
+const ADD_DETAIL_RX = /\b(add|include|mention|note|also|plus|insert)\b/i;
+const CONTINUE_DRAFT_RX = /\b(rest\s+of|the\s+rest|finish|complete|full|entire|continue|resume|remaining|keep\s+going|carry\s+on)\b/i;
+
 function getMessageText(message: NormalizedMessage): string {
     if (!message?.content?.length) return '';
     return message.content
@@ -191,6 +197,89 @@ EDITING RULES:
 - Apply ONLY the user's requested changes.
 - Keep subject/body unless the user explicitly asked to change them.
 - Do not create a new email or add new details.`;
+}
+
+function getMessageTypeRules(messageType?: MessageTypeValue): string {
+    if (!messageType || messageType === MessageType.AUTO || messageType === MessageType.EMAIL) return '';
+    if (messageType === MessageType.SMS) {
+        return `
+FORMAT: SMS
+- No subject line
+- No formal greeting or sign-off
+- 1–3 short sentences, <= 360 chars`;
+    }
+    if (messageType === MessageType.SLACK) {
+        return `
+FORMAT: Slack
+- No subject line
+- Brief, skimmable, 1–4 short lines
+- No formal greeting or sign-off`;
+    }
+    return `
+FORMAT: Plain message (no subject)`;
+}
+
+function shouldRegenerateDraft(text: string): boolean {
+    if (!text) return false;
+    const hasUpdate = CONTEXT_UPDATE_RX.test(text);
+    if (!hasUpdate) return false;
+    const hasEditOnly = EDIT_INSTRUCTION_RX.test(text) && !ADD_DETAIL_RX.test(text);
+    return !hasEditOnly;
+}
+
+function isContinuationRequest(text: string): boolean {
+    if (!text) return false;
+    return CONTINUE_DRAFT_RX.test(text);
+}
+
+function buildEditPrompt(
+    basePrompt: string,
+    draftContext: string,
+    options: { mode: 'edit' | 'regenerate' | 'continue'; updateText?: string; messageType?: MessageTypeValue }
+): string {
+    const formatRules = getMessageTypeRules(options.messageType);
+    if (options.mode === 'regenerate') {
+        return `${basePrompt}
+
+PREVIOUS DRAFT (reference only):
+${draftContext}
+
+NEW FACTS (must be incorporated):
+${options.updateText || '[No new facts provided]'}
+
+REWRITE RULES:
+- Produce a fresh draft incorporating the new facts.
+- Replace outdated details from the prior draft.
+- Keep the tone and intent consistent.
+${formatRules}`;
+    }
+
+    if (options.mode === 'continue') {
+        return `${basePrompt}
+
+PREVIOUS DRAFT:
+${draftContext}
+
+USER REQUEST:
+${options.updateText || '[No request provided]'}
+
+CONTINUATION RULES:
+- Return the COMPLETE draft (Subject + full body), not just a partial snippet.
+- Keep all existing details, and finish the missing portion.
+- Do NOT add new facts unless explicitly asked.
+${formatRules}`;
+    }
+
+    return `${basePrompt}
+
+PREVIOUS DRAFT (edit this directly, keep the structure):
+${draftContext}
+
+EDITING RULES:
+- Apply ONLY the user's requested changes.
+- Keep subject/body unless the user explicitly asked to change them.
+- Do not create a new email or add new details.
+${formatRules}`;
 }
 
 function hasAddCandidateIntent(text: string): boolean {
@@ -424,7 +513,17 @@ export async function handleChatIntent(
         }
 
         const lastDraft = intent === Intent.EDIT_CONTENT ? getLastAssistantDraft(input.messages) : null;
-        const systemPrompt = getPrompt(intent, lastDraft || undefined);
+        const basePrompt = PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
+        const regenerate = intent === Intent.EDIT_CONTENT && lastDraft ? shouldRegenerateDraft(input.inputText || '') : false;
+        const continuation = intent === Intent.EDIT_CONTENT && lastDraft ? isContinuationRequest(input.inputText || '') : false;
+        const systemPrompt =
+            intent === Intent.EDIT_CONTENT && lastDraft
+                ? buildEditPrompt(basePrompt, lastDraft, {
+                    mode: continuation ? 'continue' : regenerate ? 'regenerate' : 'edit',
+                    updateText: input.inputText || '',
+                    messageType: input.messageType,
+                })
+                : basePrompt + getMessageTypeRules(input.messageType);
 
         logger.info('chat_handler_start', { intent, hasTools: !!tools });
 
@@ -524,7 +623,17 @@ export function handleChatIntentStreaming(
 ) {
     const { google, logger } = context;
     const lastDraft = intent === Intent.EDIT_CONTENT ? getLastAssistantDraft(input.messages) : null;
-    const systemPrompt = getPrompt(intent, lastDraft || undefined);
+    const basePrompt = PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
+    const regenerate = intent === Intent.EDIT_CONTENT && lastDraft ? shouldRegenerateDraft(input.inputText || '') : false;
+    const continuation = intent === Intent.EDIT_CONTENT && lastDraft ? isContinuationRequest(input.inputText || '') : false;
+    const systemPrompt =
+        intent === Intent.EDIT_CONTENT && lastDraft
+            ? buildEditPrompt(basePrompt, lastDraft, {
+                mode: continuation ? 'continue' : regenerate ? 'regenerate' : 'edit',
+                updateText: input.inputText || '',
+                messageType: input.messageType,
+            })
+            : basePrompt + getMessageTypeRules(input.messageType);
 
     logger.info('chat_stream_start', { intent, hasTools: !!tools });
 
