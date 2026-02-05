@@ -82,6 +82,7 @@ export interface PayPackageData {
     hourlyRate: string | null;
     stipend: string | null;
     weeklyTotal: string | null;
+    requirements?: string[];
 }
 
 /**

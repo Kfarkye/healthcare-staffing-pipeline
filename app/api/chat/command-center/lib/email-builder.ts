@@ -78,6 +78,15 @@ export function parseLocation(location: string | null): { city: string; state: s
     return { city: parts[0] || '', state: parts[1] || '' };
 }
 
+function appendRequirementsSection(lines: string[], requirements?: string[] | null) {
+    if (!requirements || requirements.length === 0) return;
+    lines.push('Key Requirements / Notes:');
+    for (const req of requirements) {
+        lines.push(`- ${req}`);
+    }
+    lines.push('');
+}
+
 /**
  * Get missing required fields
  */
@@ -123,11 +132,13 @@ export function buildPayPackageEmail(data: PayPackageData): EmailOutput {
     const missing = getMissing(data, ['facility', 'location', 'startDate', 'weeklyTotal']);
 
     // Subject
-    const specialty = data.specialty || 'Position';
     const weeklyPay = formatWeekly(data.weeklyTotal);
-    const subject = weeklyPay
-        ? `${specialty} - ${data.facility || 'Facility'} | ${weeklyPay}`
-        : `${specialty} - ${data.facility || 'Facility'}`;
+    const hasRequirements = Array.isArray(data.requirements) && data.requirements.length > 0;
+    const specialty = data.specialty || (hasRequirements ? 'Assignment' : 'Position');
+    const facilityLabel = data.facility || (city || state ? `${city}${city && state ? ', ' : ''}${state}` : null);
+    let baseTitle = facilityLabel ? `${specialty} - ${facilityLabel}` : `${specialty} Details`;
+    if (!data.specialty && !facilityLabel && !weeklyPay) baseTitle = 'Assignment Details';
+    const subject = weeklyPay ? `${baseTitle} | ${weeklyPay}` : baseTitle;
 
     // Body
     const lines: string[] = [];
@@ -136,8 +147,10 @@ export function buildPayPackageEmail(data: PayPackageData): EmailOutput {
     lines.push('');
 
     // Intro with location context
-    const locationStr = city && state ? `${city}` : (city || state || 'the area');
-    lines.push(`I am reaching out to share a new ${specialty} assignment in ${locationStr} that matches your experience.`);
+    const roleLabel = data.specialty ? data.specialty : 'assignment';
+    const locationStr = city && state ? `${city}, ${state}` : (city || state || '');
+    const locationSuffix = locationStr ? ` in ${locationStr}` : '';
+    lines.push(`I am reaching out to share a new ${roleLabel}${locationSuffix} that matches your experience.`);
     lines.push('');
 
     // Job details
@@ -157,6 +170,8 @@ export function buildPayPackageEmail(data: PayPackageData): EmailOutput {
         if (data.weeklyTotal) lines.push(`- Total Gross Weekly Pay: ${formatWeekly(data.weeklyTotal)}`);
         lines.push('');
     }
+
+    appendRequirementsSection(lines, data.requirements);
 
     // CTA with cert reminder
     lines.push('To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):');
@@ -221,6 +236,8 @@ export function buildWorkingTravelerEmail(data: PayPackageData): EmailOutput {
         lines.push('');
     }
 
+    appendRequirementsSection(lines, data.requirements);
+
     lines.push('Let me know if you have any time-off needs and I will get you submitted.');
     if (missing.length > 0) {
         lines.push('');
@@ -275,6 +292,8 @@ export function buildReengagedTravelerEmail(data: PayPackageData): EmailOutput {
         lines.push(`Pay: ${parts.join(' + ')}`);
         lines.push('');
     }
+
+    appendRequirementsSection(lines, data.requirements);
 
     lines.push('Let me know if you have any time-off needs and I will get you submitted. Happy to jump on a quick call if you would like to chat through anything.');
     if (missing.length > 0) {

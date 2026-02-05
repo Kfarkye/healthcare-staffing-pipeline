@@ -143,6 +143,7 @@ function emptyPayPackageData(): PayPackageData {
         hourlyRate: null,
         stipend: null,
         weeklyTotal: null,
+        requirements: [],
     };
 }
 
@@ -357,9 +358,65 @@ export function extractWithRegex(text: string): Partial<PayPackageData> {
     if (dateMatches && dateMatches.length >= 1) data.startDate = dateMatches[0];
     if (dateMatches && dateMatches.length >= 2) data.endDate = dateMatches[1];
 
-    // Nova ID
-    const novaMatch = text.match(/\b(\d{6,8})\b/);
-    if (novaMatch) data.candidateName = novaMatch[1]; // Store as reference
-
     return data;
+}
+
+/**
+ * Extract requirement/notes lines from freeform text for pay package drafts.
+ * This ensures typed offer details are not lost when image extraction is thin.
+ */
+export function extractPayPackageNotesFromText(text: string): string[] {
+    if (!text) return [];
+
+    const cleaned = text
+        // remove markdown attachment links
+        .replace(/\[📎[^\]]+\]\([^)]+\)/g, '')
+        // remove common "image.png" attachment lines
+        .replace(/\bimage\.png\b/gi, '')
+        .replace(/\u00a0/g, ' ');
+
+    const rawLines = cleaned.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (rawLines.length === 0) return [];
+
+    const shouldIgnore = (line: string): boolean => {
+        return /^(draft|pp|pay package|outreach|draft pp|draft pay package|please draft)\b/i.test(line);
+    };
+
+    const isRequirementLine = (line: string): boolean => {
+        return (
+            /(must|required|requirement|will accept|preferred|call requirement|weekend requirement|float requirement|client offer description|submit info|shift:|hours:|guaranteed hours|start|rnfa|stfa|csfa|cvor|evh|vein harvest|endoscopically|cardiac)/i.test(line)
+        );
+    };
+
+    const splitCompound = (line: string): string[] => {
+        return line
+            .replace(/\s+(Call Requirement:)/ig, '\n$1')
+            .replace(/\s+(Weekend Requirement:)/ig, '\n$1')
+            .replace(/\s+(Float Requirement:)/ig, '\n$1')
+            .replace(/\s+(Other requirements:)/ig, '\n$1')
+            .replace(/\s+(Guaranteed Hours per Week:)/ig, '\n$1')
+            .replace(/\s+(Shift:)/ig, '\n$1')
+            .replace(/\s+(Hours:)/ig, '\n$1')
+            .split('\n')
+            .map(l => l.trim())
+            .filter(Boolean);
+    };
+
+    const seen = new Set<string>();
+    const results: string[] = [];
+
+    for (const line of rawLines) {
+        if (shouldIgnore(line)) continue;
+        const segments = splitCompound(line);
+        for (const segment of segments) {
+            if (!segment) continue;
+            if (!isRequirementLine(segment)) continue;
+            const key = segment.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            results.push(segment);
+        }
+    }
+
+    return results;
 }

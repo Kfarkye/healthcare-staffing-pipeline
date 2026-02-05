@@ -196,23 +196,31 @@ function isCredentialVerifyRequest(text: string): boolean {
     return PATTERNS.credentialVerify.test(t);
 }
 
-function lastAssistantWasEmail(history: NormalizedMessage[]): boolean {
+function lastAssistantWasEmail(history: NormalizedMessage[], scanLimit: number = 6): boolean {
     if (!Array.isArray(history) || history.length === 0) return false;
-    const last = [...history].reverse().find(m => m.role === 'assistant');
-    if (!last) return false;
-    const text = last.content
-        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-        .map(c => c.text)
-        .join('\n')
-        .trim();
-    if (!text) return false;
-    return (
-        /(^|\n)\s*Subject\s*:/i.test(text) ||
-        /(^|\n)\s*To\s*:/i.test(text) ||
-        /\[EMAIL_DRAFT_JSON\]/i.test(text) ||
-        /\[SUBJECT\]/i.test(text) ||
-        /\[BODY\]/i.test(text)
-    );
+    let scanned = 0;
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+        const msg = history[i];
+        if (!msg || msg.role !== 'assistant') continue;
+        scanned += 1;
+        const text = msg.content
+            .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+            .map(c => c.text)
+            .join('\n')
+            .trim();
+        if (!text) continue;
+        if (
+            /(^|\n)\s*Subject\s*:/i.test(text) ||
+            /(^|\n)\s*To\s*:/i.test(text) ||
+            /\[EMAIL_DRAFT_JSON\]/i.test(text) ||
+            /\[SUBJECT\]/i.test(text) ||
+            /\[BODY\]/i.test(text)
+        ) {
+            return true;
+        }
+        if (scanned >= scanLimit) break;
+    }
+    return false;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

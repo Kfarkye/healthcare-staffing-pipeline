@@ -25,7 +25,7 @@ import type {
 } from '../types/index';
 import { TemplateType } from '../types/index';
 import { CONTEXT_TEMPLATE_MAP } from '../lib/config';
-import { extractPayPackageData, extractCandidateData, extractLicensingData } from '../lib/extractor';
+import { extractPayPackageData, extractCandidateData, extractLicensingData, extractWithRegex, extractPayPackageNotesFromText } from '../lib/extractor';
 import {
     buildEmail,
     detectTemplateType,
@@ -68,6 +68,14 @@ async function extractDataForTemplate(
     // Start with any provided context
     let data: Record<string, any> = { ...input.userContext };
 
+    const mergeDefined = (base: Record<string, any>, updates: Record<string, any>) => {
+        for (const [key, value] of Object.entries(updates)) {
+            if (value === null || value === undefined) continue;
+            if (typeof value === 'string' && value.trim() === '') continue;
+            base[key] = value;
+        }
+    };
+
     // Extract based on template type
     switch (templateType) {
         case TemplateType.PAY_PACKAGE:
@@ -84,6 +92,20 @@ async function extractDataForTemplate(
                     });
                 } else if ('error' in result) {
                     logger.warn('extraction_failed', { error: result.error.message });
+                }
+            }
+            if (input.inputText) {
+                const textData = extractWithRegex(input.inputText);
+                mergeDefined(data, textData as Record<string, any>);
+
+                const requirements = extractPayPackageNotesFromText(input.inputText);
+                if (requirements.length > 0) {
+                    const existing = Array.isArray(data.requirements) ? data.requirements : [];
+                    const merged = [...existing];
+                    for (const req of requirements) {
+                        if (!merged.includes(req)) merged.push(req);
+                    }
+                    data.requirements = merged;
                 }
             }
             break;
