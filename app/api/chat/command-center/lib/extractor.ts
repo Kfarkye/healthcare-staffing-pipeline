@@ -13,6 +13,7 @@
 import { generateText } from 'ai';
 import type { 
     PayPackageData, 
+    MarginApprovalData,
     NormalizedMessage,
     Result 
 } from '../types/index';
@@ -123,6 +124,42 @@ Rules:
 
 OUTPUT JSON ONLY:`;
 
+const MARGIN_APPROVAL_EXTRACTION_PROMPT = `Extract margin approval details from the image.
+
+OUTPUT: JSON only.
+
+{
+    "candidateName": string | null,
+    "marginPercentage": string | null,
+    "reason": string | null,
+    "placementType": string | null,
+    "premiumNeeded": string | null,
+    "sentToComp": string | null,
+    "approverEmail": string | null,
+    "novaUrl": string | null,
+    "facility": string | null,
+    "why": string | null,
+    "distroResponse": string | null
+}
+
+Look for:
+- "Margin Approval: Name - 13.75%" style headers
+- "Actual Margin" percentage
+- Reason needed for approval
+- Placement type (New Placement / Extension / Change of Contract)
+- Premium approval needed (Y/N)
+- Sent to Comp Info (Y/N)
+- Distro response (if present)
+- Nova or facility links
+
+Rules:
+1. Extract EXACTLY what you see.
+2. Return percentages without % symbol (e.g., "13.75").
+3. For Y/N fields, return "Y" or "N" if visible.
+4. If not visible, use null.
+
+OUTPUT JSON ONLY:`;
+
 // ════════════════════════════════════════════════════════════════════════════════
 // Extraction Functions
 // ════════════════════════════════════════════════════════════════════════════════
@@ -159,6 +196,22 @@ function emptyPayPackageData(): PayPackageData {
         stipend: null,
         weeklyTotal: null,
         requirements: [],
+    };
+}
+
+function emptyMarginApprovalData(): MarginApprovalData {
+    return {
+        candidateName: null,
+        marginPercentage: null,
+        reason: null,
+        placementType: null,
+        premiumNeeded: null,
+        sentToComp: null,
+        approverEmail: null,
+        novaUrl: null,
+        facility: null,
+        why: null,
+        distroResponse: null,
     };
 }
 
@@ -272,6 +325,45 @@ export async function extractCandidateDataFromMessages(
         return {
             success: true,
             data: normalized || { candidateName: null, candidateEmail: null, novaId: null, novaUrl: null },
+        };
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error : new Error(String(error)),
+        };
+    }
+}
+
+/**
+ * Extract margin approval data from images
+ */
+export async function extractMarginApprovalDataFromMessages(
+    messages: NormalizedMessage[],
+    googleClient: any
+): Promise<Result<MarginApprovalData>> {
+    try {
+        const result = await generateText({
+            model: googleClient(MODEL_CONFIG.primary, {
+                safetySettings: MODEL_CONFIG.safetySettings
+            }),
+            system: MARGIN_APPROVAL_EXTRACTION_PROMPT,
+            messages: messages as any,
+            temperature: MODEL_CONFIG.extraction.temperature,
+            maxRetries: MODEL_CONFIG.extraction.maxRetries,
+        });
+
+        const data = parseJson<MarginApprovalData>(result.text);
+
+        if (!data) {
+            return {
+                success: true,
+                data: emptyMarginApprovalData(),
+            };
+        }
+
+        return {
+            success: true,
+            data: { ...emptyMarginApprovalData(), ...data },
         };
     } catch (error) {
         return {
@@ -403,6 +495,51 @@ export function extractWithRegex(text: string): Partial<PayPackageData> {
     const dateMatches = text.match(/\d{1,2}\/\d{1,2}\/\d{2,4}/g);
     if (dateMatches && dateMatches.length >= 1) data.startDate = dateMatches[0];
     if (dateMatches && dateMatches.length >= 2) data.endDate = dateMatches[1];
+
+    return data;
+}
+
+/**
+ * Extract margin approval fields from text (fallback/fast path)
+ */
+export function extractMarginApprovalFromText(text: string): Partial<MarginApprovalData> {
+    const data: Partial<MarginApprovalData> = {};
+    if (!text) return data;
+
+    const subjectMatch = text.match(/margin approval[:\s-]+([a-z][a-z\s.'-]+?)\s*[-–]\s*([0-9.]+)\s*%/i);
+    if (subjectMatch) {
+        data.candidateName = subjectMatch[1].trim();
+        data.marginPercentage = subjectMatch[2].trim();
+    }
+
+    const marginMatch = text.match(/\b(actual\s+margin|margin)\s*[:\-]?\s*([0-9.]+)\s*%/i);
+    if (marginMatch && !data.marginPercentage) {
+        data.marginPercentage = marginMatch[2].trim();
+    }
+
+    const reasonMatch = text.match(/reason needed for approval\??\s*[:\-]?\s*(.+)/i);
+    if (reasonMatch?.[1]) data.reason = reasonMatch[1].trim();
+
+    const placementMatch = text.match(/new placement,\s*extension,\s*or change of contract\??\s*[:\-]?\s*(.+)/i);
+    if (placementMatch?.[1]) data.placementType = placementMatch[1].trim();
+
+    const premiumMatch = text.match(/premium approval needed\??\s*[:\-]?\s*(.+)/i);
+    if (premiumMatch?.[1]) data.premiumNeeded = premiumMatch[1].trim();
+
+    const whyMatch = text.match(/\bwhy\?\s*[:\-]?\s*(.+)/i);
+    if (whyMatch?.[1]) data.why = whyMatch[1].trim();
+
+    const compMatch = text.match(/sent to comp info\s*\(y\/n\)\??\s*[:\-]?\s*(.+)/i);
+    if (compMatch?.[1]) data.sentToComp = compMatch[1].trim();
+
+    const distroMatch = text.match(/distro response\??\s*[:\-]?\s*(.+)/i);
+    if (distroMatch?.[1]) data.distroResponse = distroMatch[1].trim();
+
+    const novaUrlMatch = text.match(/https?:\/\/\S*nova\.ayahealthcare\.com\/\S+/i);
+    if (novaUrlMatch?.[0]) data.novaUrl = novaUrlMatch[0];
+
+    const emailMatch = text.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    if (emailMatch?.[1]) data.approverEmail = emailMatch[1];
 
     return data;
 }

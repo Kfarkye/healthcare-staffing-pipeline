@@ -48,6 +48,7 @@ export const TemplateType = {
     LICENSING: 'licensing',
     REASSIGNMENT: 'reassignment',
     OFFER_DETAILS: 'offer_details',
+    MARGIN_APPROVAL: 'margin_approval',
 } as const;
 
 export type TemplateTypeValue = typeof TemplateType[keyof typeof TemplateType];
@@ -121,6 +122,23 @@ export interface ReassignmentRequestData {
 }
 
 /**
+ * Data for margin approval emails (internal)
+ */
+export interface MarginApprovalData {
+    candidateName: string | null;
+    marginPercentage: string | null;
+    reason: string | null;
+    placementType: string | null;
+    premiumNeeded: string | null;
+    sentToComp: string | null;
+    approverEmail: string | null;
+    novaUrl?: string | null;
+    facility?: string | null;
+    why?: string | null;
+    distroResponse?: string | null;
+}
+
+/**
  * Data for offer details emails
  */
 export interface OfferDetailsData extends PayPackageData {
@@ -139,6 +157,7 @@ export type EmailData =
     | ReferenceRequestData
     | LicensingRequestData
     | ReassignmentRequestData
+    | MarginApprovalData
     | OfferDetailsData;
 
 // ════════════════════════════════════════════════════════════════════════════════

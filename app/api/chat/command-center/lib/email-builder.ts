@@ -16,6 +16,7 @@ import type {
     ReferenceRequestData,
     LicensingRequestData,
     ReassignmentRequestData,
+    MarginApprovalData,
     OfferDetailsData,
     EmailOutput,
     TemplateTypeValue,
@@ -429,6 +430,59 @@ export function buildReassignmentRequestEmail(data: ReassignmentRequestData): Em
 }
 
 /**
+ * Build margin approval email (internal)
+ */
+export function buildMarginApprovalEmail(data: MarginApprovalData): EmailOutput {
+    const missing = getMissing(data, [
+        'candidateName',
+        'marginPercentage',
+        'reason',
+        'placementType',
+        'premiumNeeded',
+        'sentToComp',
+        'approverEmail',
+    ]);
+
+    const marginRaw = data.marginPercentage ? String(data.marginPercentage).replace(/%/g, '').trim() : '';
+    const marginLabel = marginRaw ? `${marginRaw}%` : 'Margin %';
+    const subject = `Margin Approval: ${data.candidateName || 'Candidate'} - ${marginLabel}`;
+
+    const lines: string[] = [];
+
+    lines.push('Hi Team,');
+    lines.push('');
+    lines.push(`Reason needed for approval? ${data.reason || '[Reason needed]'}`);
+    lines.push(`Is this a New Placement, Extension, or Change of Contract? ${data.placementType || '[Placement type]'}`);
+    lines.push(`Is premium approval needed? ${data.premiumNeeded || '[Y/N]'}`);
+
+    if (data.why && data.why !== data.reason) {
+        lines.push(`Why? ${data.why}`);
+    }
+
+    lines.push(`Was this sent to Comp Info (Y/N)? ${data.sentToComp || '[Y/N]'}`);
+
+    if (data.distroResponse) {
+        lines.push(`Distro response: ${data.distroResponse}`);
+    }
+
+    if (data.novaUrl) {
+        lines.push(`Nova link: ${data.novaUrl}`);
+    }
+
+    if (data.facility) {
+        lines.push(`Facility: ${data.facility}`);
+    }
+
+    return createOutput(
+        TemplateType.MARGIN_APPROVAL,
+        data.approverEmail || '',
+        subject,
+        lines.join('\n'),
+        missing
+    );
+}
+
+/**
  * Build offer details email
  */
 export function buildOfferDetailsEmail(data: OfferDetailsData): EmailOutput {
@@ -495,6 +549,7 @@ const TEMPLATE_BUILDERS: Record<TemplateTypeValue, (data: any) => EmailOutput> =
     [TemplateType.REENGAGED_TRAVELER]: buildReengagedTravelerEmail,
     [TemplateType.LICENSING]: buildLicensingRequestEmail,
     [TemplateType.REASSIGNMENT]: buildReassignmentRequestEmail,
+    [TemplateType.MARGIN_APPROVAL]: buildMarginApprovalEmail,
     [TemplateType.OFFER_DETAILS]: buildOfferDetailsEmail,
 };
 
@@ -524,6 +579,7 @@ export function detectTemplateType(message: string, modeContext: string = ''): T
     if (text.includes('re-engaged') || text.includes('reengaged')) return TemplateType.REENGAGED_TRAVELER;
     if (text.includes('reassignment') || text.includes('reassign')) return TemplateType.REASSIGNMENT;
     if (text.includes('licensing')) return TemplateType.LICENSING;
+    if (text.includes('margin approval') || /\bmargin\b.*%/.test(text)) return TemplateType.MARGIN_APPROVAL;
     if (text.includes('offer detail')) return TemplateType.OFFER_DETAILS;
 
     // Content-based detection

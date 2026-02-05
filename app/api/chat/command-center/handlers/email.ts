@@ -21,9 +21,10 @@ import type {
     HandlerContext,
     TemplateTypeValue,
     PayPackageData,
+    MarginApprovalData,
     EmailOutput,
 } from '../types/index';
-import { TemplateType } from '../types/index';
+import { TemplateType, MessageType } from '../types/index';
 import { CONTEXT_TEMPLATE_MAP } from '../lib/config';
 import {
     extractPayPackageData,
@@ -33,7 +34,9 @@ import {
     extractNovaLinkFromMessages,
     extractLicensingData,
     extractWithRegex,
-    extractPayPackageNotesFromText
+    extractPayPackageNotesFromText,
+    extractMarginApprovalDataFromMessages,
+    extractMarginApprovalFromText
 } from '../lib/extractor';
 import {
     buildEmail,
@@ -157,6 +160,19 @@ async function extractDataForTemplate(
             }
             break;
 
+        case TemplateType.MARGIN_APPROVAL:
+            if (input.hasImage) {
+                const result = await extractMarginApprovalDataFromMessages(input.messages, google);
+                if (result.success) {
+                    data = { ...data, ...result.data };
+                }
+            }
+            if (input.inputText) {
+                const textData = extractMarginApprovalFromText(input.inputText);
+                mergeDefined(data, textData as Record<string, any>);
+            }
+            break;
+
         case TemplateType.DOC_REQUEST:
             // Extract document list from message
             const docMatches = input.inputText.match(/\b(bls|acls|pals|cpr|license|resume|skills?\s*checklist)\b/gi);
@@ -183,6 +199,60 @@ async function extractDataForTemplate(
     }
 
     return data;
+}
+
+const INTERNAL_TEMPLATES = new Set<TemplateTypeValue>([
+    TemplateType.REASSIGNMENT,
+    TemplateType.LICENSING,
+    TemplateType.MARGIN_APPROVAL,
+]);
+
+const HARD_FAIL_TEMPLATES = new Set<TemplateTypeValue>([
+    TemplateType.PAY_PACKAGE,
+    TemplateType.WORKING_TRAVELER,
+    TemplateType.REENGAGED_TRAVELER,
+    TemplateType.OFFER_DETAILS,
+]);
+
+function formatMissingList(missing: string[]): string {
+    const LABELS: Record<string, string> = {
+        facility: 'facility',
+        location: 'location',
+        startDate: 'start date',
+        weeklyTotal: 'weekly total',
+        candidateName: 'candidate name',
+        marginPercentage: 'margin %',
+        reason: 'reason needed for approval',
+        placementType: 'placement type (new placement/extension/change)',
+        premiumNeeded: 'premium approval needed (Y/N)',
+        sentToComp: 'sent to comp info (Y/N)',
+        approverEmail: 'approver email',
+        novaId: 'Nova ID',
+    };
+
+    return missing.map((field) => LABELS[field] || field).join(', ');
+}
+
+function buildClarifyPrompt(templateType: TemplateTypeValue, missing: string[], messageType?: string): string {
+    const missingText = formatMissingList(missing);
+    const isInternal = INTERNAL_TEMPLATES.has(templateType);
+    const needsMessageType = !isInternal && messageType === MessageType.AUTO;
+
+    if (templateType === TemplateType.MARGIN_APPROVAL) {
+        let prompt = `I can draft the margin approval email, but I still need: ${missingText}.`;
+        if (needsMessageType) prompt += ' Should this be an email or a text?';
+        return prompt;
+    }
+
+    if (HARD_FAIL_TEMPLATES.has(templateType)) {
+        let prompt = `I can draft the outreach, but I still need: ${missingText}.`;
+        if (needsMessageType) prompt += ' Should this be an email or a text?';
+        return prompt;
+    }
+
+    let prompt = `I can draft that, but I still need: ${missingText}.`;
+    if (needsMessageType) prompt += ' Should this be an email or a text?';
+    return prompt;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -221,6 +291,31 @@ export async function handleEmailIntent(
             isComplete: email.isComplete,
             missing: email.missing
         });
+
+        const needsMessageType = !INTERNAL_TEMPLATES.has(templateType) && input.messageType === MessageType.AUTO;
+
+        // Hard-fail for missing required fields on outreach templates
+        if (HARD_FAIL_TEMPLATES.has(templateType) && email.missing.length > 0) {
+            return {
+                type: 'chat',
+                content: buildClarifyPrompt(templateType, email.missing, input.messageType),
+            };
+        }
+
+        // Margin approval: ask for missing fields rather than sending placeholders
+        if (templateType === TemplateType.MARGIN_APPROVAL && email.missing.length > 0) {
+            return {
+                type: 'chat',
+                content: buildClarifyPrompt(templateType, email.missing, input.messageType),
+            };
+        }
+
+        if (needsMessageType) {
+            return {
+                type: 'chat',
+                content: 'Do you want this as an email or a text?',
+            };
+        }
 
         // 4. Format response
         const content = formatEmailText(email);

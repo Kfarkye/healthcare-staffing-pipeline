@@ -48,6 +48,8 @@ const PATTERNS = {
     emailMedium: /\b(email|message|draft)\b/i,
     outreach: /\boutreach\b/i,
     payPackage: /\bpay\s*package\b/i,
+    marginApproval: /\b(margin\s*approval|margin\s*approve|approval\s*for\s*margin|low\s*margin)\b/i,
+    marginPercent: /\b\d{1,2}(?:\.\d{1,2})?\s*%\b/i,
     contextUpdate: /\b(update|fyi|new\s+info|correction|approved|denied|declined|confirmed|extension|rate|offer|accepted|rejected|start\s+date|end\s+date|shift|facility|location|pay|stipend|weekly|bonus|rto|time[-\s]?off)\b/i,
 
     // Entity detection
@@ -604,6 +606,18 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     if (PATTERNS.document.test(lower) && isEmailRequest(text)) {
         return {
             ...createResult(Intent.DRAFT_EMAIL, TemplateType.DOC_REQUEST, 'Document request'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
+    }
+
+    if (PATTERNS.marginApproval.test(lower) || (PATTERNS.marginPercent.test(text) && /margin/i.test(lower))) {
+        return {
+            ...createResult(Intent.DRAFT_EMAIL, TemplateType.MARGIN_APPROVAL, 'Margin approval request'),
             debug: {
                 messageLength: text.length,
                 hasImage,

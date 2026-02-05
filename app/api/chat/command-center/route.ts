@@ -176,7 +176,7 @@ function getInputText(messages: NormalizedMessage[]): string {
 function detectMessageType(inputText: string, explicit?: MessageTypeValue): MessageTypeValue {
     if (explicit && explicit !== MessageType.AUTO) return explicit;
     const text = (inputText || '').toLowerCase();
-    if (!text) return MessageType.EMAIL;
+    if (!text) return MessageType.AUTO;
 
     const hasSlackSignal =
         /\bslack\b/.test(text) ||
@@ -191,7 +191,15 @@ function detectMessageType(inputText: string, explicit?: MessageTypeValue): Mess
         return MessageType.SMS;
     }
 
-    return MessageType.EMAIL;
+    const hasEmailSignal =
+        /\bemail\b/.test(text) ||
+        /\bsubject\b/.test(text) ||
+        /\bto:\b/.test(text) ||
+        /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(text);
+
+    if (hasEmailSignal) return MessageType.EMAIL;
+
+    return MessageType.AUTO;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
