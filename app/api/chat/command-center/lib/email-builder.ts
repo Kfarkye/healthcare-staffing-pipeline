@@ -19,9 +19,10 @@ import type {
     OfferDetailsData,
     EmailOutput,
     TemplateTypeValue,
+    MessageTypeValue,
 } from '../types/index';
 
-import { TemplateType } from '../types/index';
+import { TemplateType, MessageType } from '../types/index';
 import { CONFIG, buildNovaUrl } from './config';
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -481,12 +482,16 @@ const TEMPLATE_BUILDERS: Record<TemplateTypeValue, (data: any) => EmailOutput> =
 /**
  * Build email using specified template
  */
-export function buildEmail(templateType: TemplateTypeValue, data: Record<string, any>): EmailOutput {
+export function buildEmail(
+    templateType: TemplateTypeValue,
+    data: Record<string, any>,
+    messageType: MessageTypeValue = MessageType.EMAIL
+): EmailOutput {
     const builder = TEMPLATE_BUILDERS[templateType];
-    if (!builder) {
-        return buildPayPackageEmail(data as PayPackageData);
-    }
-    return builder(data);
+    const email = builder ? builder(data) : buildPayPackageEmail(data as PayPackageData);
+    const resolvedMessageType = messageType === MessageType.AUTO ? MessageType.EMAIL : messageType;
+    email.messageType = resolvedMessageType;
+    return email;
 }
 
 /**
@@ -516,12 +521,31 @@ export function detectTemplateType(message: string, modeContext: string = ''): T
 /**
  * Format email as plain text for API response
  */
+function formatBodyForMessageType(body: string, messageType: MessageTypeValue): string {
+    const resolvedMessageType = messageType === MessageType.AUTO ? MessageType.EMAIL : messageType;
+    if (resolvedMessageType === MessageType.SMS) {
+        const lines = body.split('\n').map(l => l.trim()).filter(Boolean);
+        const filtered = lines.filter((line) => !/^hi\s+/i.test(line) && !/^thank(s| you)/i.test(line));
+        return filtered.slice(0, 6).join(' ');
+    }
+    if (resolvedMessageType === MessageType.SLACK) {
+        const lines = body.split('\n').map(l => l.trim()).filter(Boolean);
+        return lines.join('\n');
+    }
+    return body;
+}
+
 export function formatEmailText(email: EmailOutput): string {
+    const messageType = email.messageType === MessageType.AUTO ? MessageType.EMAIL : (email.messageType || MessageType.EMAIL);
+    const body = formatBodyForMessageType(email.body, messageType);
+    if (messageType !== MessageType.EMAIL) {
+        return body;
+    }
     const lines: string[] = [];
     if (email.to) lines.push(`To: ${email.to}`);
     lines.push(`Subject: ${email.subject}`);
     lines.push('');
-    lines.push(email.body);
+    lines.push(body);
     return lines.join('\n');
 }
 
@@ -529,19 +553,22 @@ export function formatEmailText(email: EmailOutput): string {
  * Format email as structured JSON for frontend
  */
 export function formatEmailStructured(email: EmailOutput): object {
+    const messageType = email.messageType === MessageType.AUTO ? MessageType.EMAIL : (email.messageType || MessageType.EMAIL);
+    const body = formatBodyForMessageType(email.body, messageType);
     return {
         kind: 'email_draft',
         email: {
             to: email.to || null,
             cc: email.cc,
-            subject: email.subject,
-            body: email.body,
+            subject: messageType === MessageType.EMAIL ? email.subject : '',
+            body,
         },
         metadata: {
             templateType: email.templateType,
             isComplete: email.isComplete,
             missingFields: email.missing,
-            generatedAt: new Date().toISOString(),
+            extractedAt: new Date().toISOString(),
+            messageType,
         },
     };
 }

@@ -159,7 +159,7 @@ export async function handleEmailIntent(
         });
 
         // 3. Build email (DETERMINISTIC - no LLM)
-        const email: EmailOutput = buildEmail(templateType, data);
+        const email: EmailOutput = buildEmail(templateType, data, input.messageType);
         logger.info('email_built', {
             templateType: email.templateType,
             isComplete: email.isComplete,

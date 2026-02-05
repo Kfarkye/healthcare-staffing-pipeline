@@ -29,8 +29,9 @@ import type {
     HandlerContext,
     Logger,
     ChatModeType,
+    MessageTypeValue,
 } from './types/index';
-import { Intent, ChatMode } from './types/index';
+import { Intent, ChatMode, MessageType } from './types/index';
 import { classify } from './lib/router';
 import { getIntentConfig, HTTP_CONFIG } from './lib/config';
 import { createCommandCenterTools } from './lib/tools';
@@ -61,6 +62,7 @@ const RequestSchema = z.object({
     systemContext: z.string().optional(),
     mode: z.enum(['default', 'cold_outreach', 'batch_reassign', 'reply_mode']).optional(),
     modeLocked: z.boolean().optional(),
+    messageType: z.enum(['auto', 'email', 'sms', 'slack', 'other']).optional(),
 });
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -171,6 +173,27 @@ function getInputText(messages: NormalizedMessage[]): string {
         .join('\n');
 }
 
+function detectMessageType(inputText: string, explicit?: MessageTypeValue): MessageTypeValue {
+    if (explicit && explicit !== MessageType.AUTO) return explicit;
+    const text = (inputText || '').toLowerCase();
+    if (!text) return MessageType.EMAIL;
+
+    const hasSlackSignal =
+        /\bslack\b/.test(text) ||
+        /@here\b/.test(text) ||
+        /@channel\b/.test(text) ||
+        /<@[\w.-]+>/.test(text);
+    if (hasSlackSignal) return MessageType.SLACK;
+
+    const hasSmsSignal = /\b(sms|text|texting)\b/.test(text);
+    const hasPhone = /(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/.test(text);
+    if (hasSmsSignal || (hasPhone && !/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(text))) {
+        return MessageType.SMS;
+    }
+
+    return MessageType.EMAIL;
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // Response Helpers
 // ════════════════════════════════════════════════════════════════════════════════
@@ -267,7 +290,7 @@ export async function POST(request: Request) {
         return createErrorResponse('Invalid request schema', traceId, 400);
     }
 
-    const { messages, context, systemContext, mode, modeLocked } = parseResult.data;
+    const { messages, context, systemContext, mode, modeLocked, messageType } = parseResult.data;
 
     // ══════════════════════════════════════════════════════════════════════════
     // 3. Initialize Clients
@@ -300,11 +323,14 @@ export async function POST(request: Request) {
         inputTextPreview: inputText.substring(0, 100),
     });
 
+    const resolvedMessageType = detectMessageType(inputText, messageType as MessageTypeValue | undefined);
+
     logger.info('request_received', {
         inputLength: inputText.length,
         hasImage: imagePresent,
         mode,
         modeLocked,
+        messageType: resolvedMessageType,
         messageCount: messages.length,
         lastMessageRole: messages[messages.length - 1]?.role,
         lastMessageContentType: typeof messages[messages.length - 1]?.content,
@@ -351,6 +377,7 @@ export async function POST(request: Request) {
         mode: (mode || 'default') as ChatModeType,
         modeContext: systemContext || '',
         userContext: context || {},
+        messageType: resolvedMessageType,
     };
 
     // ══════════════════════════════════════════════════════════════════════════

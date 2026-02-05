@@ -52,6 +52,16 @@ export const TemplateType = {
 
 export type TemplateTypeValue = typeof TemplateType[keyof typeof TemplateType];
 
+export const MessageType = {
+    AUTO: 'auto',
+    EMAIL: 'email',
+    SMS: 'sms',
+    SLACK: 'slack',
+    OTHER: 'other',
+} as const;
+
+export type MessageTypeValue = typeof MessageType[keyof typeof MessageType];
+
 // ════════════════════════════════════════════════════════════════════════════════
 // SECTION 2: Extracted Data Types
 // ════════════════════════════════════════════════════════════════════════════════
@@ -145,6 +155,7 @@ export interface EmailOutput {
     missing: string[];
     isComplete: boolean;
     templateType: TemplateTypeValue;
+    messageType?: MessageTypeValue;
 }
 
 /**
@@ -164,6 +175,7 @@ export interface EmailDraftResponse {
         isComplete: boolean;
         missingFields: string[];
         extractedAt: string;
+        messageType?: MessageTypeValue;
     };
     nextSteps: NextStepAction[];
 }
@@ -252,6 +264,7 @@ export interface HandlerInput {
     mode: ChatModeType;
     modeContext: string;
     userContext: Record<string, any>;
+    messageType?: MessageTypeValue;
 }
 
 /**
@@ -343,6 +356,7 @@ export interface APIRequest {
     systemContext?: string;
     mode?: ChatModeType;
     modeLocked?: boolean;
+    messageType?: MessageTypeValue;
 }
 
 /**
