@@ -129,6 +129,8 @@ The request is unclear. Ask ONE specific clarifying question to understand what 
 };
 
 const REFRESH_MARKER = '[[REFRESH_DASHBOARD]]';
+const PROSPECT_UPSERT_PREFIX = '[[PROSPECT_UPSERT:';
+const PROSPECT_UPSERT_SUFFIX = ']]';
 
 const EDIT_INSTRUCTION_RX = /\b(remove|omit|leave\s+out|shorter|tone|polish|rewrite|revise|edit|fix|tweak|adjust|cut|trim|clean\s*up|change|replace|swap)\b/i;
 const CONTEXT_UPDATE_RX = /\b(update|fyi|new\s+info|correction|approved|denied|declined|confirmed|extension|rate|offer|accepted|rejected|start\s+date|end\s+date|shift|facility|location|pay|stipend|weekly|bonus|rto|time[-\s]?off)\b/i;
@@ -298,10 +300,19 @@ function extractCandidateIdFromText(text: string): number | null {
         const id = Number(urlMatch[1]);
         return Number.isFinite(id) ? id : null;
     }
+    const labeledMatch = text.match(/\b(?:candidate|nova)\s*(?:id)?\s*[:#]?\s*(\d{6,8})\b/i);
+    if (labeledMatch?.[1]) {
+        const id = Number(labeledMatch[1]);
+        return Number.isFinite(id) ? id : null;
+    }
     const idMatch = text.match(/\b(\d{6,8})\b/);
     if (idMatch?.[1]) {
-        const id = Number(idMatch[1]);
-        return Number.isFinite(id) ? id : null;
+        const compact = text.replace(/\s+/g, ' ').trim();
+        const hasLetters = /[a-z]/i.test(compact);
+        if (!hasLetters || compact.length <= 24) {
+            const id = Number(idMatch[1]);
+            return Number.isFinite(id) ? id : null;
+        }
     }
     return null;
 }
@@ -310,6 +321,17 @@ function extractEmailFromText(text: string): string | null {
     if (!text) return null;
     const match = text.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
     return match?.[1] || null;
+}
+
+function extractNovaUrlFromText(text: string): string | null {
+    if (!text) return null;
+    const directMatch = text.match(/https?:\/\/(?:www\.)?nova\.ayahealthcare\.com\/#\/[^\s)]+/i);
+    if (directMatch?.[0]) return directMatch[0];
+    const bareMatch = text.match(/nova\.ayahealthcare\.com\/#\/[^\s)]+/i);
+    if (bareMatch?.[0]) return `https://${bareMatch[0].replace(/^\/+/, '')}`;
+    const hashMatch = text.match(/#\/recruiting\/candidates?\/\d+\/[^\s)]+/i);
+    if (hashMatch?.[0]) return `${CONFIG.nova.baseUrl}${hashMatch[0]}`;
+    return null;
 }
 
 function extractNameFromAddRequest(text: string): string | null {
@@ -329,11 +351,35 @@ function sanitizeCandidateName(raw: string | null): string | null {
     if (!raw) return null;
     const cleaned = raw.replace(/[^a-zA-Z.'-\\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!cleaned) return null;
-    const lower = cleaned.toLowerCase();
-    const invalid = new Set(['her', 'him', 'them', 'this', 'that', 'candidate', 'prospect', 'unknown', 'n/a']);
-    if (invalid.has(lower)) return null;
-    if (lower.length < 2) return null;
-    return toTitleCaseName(cleaned);
+    const tokens = cleaned.split(/\s+/).filter(Boolean);
+    const invalid = new Set([
+        'her',
+        'him',
+        'them',
+        'this',
+        'that',
+        'candidate',
+        'prospect',
+        'system',
+        'add',
+        'save',
+        'enter',
+        'register',
+        'onboard',
+        'the',
+        'to',
+        'in',
+        'unknown',
+        'n/a',
+    ]);
+    const filtered = tokens.filter((token) => {
+        const lower = token.toLowerCase();
+        if (lower.length < 2) return false;
+        if (invalid.has(lower)) return false;
+        return true;
+    });
+    if (filtered.length === 0) return null;
+    return toTitleCaseName(filtered.slice(0, 4).join(' '));
 }
 
 function stripSignatureBlock(text: string): string {
@@ -377,6 +423,27 @@ function stripSignatureBlock(text: string): string {
     return lines.slice(0, sigStart).join('\n').trimEnd();
 }
 
+function buildProspectUpsertMarker(prospect: any): string {
+    if (!prospect || typeof prospect !== 'object') return '';
+    const payload = {
+        id: prospect.id,
+        candidate_id: prospect.candidate_id ?? null,
+        name: prospect.name ?? null,
+        email: prospect.email ?? null,
+        phone: prospect.phone ?? null,
+        status: prospect.status ?? null,
+        created_at: prospect.created_at ?? null,
+        updated_at: prospect.updated_at ?? null,
+        nova_url: prospect.nova_url ?? null,
+        specialty: prospect.specialty ?? null,
+        profession: prospect.profession ?? null,
+        recruiter: prospect.recruiter ?? null,
+    };
+    if (payload.id == null) return '';
+    const encoded = encodeURIComponent(JSON.stringify(payload));
+    return `${PROSPECT_UPSERT_PREFIX}${encoded}${PROSPECT_UPSERT_SUFFIX}`;
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // Main Handler
 // ════════════════════════════════════════════════════════════════════════════════
@@ -398,7 +465,7 @@ export async function handleChatIntent(
             let candidateName: string | null = extractNameFromAddRequest(text);
             let candidateEmail: string | null = extractEmailFromText(text);
             let candidateId: number | null = extractCandidateIdFromText(text);
-            let candidateNovaUrl: string | null = null;
+            let candidateNovaUrl: string | null = extractNovaUrlFromText(text);
 
             if (input.hasImage) {
                 const extracted = await extractCandidateDataFromMessages(input.messages, google);
@@ -492,10 +559,12 @@ export async function handleChatIntent(
                 };
             }
 
+            const upsertMarker = buildProspectUpsertMarker(addResult.prospect);
+
             if (!isReassign) {
                 return {
                     type: 'chat',
-                    content: `Candidate ${candidateName || 'added'} ${addResult.action === 'updated' ? 'updated' : 'added'} successfully. ${REFRESH_MARKER}`,
+                    content: `Candidate ${candidateName || 'added'} ${addResult.action === 'updated' ? 'updated' : 'added'} successfully. ${upsertMarker} ${REFRESH_MARKER}`.trim(),
                 };
             }
 
@@ -505,7 +574,7 @@ export async function handleChatIntent(
                 novaId: candidateId ? String(candidateId) : null,
             });
 
-            const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\nCandidate ${addResult.action === 'updated' ? 'updated' : 'added'} in system. ${REFRESH_MARKER}`;
+            const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\nCandidate ${addResult.action === 'updated' ? 'updated' : 'added'} in system. ${upsertMarker} ${REFRESH_MARKER}`.trim();
             return {
                 type: 'chat',
                 content: tagged,

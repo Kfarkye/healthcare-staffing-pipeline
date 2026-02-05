@@ -95,6 +95,7 @@ export interface UseCommandCenterChatReturn {
 
 const STORAGE_KEY = 'command_center_messages_v1';
 const REFRESH_MARKER = '[[REFRESH_DASHBOARD]]';
+const PROSPECT_UPSERT_RX = /\[\[PROSPECT_UPSERT:([^\]]+)\]\]/g;
 
 function generateId(): string {
     return typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
@@ -363,6 +364,7 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
             let payloadHash: string | null = null;
             let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
             let didDispatchRefresh = false;
+            const dispatchedProspects = new Set<string>();
 
             // Track outcome for dedupe clearing policy
             let didStartStream = false;
@@ -521,14 +523,35 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                 };
 
                 const applyClientMarkers = (text: string) => {
-                    if (text.includes(REFRESH_MARKER)) {
-                        text = text.replaceAll(REFRESH_MARKER, '').trim();
+                    let output = text;
+
+                    if (output.includes('[[PROSPECT_UPSERT:')) {
+                        const matches = Array.from(output.matchAll(PROSPECT_UPSERT_RX));
+                        for (const match of matches) {
+                            try {
+                                const decoded = decodeURIComponent(match[1] || '');
+                                const payload = JSON.parse(decoded);
+                                const key = payload?.id != null ? String(payload.id) : decoded;
+                                if (!dispatchedProspects.has(key) && typeof window !== 'undefined') {
+                                    window.dispatchEvent(new CustomEvent('prospect_upsert', { detail: payload }));
+                                    dispatchedProspects.add(key);
+                                }
+                            } catch {
+                                // Ignore malformed markers
+                            }
+                        }
+                        output = output.replace(PROSPECT_UPSERT_RX, '').trim();
+                    }
+
+                    if (output.includes(REFRESH_MARKER)) {
+                        output = output.replaceAll(REFRESH_MARKER, '').trim();
                         if (!didDispatchRefresh && typeof window !== 'undefined') {
                             window.dispatchEvent(new CustomEvent('refresh_dashboard'));
                             didDispatchRefresh = true;
                         }
                     }
-                    return text;
+
+                    return output;
                 };
 
                 while (true) {

@@ -128,6 +128,39 @@ function mergeById(prev: Prospect[], next: Prospect[]): Prospect[] {
   return Array.from(map.values()).sort(sortByUpdatedDesc);
 }
 
+function normalizeProspectFromEvent(raw: any): Prospect | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = Number(raw.id);
+  if (!Number.isFinite(id)) return null;
+
+  const name = typeof raw.name === 'string' && raw.name.trim()
+    ? raw.name.trim()
+    : `Candidate ${raw.candidate_id ?? id}`;
+
+  const nowIso = new Date().toISOString();
+
+  return {
+    id,
+    candidate_id: raw.candidate_id ?? null,
+    name,
+    email: raw.email ?? null,
+    phone: raw.phone ?? null,
+    specialty: raw.specialty ?? null,
+    profession: raw.profession ?? null,
+    status: normalizeStatus(raw.status),
+    notes: raw.notes ?? null,
+    recruiter: raw.recruiter ?? null,
+    home_state: raw.home_state ?? null,
+    licenses: raw.licenses ?? null,
+    facility: raw.facility ?? null,
+    followup_stage: raw.followup_stage ?? null,
+    engagement_level: raw.engagement_level ?? null,
+    nova_url: raw.nova_url ?? null,
+    created_at: raw.created_at ?? nowIso,
+    updated_at: raw.updated_at ?? nowIso,
+  } as Prospect;
+}
+
 function writeCache(next: Prospect[]) {
   setCachedData(CACHE_KEY, next, CACHE_TTL_MS);
   setCachedData(`${CACHE_KEY}:stale`, next, STALE_HINT_MS);
@@ -467,6 +500,21 @@ const ProspectsDashboard: React.FC = () => {
     window.addEventListener('refresh_dashboard', onRefresh);
     return () => window.removeEventListener('refresh_dashboard', onRefresh);
   }, [loadData]);
+
+  useEffect(() => {
+    const onProspectUpsert = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const normalized = normalizeProspectFromEvent(detail);
+      if (!normalized) return;
+      setProspects((prev) => {
+        const next = upsertOne(prev, normalized);
+        writeCache(next);
+        return next;
+      });
+    };
+    window.addEventListener('prospect_upsert', onProspectUpsert);
+    return () => window.removeEventListener('prospect_upsert', onProspectUpsert);
+  }, []);
 
   useEffect(() => {
     const channel = supabase
