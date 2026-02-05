@@ -76,6 +76,21 @@ Rules:
 
 OUTPUT JSON ONLY:`;
 
+const CANDIDATE_NAME_ONLY_PROMPT = `Extract the candidate's FULL NAME from the text or image.
+
+OUTPUT: JSON only.
+
+{
+    "candidateName": string | null
+}
+
+Rules:
+1. Return the full name exactly as seen (first + last, include middle/second last if present).
+2. Do NOT infer or guess. Use null if not visible.
+3. Ignore labels, IDs, emails, and job details.
+
+OUTPUT JSON ONLY:`;
+
 const LICENSING_EXTRACTION_PROMPT = `Extract licensing request details.
 
 OUTPUT: JSON only.
@@ -257,6 +272,37 @@ export async function extractCandidateDataFromMessages(
         return {
             success: true,
             data: normalized || { candidateName: null, candidateEmail: null, novaId: null, novaUrl: null },
+        };
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error : new Error(String(error)),
+        };
+    }
+}
+
+/**
+ * Extract candidate name only from messages (name-focused prompt).
+ */
+export async function extractCandidateNameFromMessages(
+    messages: NormalizedMessage[],
+    googleClient: any
+): Promise<Result<{ candidateName: string | null }>> {
+    try {
+        const result = await generateText({
+            model: googleClient(MODEL_CONFIG.primary, {
+                safetySettings: MODEL_CONFIG.safetySettings
+            }),
+            system: CANDIDATE_NAME_ONLY_PROMPT,
+            messages: messages as any,
+            temperature: MODEL_CONFIG.extraction.temperature,
+            maxRetries: MODEL_CONFIG.extraction.maxRetries,
+        });
+
+        const data = parseJson<{ candidateName: string | null }>(result.text);
+        return {
+            success: true,
+            data: data || { candidateName: null },
         };
     } catch (error) {
         return {

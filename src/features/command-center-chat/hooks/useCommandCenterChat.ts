@@ -593,7 +593,8 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
 
                 // Final sync (no dropped tail)
                 if (!signal.aborted) {
-                    if (!accumulatedText.trim()) {
+                    const finalText = applyClientMarkers(accumulatedText);
+                    if (!finalText.trim()) {
                         throw new Error('No response received. Please try again.');
                     }
 
@@ -601,8 +602,7 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                         const updated = [...prev];
                         const lastIdx = updated.length - 1;
                         if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
-                            const displayText = applyClientMarkers(accumulatedText);
-                            updated[lastIdx] = { ...updated[lastIdx], content: displayText };
+                            updated[lastIdx] = { ...updated[lastIdx], content: finalText };
                         }
                         return updated;
                     });

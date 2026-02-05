@@ -23,9 +23,14 @@ import type {
     MessageTypeValue,
 } from '../types/index';
 import { Intent, TemplateType, MessageType } from '../types/index';
-import { CONFIG, MODEL_CONFIG } from '../lib/config';
+import { CONFIG, MODEL_CONFIG, buildNovaUrl } from '../lib/config';
 import { buildEmail } from '../lib/email-builder';
-import { extractCandidateData, extractCandidateDataFromMessages, extractNovaLinkFromMessages } from '../lib/extractor';
+import {
+    extractCandidateData,
+    extractCandidateDataFromMessages,
+    extractCandidateNameFromMessages,
+    extractNovaLinkFromMessages
+} from '../lib/extractor';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // System Prompts
@@ -382,6 +387,11 @@ function sanitizeCandidateName(raw: string | null): string | null {
     return toTitleCaseName(filtered.slice(0, 4).join(' '));
 }
 
+function isSingleTokenName(name: string | null): boolean {
+    if (!name) return false;
+    return name.trim().split(/\s+/).filter(Boolean).length < 2;
+}
+
 function stripSignatureBlock(text: string): string {
     if (!text) return text;
     const markers = [
@@ -503,6 +513,14 @@ export async function handleChatIntent(
 
             candidateName = sanitizeCandidateName(candidateName);
 
+            if (input.hasImage && (!candidateName || isSingleTokenName(candidateName))) {
+                const nameOnly = await extractCandidateNameFromMessages(input.messages, google);
+                if (nameOnly.success && nameOnly.data?.candidateName) {
+                    const cleaned = sanitizeCandidateName(nameOnly.data.candidateName);
+                    if (cleaned) candidateName = cleaned;
+                }
+            }
+
             if (input.hasImage && !candidateId && !candidateNovaUrl) {
                 const linkExtracted = await extractNovaLinkFromMessages(input.messages, google);
                 if (linkExtracted.success) {
@@ -559,22 +577,37 @@ export async function handleChatIntent(
                 };
             }
 
+            const novaProfileUrl =
+                candidateNovaUrl ||
+                (candidateId ? buildNovaUrl(String(candidateId)) : null);
             const upsertMarker = buildProspectUpsertMarker(addResult.prospect);
+            const actionWord = addResult.action === 'updated' ? 'updated' : 'added';
+            const confirmationLines = [
+                `Candidate ${candidateName} ${actionWord} successfully.`,
+                novaProfileUrl ? `Nova Profile: ${novaProfileUrl}` : null,
+            ]
+                .filter(Boolean)
+                .join(' ');
 
             if (!isReassign) {
                 return {
                     type: 'chat',
-                    content: `Candidate ${candidateName || 'added'} ${addResult.action === 'updated' ? 'updated' : 'added'} successfully. ${upsertMarker} ${REFRESH_MARKER}`.trim(),
+                    content: `${confirmationLines} ${upsertMarker} ${REFRESH_MARKER}`.trim(),
                 };
             }
 
+            const novaIdForEmail = candidateId
+                ? String(candidateId)
+                : candidateNovaUrl
+                ? String(extractCandidateIdFromText(candidateNovaUrl) || '')
+                : null;
             const email = buildEmail(TemplateType.REASSIGNMENT, {
                 candidateName: candidateName,
                 candidateEmail: candidateEmail,
-                novaId: candidateId ? String(candidateId) : null,
+                novaId: novaIdForEmail || null,
             });
 
-            const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\nCandidate ${addResult.action === 'updated' ? 'updated' : 'added'} in system. ${upsertMarker} ${REFRESH_MARKER}`.trim();
+            const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\n${confirmationLines} ${upsertMarker} ${REFRESH_MARKER}`.trim();
             return {
                 type: 'chat',
                 content: tagged,

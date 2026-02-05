@@ -510,6 +510,20 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
             };
         }
 
+        // Image + explicit email request (non-edit/reply) → treat as outreach by default
+        const isDocOrReference = PATTERNS.reference.test(text.toLowerCase()) || PATTERNS.document.test(text.toLowerCase());
+        if (isEmailRequest(text) && !isReplyRequest(text) && !isEditRequest(text) && !isDocOrReference) {
+            return {
+                ...createResult(Intent.DRAFT_OUTREACH, templateType, 'Image + email request'),
+                debug: {
+                    messageLength: text.length,
+                    hasImage,
+                    lastEmailFound,
+                    lastEmailScanDepth: lastEmailScan.scanned,
+                },
+            };
+        }
+
         // Image + ambiguous text → LLM handles it (don't assume pay package)
         // This catches: "draft response", "clean up", "reply", etc.
         return {

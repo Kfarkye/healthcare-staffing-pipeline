@@ -25,7 +25,16 @@ import type {
 } from '../types/index';
 import { TemplateType } from '../types/index';
 import { CONTEXT_TEMPLATE_MAP } from '../lib/config';
-import { extractPayPackageData, extractCandidateData, extractLicensingData, extractWithRegex, extractPayPackageNotesFromText } from '../lib/extractor';
+import {
+    extractPayPackageData,
+    extractCandidateData,
+    extractCandidateDataFromMessages,
+    extractCandidateNameFromMessages,
+    extractNovaLinkFromMessages,
+    extractLicensingData,
+    extractWithRegex,
+    extractPayPackageNotesFromText
+} from '../lib/extractor';
 import {
     buildEmail,
     detectTemplateType,
@@ -111,11 +120,31 @@ async function extractDataForTemplate(
             break;
 
         case TemplateType.REASSIGNMENT:
+            if (input.hasImage) {
+                const result = await extractCandidateDataFromMessages(input.messages, google);
+                if (result.success) {
+                    data = { ...data, ...result.data };
+                }
+                const linkResult = await extractNovaLinkFromMessages(input.messages, google);
+                if (linkResult.success) {
+                    data = { ...data, ...linkResult.data };
+                }
+                if (!data.candidateName || String(data.candidateName).trim().split(/\s+/).length < 2) {
+                    const nameResult = await extractCandidateNameFromMessages(input.messages, google);
+                    if (nameResult.success && nameResult.data?.candidateName) {
+                        data.candidateName = nameResult.data.candidateName;
+                    }
+                }
+            }
             if (input.inputText) {
                 const result = await extractCandidateData(input.inputText, google);
                 if (result.success) {
                     data = { ...data, ...result.data };
                 }
+            }
+            if (!data.novaId && data.novaUrl) {
+                const match = String(data.novaUrl).match(/\/candidates?\/(\d+)/i);
+                if (match?.[1]) data.novaId = match[1];
             }
             break;
 

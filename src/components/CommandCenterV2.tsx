@@ -94,6 +94,7 @@ const REGEX_TAG_BODY = /\[BODY\]([\s\S]*?)\[\/BODY\]/i;
 
 // Structured email draft JSON format (from email-contract system)
 const REGEX_EMAIL_DRAFT_JSON = /\[EMAIL_DRAFT_JSON\]\s*([\s\S]*?)\s*\[\/EMAIL_DRAFT_JSON\]/i;
+const REGEX_CLIENT_MARKERS = /\[\[(?:PROSPECT_UPSERT:[^\]]+|REFRESH_DASHBOARD)\]\]/g;
 
 // Defaults (recruiting workflow standard)
 const DEFAULT_CC = 'Tiffany.Chavez@ayahealthcare.com';
@@ -833,16 +834,17 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
 
     const renderContent = useMemo(() => {
         if (!content) return null;
+        const sanitizedContent = content.replace(REGEX_CLIENT_MARKERS, '').trim();
         if (isUser) {
             const attachments: { filename: string; url: string }[] = [];
             let match; REGEX_ATTACHMENT.lastIndex = 0;
-            while ((match = REGEX_ATTACHMENT.exec(content)) !== null) attachments.push({ filename: match[1].trim(), url: match[2] });
-            if (attachments.length > 0) { const txt = content.replace(REGEX_ATTACHMENT, '').trim(); return <>{txt && <p className={cn(SYSTEM.type.body, 'text-[#1a1a1a]')}>{txt}</p>}{attachments.map((a, i) => <UserAttachment key={i} filename={a.filename} url={a.url} />)}</>; }
+            while ((match = REGEX_ATTACHMENT.exec(sanitizedContent)) !== null) attachments.push({ filename: match[1].trim(), url: match[2] });
+            if (attachments.length > 0) { const txt = sanitizedContent.replace(REGEX_ATTACHMENT, '').trim(); return <>{txt && <p className={cn(SYSTEM.type.body, 'text-[#1a1a1a]')}>{txt}</p>}{attachments.map((a, i) => <UserAttachment key={i} filename={a.filename} url={a.url} />)}</>; }
         }
 
         // Pre-process: If content is wrapped in <draft> tags (Chain of Thought), extract it.
-        let processedContent = content;
-        const draftMatch = content.match(/<draft>([\s\S]*?)<\/draft>/i);
+        let processedContent = sanitizedContent;
+        const draftMatch = sanitizedContent.match(/<draft>([\s\S]*?)<\/draft>/i);
         if (draftMatch) {
             processedContent = draftMatch[1].trim();
         }
@@ -970,9 +972,9 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
             }
         }
 
-        const verdictMatch = content.match(REGEX_VERDICT); if (verdictMatch) return <CandidateVerdict verdict={verdictMatch[1].toUpperCase() as any} details={content.replace(verdictMatch[0], '').trim()} />;
-        const insightMatch = content.match(REGEX_INSIGHT); if (insightMatch) return <AssessmentHUD content={insightMatch[1].trim()} />;
-        return <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{content}</ReactMarkdown>;
+        const verdictMatch = sanitizedContent.match(REGEX_VERDICT); if (verdictMatch) return <CandidateVerdict verdict={verdictMatch[1].toUpperCase() as any} details={sanitizedContent.replace(verdictMatch[0], '').trim()} />;
+        const insightMatch = sanitizedContent.match(REGEX_INSIGHT); if (insightMatch) return <AssessmentHUD content={insightMatch[1].trim()} />;
+        return <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{sanitizedContent}</ReactMarkdown>;
     }, [content, isUser, components]);
 
     return (
