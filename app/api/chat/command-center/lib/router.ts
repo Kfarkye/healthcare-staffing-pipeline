@@ -498,9 +498,28 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
 
     if (hasImage) {
         const templateType = detectTemplateType(text, input.modeContext || '');
+        const lowerText = text.toLowerCase();
+
+        // Margin approval screenshots should always route to margin approval,
+        // even if the user mentions extensions or other context.
+        if (
+            PATTERNS.marginApproval.test(lowerText) ||
+            (PATTERNS.marginPercent.test(text) && /margin/i.test(lowerText)) ||
+            /\b(actual\s+margin|target\s+margin|margin\s+calculator)\b/i.test(text)
+        ) {
+            return {
+                ...createResult(Intent.DRAFT_EMAIL, TemplateType.MARGIN_APPROVAL, 'Image + margin approval'),
+                debug: {
+                    messageLength: text.length,
+                    hasImage,
+                    lastEmailFound,
+                    lastEmailScanDepth: lastEmailScan.scanned,
+                },
+            };
+        }
 
         // Explicit outreach/pay package keywords with image → deterministic template
-        if (isOutreachRequest(text) || PATTERNS.payPackage.test(text.toLowerCase())) {
+        if (isOutreachRequest(text) || PATTERNS.payPackage.test(lowerText)) {
             return {
                 ...createResult(Intent.DRAFT_OUTREACH, templateType, 'Image + outreach keywords'),
                 debug: {
