@@ -154,6 +154,11 @@ function getMessageText(message: NormalizedMessage): string {
 function extractDraftFromText(text: string): string | null {
     if (!text) return null;
 
+    const draftTagMatch = text.match(/<draft>([\s\S]*?)<\/draft>/i);
+    if (draftTagMatch?.[1]) {
+        return draftTagMatch[1].trim();
+    }
+
     const jsonMatch = text.match(/\[EMAIL_DRAFT_JSON\]\s*([\s\S]*?)\s*\[\/EMAIL_DRAFT_JSON\]/i);
     if (jsonMatch?.[1]) {
         try {

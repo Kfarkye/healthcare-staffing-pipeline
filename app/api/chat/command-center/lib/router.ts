@@ -91,6 +91,38 @@ const ClassificationSchema = z.object({
     reason: z.string(),
 });
 
+// Vision-only classification (Gemini 3 Flash Preview)
+const VisionIntentSchema = z.object({
+    intent: z.enum([
+        'MARGIN_CALCULATOR',
+        'CANDIDATE_PROFILE',
+        'JOB_ORDER',
+        'PAY_PACKAGE',
+        'TIMESHEET',
+        'UNKNOWN',
+    ]),
+    confidence: z.number().min(0).max(1),
+    signals: z.array(z.string()).optional().default([]),
+});
+
+type VisionIntent = z.infer<typeof VisionIntentSchema>['intent'];
+
+const VISION_CONFIDENCE_THRESHOLD = 0.7;
+const VISION_SYSTEM_PROMPT = `You are a screenshot classifier for a healthcare recruiting platform.
+
+Classify the screenshot into exactly one category. Do not explain. Do not hedge.
+
+Categories:
+- MARGIN_CALCULATOR: Shows actual margin, target margin, bill rate, pay rate, or margin percentage fields.
+- CANDIDATE_PROFILE: Shows candidate name, credentials (RN, LPN, etc.), certifications, work history, or contact info.
+- JOB_ORDER: Shows facility name, unit type, shift requirements, dates, or staffing needs.
+- PAY_PACKAGE: Shows pay breakdown with hourly rate, stipends, housing, or total compensation.
+- TIMESHEET: Shows hours worked per day, approval status, or pay period grids.
+- UNKNOWN: Does not match any known category.
+
+Respond with JSON only:
+{"intent":"<CATEGORY>","confidence":0.0,"signals":["signal1","signal2"]}`;
+
 // ════════════════════════════════════════════════════════════════════════════════
 // Helper Functions
 // ════════════════════════════════════════════════════════════════════════════════
@@ -212,6 +244,7 @@ function getLastAssistantEmailScan(history: NormalizedMessage[], scanLimit: numb
             .trim();
         if (!text) continue;
         if (
+            /<draft>/i.test(text) ||
             /(^|\n)\s*Subject\s*:/i.test(text) ||
             /(^|\n)\s*To\s*:/i.test(text) ||
             /\[EMAIL_DRAFT_JSON\]/i.test(text) ||
@@ -225,6 +258,67 @@ function getLastAssistantEmailScan(history: NormalizedMessage[], scanLimit: numb
     return { found: false, scanned };
 }
 
+function getLastUserImage(history: NormalizedMessage[] | undefined): string | null {
+    if (!Array.isArray(history) || history.length === 0) return null;
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+        const msg = history[i];
+        if (!msg || msg.role !== 'user') continue;
+        const imagePart = msg.content.find(
+            (c): c is { type: 'image'; image: string | URL } => c.type === 'image' && 'image' in c,
+        );
+        if (!imagePart) continue;
+        const raw = imagePart.image;
+        if (typeof raw === 'string') return raw;
+        try {
+            return raw.toString();
+        } catch {
+            return null;
+        }
+    }
+    return null;
+}
+
+async function classifyVisionIntent(image: string, googleClient?: any): Promise<{ intent: VisionIntent; confidence: number; signals: string[] } | null> {
+    if (!googleClient || !image) return null;
+    let imageInput: string | URL = image;
+    if (typeof image === 'string' && image.startsWith('http')) {
+        try {
+            imageInput = new URL(image);
+        } catch {
+            imageInput = image;
+        }
+    }
+
+    try {
+        const { object } = await generateObject({
+            model: googleClient(MODEL_CONFIG.primary, { structuredOutputs: true, safetySettings: MODEL_CONFIG.safetySettings }),
+            schema: VisionIntentSchema,
+            temperature: 0,
+            system: VISION_SYSTEM_PROMPT,
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'image', image: imageInput },
+                        { type: 'text', text: 'Classify this screenshot.' },
+                    ],
+                },
+            ],
+        });
+
+        const parsed = VisionIntentSchema.safeParse(object);
+        if (!parsed.success) return null;
+        const confidence = Math.max(0, Math.min(1, parsed.data.confidence ?? 0));
+        return {
+            intent: parsed.data.intent,
+            confidence,
+            signals: parsed.data.signals ?? [],
+        };
+    } catch {
+        return null;
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // Main Classifier
 // ════════════════════════════════════════════════════════════════════════════════
@@ -235,6 +329,30 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     const lower = text.toLowerCase();
     const lastEmailScan = getLastAssistantEmailScan(input.history, 6);
     const lastEmailFound = lastEmailScan.found;
+    let visionOverride: ClassifyResult | null | undefined;
+
+    const getVisionOverride = async (): Promise<ClassifyResult | null> => {
+        if (visionOverride !== undefined) return visionOverride;
+        visionOverride = null;
+        if (!hasImage || !googleClient) return visionOverride;
+        const visionImage = getLastUserImage(input.history);
+        if (!visionImage) return visionOverride;
+        const visionResult = await classifyVisionIntent(visionImage, googleClient);
+        if (!visionResult || visionResult.confidence < VISION_CONFIDENCE_THRESHOLD) return visionOverride;
+        const confidence = visionResult.confidence;
+        const reason = `Vision: ${visionResult.intent} (${confidence.toFixed(2)})`;
+
+        if (visionResult.intent === 'MARGIN_CALCULATOR') {
+            visionOverride = createResult(Intent.DRAFT_EMAIL, TemplateType.MARGIN_APPROVAL, reason, false, confidence);
+            return visionOverride;
+        }
+        if (visionResult.intent === 'PAY_PACKAGE' || visionResult.intent === 'JOB_ORDER') {
+            visionOverride = createResult(Intent.DRAFT_OUTREACH, TemplateType.PAY_PACKAGE, reason, false, confidence);
+            return visionOverride;
+        }
+
+        return visionOverride;
+    };
 
     // ══════════════════════════════════════════════════════════════════════════
     // TIER 1: Empty/Trivial
@@ -277,6 +395,18 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
 
     if (hasImage && isEditRequest(text)) {
+        const override = await getVisionOverride();
+        if (override) {
+            return {
+                ...override,
+                debug: {
+                    messageLength: text.length,
+                    hasImage,
+                    lastEmailFound,
+                    lastEmailScanDepth: lastEmailScan.scanned,
+                },
+            };
+        }
         return {
             ...createResult(Intent.EDIT_CONTENT, null, 'Edit request with image'),
             debug: {
@@ -289,6 +419,18 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     }
 
     if (hasImage && isReplyRequest(text)) {
+        const override = await getVisionOverride();
+        if (override) {
+            return {
+                ...override,
+                debug: {
+                    messageLength: text.length,
+                    hasImage,
+                    lastEmailFound,
+                    lastEmailScanDepth: lastEmailScan.scanned,
+                },
+            };
+        }
         return {
             ...createResult(Intent.EDIT_CONTENT, null, 'Reply/response request with image'),
             debug: {
@@ -536,6 +678,19 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
         if (isEmailRequest(text) && !isReplyRequest(text) && !isEditRequest(text) && !isDocOrReference) {
             return {
                 ...createResult(Intent.DRAFT_OUTREACH, templateType, 'Image + email request'),
+                debug: {
+                    messageLength: text.length,
+                    hasImage,
+                    lastEmailFound,
+                    lastEmailScanDepth: lastEmailScan.scanned,
+                },
+            };
+        }
+
+        const visionOverrideResult = await getVisionOverride();
+        if (visionOverrideResult) {
+            return {
+                ...visionOverrideResult,
                 debug: {
                     messageLength: text.length,
                     hasImage,

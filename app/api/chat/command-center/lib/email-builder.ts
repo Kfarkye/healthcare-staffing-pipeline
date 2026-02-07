@@ -614,14 +614,14 @@ export function formatEmailText(email: EmailOutput): string {
     const messageType = email.messageType === MessageType.AUTO ? MessageType.EMAIL : (email.messageType || MessageType.EMAIL);
     const body = formatBodyForMessageType(email.body, messageType);
     if (messageType !== MessageType.EMAIL) {
-        return body;
+        return `<draft>\n${body}\n</draft>`;
     }
     const lines: string[] = [];
     if (email.to) lines.push(`To: ${email.to}`);
     lines.push(`Subject: ${email.subject}`);
     lines.push('');
     lines.push(body);
-    return lines.join('\n');
+    return `<draft>\n${lines.join('\n')}\n</draft>`;
 }
 
 /**
