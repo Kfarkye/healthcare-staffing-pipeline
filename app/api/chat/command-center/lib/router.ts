@@ -50,7 +50,7 @@ const PATTERNS = {
     infoQuestion: /^(who|what|where|when|why|how)\b/i,
     draftVerb: /\b(draft|write|compose|create|generate)\b/i,
     editVerb: /\b(clean\s*up|edit|fix|rewrite|revise|polish|improve|refine|tweak)\b/i,
-    editFollowup: /\b(remove|omit|leave\s+this\s+out|leave\s+out|delete|cut|exclude|strip|take\s+out|drop|change)\b|\b(shorter|longer|tone|polish|tweak|adjust|revise|edit|rewrite|reply|response|respond|answer)\b/i,
+    editFollowup: /\b(remove|omit|leave\s+this(?:\s+o(?:ut|uyt))?|leave\s+out|delete|cut|exclude|strip|take\s+out|drop|change)\b|\b(shorter|longer|tone|polish|tweak|adjust|revise|edit|rewrite|reply|response|respond|answer)\b/i,
     continueDraft: /\b(rest\s+of|the\s+rest|finish|complete|full|entire|continue|resume|remaining|keep\s+going|carry\s+on)\b/i,
     replyVerb: /\b(reply|respond|response|replying|responding|answer|answering)\b/i,
     emailMedium: /\b(email|message|draft)\b/i,

@@ -164,13 +164,29 @@ function hasImage(messages: NormalizedMessage[]): boolean {
     return last.content.some(c => c.type === 'image');
 }
 
+function sanitizeInputText(text: string): string {
+    if (!text) return '';
+
+    return text
+        // Strip markdown attachment links occasionally injected by UI copies.
+        .replace(/\[📎[^\]]+\]\([^)]+\)/g, '')
+        // Strip standalone attachment indicator lines.
+        .replace(/^\s*📎\s*[^\n]+$/gim, '')
+        // Strip bare filenames commonly appended after image uploads.
+        .replace(/^\s*image\.(?:png|jpe?g|gif|webp|heic|pdf)\s*$/gim, '')
+        .replace(/\u00a0/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
 function getInputText(messages: NormalizedMessage[]): string {
     const last = messages[messages.length - 1];
     if (!last) return '';
-    return last.content
+    const mergedText = last.content
         .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
         .map(c => c.text)
         .join('\n');
+    return sanitizeInputText(mergedText);
 }
 
 function detectMessageType(inputText: string, explicit?: MessageTypeValue): MessageTypeValue {

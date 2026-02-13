@@ -305,15 +305,26 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
     const handleDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); dragCounter.current--; if (dragCounter.current === 0) setIsDragActive(false); }, []);
     const handleDrop = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragActive(false); dragCounter.current = 0; if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files); }, [addFiles]);
     const handlePaste = useCallback((e: React.ClipboardEvent) => {
-        const files = Array.from(e.clipboardData?.items || [])
+        const rawFiles = Array.from(e.clipboardData?.items || [])
             .filter(i => i.kind === 'file')
             .map(i => i.getAsFile())
             .filter(Boolean) as File[];
 
-        if (!files.length) return;
+        if (!rawFiles.length) return;
 
-        const signature = files
-            .map(file => `${file.name}|${file.size}|${file.type}|${file.lastModified}`)
+        // Some clipboard providers expose duplicate file items for one image paste.
+        const uniqueFiles = Array.from(
+            rawFiles.reduce((map, file) => {
+                const key = `${file.type}|${file.size}|${file.name || 'clipboard-image'}`;
+                if (!map.has(key)) map.set(key, file);
+                return map;
+            }, new Map<string, File>()).values()
+        );
+
+        if (!uniqueFiles.length) return;
+
+        const signature = uniqueFiles
+            .map(file => `${file.name || 'clipboard-image'}|${file.size}|${file.type}`)
             .join('||');
         const now = Date.now();
         const duplicatePaste =
@@ -325,7 +336,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
         if (duplicatePaste) return;
 
         lastPasteRef.current = { signature, ts: now };
-        addFiles(files);
+        addFiles(uniqueFiles);
     }, [addFiles]);
 
     // Computed

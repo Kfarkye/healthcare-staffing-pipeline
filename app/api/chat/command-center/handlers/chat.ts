@@ -461,6 +461,27 @@ function stripDraftWrapper(text: string): string {
     return current;
 }
 
+function stripCommonModelWrappers(text: string): string {
+    if (!text) return text;
+    let current = text.trim();
+
+    // Remove fenced wrapper when the whole response is fenced.
+    const fencedMatch = current.match(/^```(?:[\w-]+)?\s*([\s\S]*?)\s*```$/);
+    if (fencedMatch?.[1]) {
+        current = fencedMatch[1].trim();
+    }
+
+    // Remove lightweight XML-style envelope tags often returned by some models.
+    current = current
+        .replace(/^<email>\s*/i, '')
+        .replace(/\s*<\/email>$/i, '')
+        .replace(/^<response>\s*/i, '')
+        .replace(/\s*<\/response>$/i, '')
+        .trim();
+
+    return current;
+}
+
 function shouldUsePreviousDraftContext(input: HandlerInput, lastDraft: string | null): boolean {
     if (!lastDraft) return false;
     if (!input.hasImage) return true;
@@ -772,8 +793,9 @@ export async function handleChatIntent(
         }));
 
         let text = result.text || '';
+        text = stripCommonModelWrappers(text);
+        text = stripDraftWrapper(text);
         if (intent === Intent.EDIT_CONTENT) {
-            text = stripDraftWrapper(text);
             text = stripSignatureBlock(text);
         }
         if (!text.trim()) {
