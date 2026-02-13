@@ -486,18 +486,6 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
 
     if (hasImage && isEditRequest(text)) {
-        const override = await getVisionOverride();
-        if (override) {
-            return {
-                ...override,
-                debug: {
-                    messageLength: text.length,
-                    hasImage,
-                    lastEmailFound,
-                    lastEmailScanDepth: lastEmailScan.scanned,
-                },
-            };
-        }
         return {
             ...createResult(Intent.EDIT_CONTENT, null, 'Edit request with image'),
             debug: {
@@ -510,18 +498,6 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     }
 
     if (hasImage && isReplyRequest(text)) {
-        const override = await getVisionOverride();
-        if (override) {
-            return {
-                ...override,
-                debug: {
-                    messageLength: text.length,
-                    hasImage,
-                    lastEmailFound,
-                    lastEmailScanDepth: lastEmailScan.scanned,
-                },
-            };
-        }
         return {
             ...createResult(Intent.EDIT_CONTENT, null, 'Reply/response request with image'),
             debug: {

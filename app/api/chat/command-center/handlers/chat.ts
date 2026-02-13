@@ -441,12 +441,16 @@ function stripSignatureBlock(text: string): string {
 function stripDraftWrapper(text: string): string {
     if (!text) return text;
     let current = text.trim();
-    // Some model outputs may nest <draft> blocks; unwrap safely.
-    for (let i = 0; i < 3; i += 1) {
-        const match = current.match(/^\s*<draft>\s*([\s\S]*?)\s*<\/draft>\s*$/i);
-        if (!match?.[1]) break;
-        current = match[1].trim();
+
+    // Prefer the first explicit draft block if present.
+    const tagged = current.match(/<draft>\s*([\s\S]*?)\s*<\/draft>/i);
+    if (tagged?.[1]) {
+        current = tagged[1].trim();
     }
+
+    // Remove any leftover or malformed draft tags.
+    current = current.replace(/<\/?draft>/gi, '').trim();
+
     return current;
 }
 
