@@ -26,6 +26,11 @@ import { Intent, TemplateType, MessageType } from '../types/index';
 import { CONFIG, MODEL_CONFIG, buildNovaUrl } from '../lib/config';
 import { buildEmail } from '../lib/email-builder';
 import {
+    logModelResponseError,
+    logModelResponseReceived,
+    logModelSelected,
+} from '../lib/model-logging';
+import {
     extractCandidateData,
     extractCandidateDataFromMessages,
     extractCandidateNameFromMessages,
@@ -512,9 +517,16 @@ export async function handleChatIntent(
             let candidateEmail: string | null = extractEmailFromText(text);
             let candidateId: number | null = extractCandidateIdFromText(text);
             let candidateNovaUrl: string | null = extractNovaUrlFromText(text);
+            const extractionLogMeta = {
+                logger,
+                traceId,
+                intent,
+                isFallback: false,
+                reason: 'primary',
+            };
 
             if (input.hasImage) {
-                const extracted = await extractCandidateDataFromMessages(input.messages, google);
+                const extracted = await extractCandidateDataFromMessages(input.messages, google, extractionLogMeta);
                 if (extracted.success) {
                     const data = extracted.data;
                     candidateName = candidateName || data.candidateName || null;
@@ -530,7 +542,7 @@ export async function handleChatIntent(
                     }
                 }
             } else if (text) {
-                const extracted = await extractCandidateData(text, google);
+                const extracted = await extractCandidateData(text, google, extractionLogMeta);
                 if (extracted.success) {
                     const data = extracted.data;
                     candidateName = candidateName || data.candidateName || null;
@@ -550,7 +562,7 @@ export async function handleChatIntent(
             candidateName = sanitizeCandidateName(candidateName);
 
             if (input.hasImage && (!candidateName || isSingleTokenName(candidateName))) {
-                const nameOnly = await extractCandidateNameFromMessages(input.messages, google);
+                const nameOnly = await extractCandidateNameFromMessages(input.messages, google, extractionLogMeta);
                 if (nameOnly.success && nameOnly.data?.candidateName) {
                     const cleaned = sanitizeCandidateName(nameOnly.data.candidateName);
                     if (cleaned) candidateName = cleaned;
@@ -558,7 +570,7 @@ export async function handleChatIntent(
             }
 
             if (input.hasImage && !candidateId && !candidateNovaUrl) {
-                const linkExtracted = await extractNovaLinkFromMessages(input.messages, google);
+                const linkExtracted = await extractNovaLinkFromMessages(input.messages, google, extractionLogMeta);
                 if (linkExtracted.success) {
                     const data = linkExtracted.data;
                     candidateNovaUrl = candidateNovaUrl || data.novaUrl || null;
@@ -691,17 +703,33 @@ export async function handleChatIntent(
             };
         }
 
-        const result = await generateText({
-            model: google(MODEL_CONFIG.primary, {
-                safetySettings: MODEL_CONFIG.safetySettings
-            }),
-            system: systemPrompt,
-            messages: input.messages as any,
-            tools,
-            toolChoice: tools ? 'auto' : undefined,
-            temperature: MODEL_CONFIG.chat.temperature,
-            maxRetries: MODEL_CONFIG.chat.maxRetries,
+        const modelName = MODEL_CONFIG.primary;
+        const modelSelection = logModelSelected({
+            logger,
+            model: modelName,
+            intent,
+            isFallback: false,
+            reason: 'primary',
         });
+
+        let result: Awaited<ReturnType<typeof generateText>>;
+        try {
+            result = await generateText({
+                model: google(modelName, {
+                    safetySettings: MODEL_CONFIG.safetySettings
+                }),
+                system: systemPrompt,
+                messages: input.messages as any,
+                tools,
+                toolChoice: tools ? 'auto' : undefined,
+                temperature: MODEL_CONFIG.chat.temperature,
+                maxRetries: MODEL_CONFIG.chat.maxRetries,
+            });
+            logModelResponseReceived(modelSelection, result);
+        } catch (error) {
+            logModelResponseError(modelSelection, error);
+            throw error;
+        }
 
         const toolCalls = result.toolCalls?.map(tc => ({
             name: tc.toolName,
@@ -798,8 +826,23 @@ export function handleChatIntentStreaming(
         messageType: input.messageType,
     });
 
+    const modelName = MODEL_CONFIG.primary;
+    const modelSelection = logModelSelected({
+        logger,
+        model: modelName,
+        intent,
+        isFallback: false,
+        reason: 'primary',
+    });
+    let responseLogged = false;
+    const logOnce = (result?: any, extra: Record<string, any> = {}) => {
+        if (responseLogged) return;
+        responseLogged = true;
+        logModelResponseReceived(modelSelection, result, extra);
+    };
+
     return streamText({
-        model: google(MODEL_CONFIG.primary, {
+        model: google(modelName, {
             safetySettings: MODEL_CONFIG.safetySettings
         }),
         system: systemPrompt,
@@ -808,12 +851,18 @@ export function handleChatIntentStreaming(
         toolChoice: tools ? 'auto' : undefined,
         temperature: MODEL_CONFIG.chat.temperature,
         maxRetries: MODEL_CONFIG.chat.maxRetries,
-        onFinish: ({ text, finishReason }) => {
+        onFinish: (event: any) => {
+            const { text, finishReason } = event || {};
+            logOnce(event, { finishReason });
             logger.info('chat_stream_complete', {
                 intent,
                 finishReason,
                 responseLength: text?.length || 0
             });
+        },
+        onError: (event: any) => {
+            const err = event?.error ?? event;
+            logOnce(undefined, { error: err instanceof Error ? err.message : String(err) });
         },
     });
 }

@@ -357,7 +357,7 @@ export async function POST(request: Request) {
         modeLocked: Boolean(modeLocked),
         hasImage: imagePresent,
         modeContext: systemContext || '',
-    }, google);
+    }, google, logger);
 
     logger.info('intent_classified', {
         intent: classification.intent,
@@ -404,7 +404,8 @@ export async function POST(request: Request) {
             const result = await handleEmailIntent(
                 handlerInput,
                 handlerContext,
-                classification.templateType
+                classification.templateType,
+                classification.intent
             );
 
             if (result.type === 'error') {

@@ -15,9 +15,16 @@ import type {
     PayPackageData, 
     MarginApprovalData,
     NormalizedMessage,
-    Result 
+    Result,
+    Logger,
+    IntentType,
 } from '../types/index';
 import { MODEL_CONFIG } from './config';
+import {
+    logModelSelected,
+    logModelResponseReceived,
+    logModelResponseError,
+} from './model-logging';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // Extraction Prompts
@@ -215,23 +222,71 @@ function emptyMarginApprovalData(): MarginApprovalData {
     };
 }
 
+interface LLMLogContext {
+    logger?: Logger;
+    intent?: IntentType | string;
+    isFallback?: boolean;
+    primaryModel?: string;
+    reason?: string;
+}
+
+async function generateTextWithModelLogging(
+    googleClient: any,
+    request: {
+        system: string;
+        messages: any;
+        temperature: number;
+        maxRetries?: number;
+    },
+    logContext?: LLMLogContext
+) {
+    const modelName = MODEL_CONFIG.primary;
+    const selection = logModelSelected({
+        logger: logContext?.logger,
+        model: modelName,
+        intent: logContext?.intent,
+        isFallback: logContext?.isFallback ?? false,
+        primaryModel: logContext?.primaryModel,
+        reason: logContext?.reason ?? 'primary',
+    });
+
+    try {
+        const result = await generateText({
+            model: googleClient(modelName, {
+                safetySettings: MODEL_CONFIG.safetySettings
+            }),
+            system: request.system,
+            messages: request.messages,
+            temperature: request.temperature,
+            maxRetries: request.maxRetries,
+        });
+        logModelResponseReceived(selection, result);
+        return result;
+    } catch (error) {
+        logModelResponseError(selection, error);
+        throw error;
+    }
+}
+
 /**
  * Extract pay package data from image
  */
 export async function extractPayPackageData(
     messages: NormalizedMessage[],
-    googleClient: any
+    googleClient: any,
+    logContext?: LLMLogContext
 ): Promise<Result<PayPackageData>> {
     try {
-        const result = await generateText({
-            model: googleClient(MODEL_CONFIG.primary, { 
-                safetySettings: MODEL_CONFIG.safetySettings 
-            }),
-            system: PAY_PACKAGE_EXTRACTION_PROMPT,
-            messages: messages as any,
-            temperature: MODEL_CONFIG.extraction.temperature,
-            maxRetries: MODEL_CONFIG.extraction.maxRetries,
-        });
+        const result = await generateTextWithModelLogging(
+            googleClient,
+            {
+                system: PAY_PACKAGE_EXTRACTION_PROMPT,
+                messages: messages as any,
+                temperature: MODEL_CONFIG.extraction.temperature,
+                maxRetries: MODEL_CONFIG.extraction.maxRetries,
+            },
+            logContext
+        );
 
         const data = parseJson<PayPackageData>(result.text);
         
@@ -260,17 +315,19 @@ export async function extractPayPackageData(
  */
 export async function extractCandidateData(
     text: string,
-    googleClient: any
+    googleClient: any,
+    logContext?: LLMLogContext
 ): Promise<Result<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null; novaUrl: string | null }>> {
     try {
-        const result = await generateText({
-            model: googleClient(MODEL_CONFIG.primary, { 
-                safetySettings: MODEL_CONFIG.safetySettings 
-            }),
-            system: CANDIDATE_EXTRACTION_PROMPT,
-            messages: [{ role: 'user', content: text }],
-            temperature: MODEL_CONFIG.extraction.temperature,
-        });
+        const result = await generateTextWithModelLogging(
+            googleClient,
+            {
+                system: CANDIDATE_EXTRACTION_PROMPT,
+                messages: [{ role: 'user', content: text }],
+                temperature: MODEL_CONFIG.extraction.temperature,
+            },
+            logContext
+        );
 
         const data = parseJson<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null; novaUrl?: string | null; nova_url?: string | null }>(result.text);
         const normalized = data
@@ -299,18 +356,20 @@ export async function extractCandidateData(
  */
 export async function extractCandidateDataFromMessages(
     messages: NormalizedMessage[],
-    googleClient: any
+    googleClient: any,
+    logContext?: LLMLogContext
 ): Promise<Result<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null; novaUrl: string | null }>> {
     try {
-        const result = await generateText({
-            model: googleClient(MODEL_CONFIG.primary, { 
-                safetySettings: MODEL_CONFIG.safetySettings 
-            }),
-            system: CANDIDATE_EXTRACTION_PROMPT,
-            messages: messages as any,
-            temperature: MODEL_CONFIG.extraction.temperature,
-            maxRetries: MODEL_CONFIG.extraction.maxRetries,
-        });
+        const result = await generateTextWithModelLogging(
+            googleClient,
+            {
+                system: CANDIDATE_EXTRACTION_PROMPT,
+                messages: messages as any,
+                temperature: MODEL_CONFIG.extraction.temperature,
+                maxRetries: MODEL_CONFIG.extraction.maxRetries,
+            },
+            logContext
+        );
 
         const data = parseJson<{ candidateName: string | null; candidateEmail: string | null; novaId: string | null; novaUrl?: string | null; nova_url?: string | null }>(result.text);
         const normalized = data
@@ -339,18 +398,20 @@ export async function extractCandidateDataFromMessages(
  */
 export async function extractMarginApprovalDataFromMessages(
     messages: NormalizedMessage[],
-    googleClient: any
+    googleClient: any,
+    logContext?: LLMLogContext
 ): Promise<Result<MarginApprovalData>> {
     try {
-        const result = await generateText({
-            model: googleClient(MODEL_CONFIG.primary, {
-                safetySettings: MODEL_CONFIG.safetySettings
-            }),
-            system: MARGIN_APPROVAL_EXTRACTION_PROMPT,
-            messages: messages as any,
-            temperature: MODEL_CONFIG.extraction.temperature,
-            maxRetries: MODEL_CONFIG.extraction.maxRetries,
-        });
+        const result = await generateTextWithModelLogging(
+            googleClient,
+            {
+                system: MARGIN_APPROVAL_EXTRACTION_PROMPT,
+                messages: messages as any,
+                temperature: MODEL_CONFIG.extraction.temperature,
+                maxRetries: MODEL_CONFIG.extraction.maxRetries,
+            },
+            logContext
+        );
 
         const data = parseJson<MarginApprovalData>(result.text);
 
@@ -378,18 +439,20 @@ export async function extractMarginApprovalDataFromMessages(
  */
 export async function extractCandidateNameFromMessages(
     messages: NormalizedMessage[],
-    googleClient: any
+    googleClient: any,
+    logContext?: LLMLogContext
 ): Promise<Result<{ candidateName: string | null }>> {
     try {
-        const result = await generateText({
-            model: googleClient(MODEL_CONFIG.primary, {
-                safetySettings: MODEL_CONFIG.safetySettings
-            }),
-            system: CANDIDATE_NAME_ONLY_PROMPT,
-            messages: messages as any,
-            temperature: MODEL_CONFIG.extraction.temperature,
-            maxRetries: MODEL_CONFIG.extraction.maxRetries,
-        });
+        const result = await generateTextWithModelLogging(
+            googleClient,
+            {
+                system: CANDIDATE_NAME_ONLY_PROMPT,
+                messages: messages as any,
+                temperature: MODEL_CONFIG.extraction.temperature,
+                maxRetries: MODEL_CONFIG.extraction.maxRetries,
+            },
+            logContext
+        );
 
         const data = parseJson<{ candidateName: string | null }>(result.text);
         return {
@@ -409,18 +472,20 @@ export async function extractCandidateNameFromMessages(
  */
 export async function extractNovaLinkFromMessages(
     messages: NormalizedMessage[],
-    googleClient: any
+    googleClient: any,
+    logContext?: LLMLogContext
 ): Promise<Result<{ novaUrl: string | null; novaId: string | null }>> {
     try {
-        const result = await generateText({
-            model: googleClient(MODEL_CONFIG.primary, { 
-                safetySettings: MODEL_CONFIG.safetySettings 
-            }),
-            system: NOVA_LINK_EXTRACTION_PROMPT,
-            messages: messages as any,
-            temperature: 0,
-            maxRetries: 1,
-        });
+        const result = await generateTextWithModelLogging(
+            googleClient,
+            {
+                system: NOVA_LINK_EXTRACTION_PROMPT,
+                messages: messages as any,
+                temperature: 0,
+                maxRetries: 1,
+            },
+            logContext
+        );
 
         const data = parseJson<{ novaUrl?: string | null; nova_url?: string | null; novaId?: string | null }>(result.text);
         const normalized = data
@@ -447,17 +512,19 @@ export async function extractNovaLinkFromMessages(
  */
 export async function extractLicensingData(
     text: string,
-    googleClient: any
+    googleClient: any,
+    logContext?: LLMLogContext
 ): Promise<Result<{ specialty: string | null; state: string | null }>> {
     try {
-        const result = await generateText({
-            model: googleClient(MODEL_CONFIG.primary, { 
-                safetySettings: MODEL_CONFIG.safetySettings 
-            }),
-            system: LICENSING_EXTRACTION_PROMPT,
-            messages: [{ role: 'user', content: text }],
-            temperature: MODEL_CONFIG.extraction.temperature,
-        });
+        const result = await generateTextWithModelLogging(
+            googleClient,
+            {
+                system: LICENSING_EXTRACTION_PROMPT,
+                messages: [{ role: 'user', content: text }],
+                temperature: MODEL_CONFIG.extraction.temperature,
+            },
+            logContext
+        );
 
         const data = parseJson<{ specialty: string | null; state: string | null }>(result.text);
         

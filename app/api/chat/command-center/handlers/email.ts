@@ -23,6 +23,7 @@ import type {
     PayPackageData,
     MarginApprovalData,
     EmailOutput,
+    IntentType,
 } from '../types/index';
 import { TemplateType, MessageType } from '../types/index';
 import { CONTEXT_TEMPLATE_MAP } from '../lib/config';
@@ -73,9 +74,17 @@ function resolveTemplateType(
 async function extractDataForTemplate(
     templateType: TemplateTypeValue,
     input: HandlerInput,
-    context: HandlerContext
+    context: HandlerContext,
+    classifiedIntent?: IntentType
 ): Promise<Record<string, any>> {
-    const { google, logger } = context;
+    const { google, logger, traceId } = context;
+    const llmLogContext = {
+        logger,
+        traceId,
+        intent: classifiedIntent,
+        isFallback: false,
+        reason: 'primary',
+    };
 
     // Start with any provided context
     let data: Record<string, any> = { ...input.userContext };
@@ -96,7 +105,7 @@ async function extractDataForTemplate(
         case TemplateType.OFFER_DETAILS:
             if (input.hasImage) {
                 logger.info('extracting_pay_package_data', { templateType });
-                const result = await extractPayPackageData(input.messages, google);
+                const result = await extractPayPackageData(input.messages, google, llmLogContext);
                 if (result.success) {
                     data = { ...data, ...result.data };
                     logger.info('extraction_complete', {
@@ -124,23 +133,23 @@ async function extractDataForTemplate(
 
         case TemplateType.REASSIGNMENT:
             if (input.hasImage) {
-                const result = await extractCandidateDataFromMessages(input.messages, google);
+                const result = await extractCandidateDataFromMessages(input.messages, google, llmLogContext);
                 if (result.success) {
                     data = { ...data, ...result.data };
                 }
-                const linkResult = await extractNovaLinkFromMessages(input.messages, google);
+                const linkResult = await extractNovaLinkFromMessages(input.messages, google, llmLogContext);
                 if (linkResult.success) {
                     data = { ...data, ...linkResult.data };
                 }
                 if (!data.candidateName || String(data.candidateName).trim().split(/\s+/).length < 2) {
-                    const nameResult = await extractCandidateNameFromMessages(input.messages, google);
+                    const nameResult = await extractCandidateNameFromMessages(input.messages, google, llmLogContext);
                     if (nameResult.success && nameResult.data?.candidateName) {
                         data.candidateName = nameResult.data.candidateName;
                     }
                 }
             }
             if (input.inputText) {
-                const result = await extractCandidateData(input.inputText, google);
+                const result = await extractCandidateData(input.inputText, google, llmLogContext);
                 if (result.success) {
                     data = { ...data, ...result.data };
                 }
@@ -153,7 +162,7 @@ async function extractDataForTemplate(
 
         case TemplateType.LICENSING:
             if (input.inputText) {
-                const result = await extractLicensingData(input.inputText, google);
+                const result = await extractLicensingData(input.inputText, google, llmLogContext);
                 if (result.success) {
                     data = { ...data, ...result.data };
                 }
@@ -162,7 +171,7 @@ async function extractDataForTemplate(
 
         case TemplateType.MARGIN_APPROVAL:
             if (input.hasImage) {
-                const result = await extractMarginApprovalDataFromMessages(input.messages, google);
+                const result = await extractMarginApprovalDataFromMessages(input.messages, google, llmLogContext);
                 if (result.success) {
                     data = { ...data, ...result.data };
                 }
@@ -181,7 +190,7 @@ async function extractDataForTemplate(
             }
             // Try to extract candidate info
             if (input.inputText) {
-                const result = await extractCandidateData(input.inputText, google);
+                const result = await extractCandidateData(input.inputText, google, llmLogContext);
                 if (result.success) {
                     data = { ...data, ...result.data };
                 }
@@ -190,7 +199,7 @@ async function extractDataForTemplate(
 
         case TemplateType.REFERENCE_REQUEST:
             if (input.inputText) {
-                const result = await extractCandidateData(input.inputText, google);
+                const result = await extractCandidateData(input.inputText, google, llmLogContext);
                 if (result.success) {
                     data = { ...data, ...result.data };
                 }
@@ -262,7 +271,8 @@ function buildClarifyPrompt(templateType: TemplateTypeValue, missing: string[], 
 export async function handleEmailIntent(
     input: HandlerInput,
     context: HandlerContext,
-    classifiedTemplateType: TemplateTypeValue | null = null
+    classifiedTemplateType: TemplateTypeValue | null = null,
+    classifiedIntent?: IntentType
 ): Promise<HandlerOutput> {
     const { traceId, logger } = context;
 
@@ -279,7 +289,7 @@ export async function handleEmailIntent(
                 : requestedMessageType;
 
         // 2. Extract data
-        const data = await extractDataForTemplate(templateType, input, context);
+        const data = await extractDataForTemplate(templateType, input, context, classifiedIntent);
         const requirementsCount = Array.isArray((data as PayPackageData).requirements)
             ? (data as PayPackageData).requirements!.length
             : 0;

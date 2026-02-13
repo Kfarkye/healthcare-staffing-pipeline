@@ -19,6 +19,7 @@ import type {
     ChatModeType,
     TemplateTypeValue,
     NormalizedMessage,
+    Logger,
 } from '../types/index';
 import { Intent, ChatMode, TemplateType } from '../types/index';
 import {
@@ -27,6 +28,11 @@ import {
     MODEL_CONFIG
 } from './config';
 import { detectTemplateType } from './email-builder';
+import {
+    logModelResponseError,
+    logModelResponseReceived,
+    logModelSelected,
+} from './model-logging';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // Regex Patterns
@@ -328,7 +334,11 @@ function getLastUserImage(history: NormalizedMessage[] | undefined): string | nu
     return null;
 }
 
-async function classifyVisionIntent(image: string, googleClient?: any): Promise<{ intent: VisionIntent; confidence: number; signals: string[] } | null> {
+async function classifyVisionIntent(
+    image: string,
+    googleClient?: any,
+    logger?: Logger
+): Promise<{ intent: VisionIntent; confidence: number; signals: string[] } | null> {
     if (!googleClient || !image) return null;
     let imageInput: string | URL = image;
     if (typeof image === 'string' && image.startsWith('http')) {
@@ -339,8 +349,16 @@ async function classifyVisionIntent(image: string, googleClient?: any): Promise<
         }
     }
 
+    const selection = logModelSelected({
+        logger,
+        model: MODEL_CONFIG.primary,
+        intent: 'INTENT_CLASSIFICATION',
+        isFallback: false,
+        reason: 'primary',
+    });
+
     try {
-        const { object } = await generateObject({
+        const response = await generateObject({
             model: googleClient(MODEL_CONFIG.primary, { structuredOutputs: true, safetySettings: MODEL_CONFIG.safetySettings }),
             schema: VisionIntentSchema,
             temperature: 0,
@@ -355,6 +373,9 @@ async function classifyVisionIntent(image: string, googleClient?: any): Promise<
                 },
             ],
         });
+        logModelResponseReceived(selection, response);
+
+        const { object } = response;
 
         const parsed = VisionIntentSchema.safeParse(object);
         if (!parsed.success) return null;
@@ -364,7 +385,8 @@ async function classifyVisionIntent(image: string, googleClient?: any): Promise<
             confidence,
             signals: parsed.data.signals ?? [],
         };
-    } catch {
+    } catch (error) {
+        logModelResponseError(selection, error);
         return null;
     }
 }
@@ -373,7 +395,11 @@ async function classifyVisionIntent(image: string, googleClient?: any): Promise<
 // Main Classifier
 // ════════════════════════════════════════════════════════════════════════════════
 
-export async function classify(input: ClassifyInput, googleClient?: any): Promise<ClassifyResult> {
+export async function classify(
+    input: ClassifyInput,
+    googleClient?: any,
+    logger?: Logger
+): Promise<ClassifyResult> {
     const { message, mode, modeLocked, hasImage } = input;
     const text = (message || '').trim();
     const lower = text.toLowerCase();
@@ -390,7 +416,7 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
         if (!hasImage || !googleClient) return visionOverride;
         const visionImage = getLastUserImage(input.history);
         if (!visionImage) return visionOverride;
-        const visionResult = await classifyVisionIntent(visionImage, googleClient);
+        const visionResult = await classifyVisionIntent(visionImage, googleClient, logger);
         if (!visionResult || visionResult.confidence < VISION_CONFIDENCE_THRESHOLD) return visionOverride;
         const confidence = visionResult.confidence;
         const reason = `Vision: ${visionResult.intent} (${confidence.toFixed(2)})`;
@@ -911,16 +937,29 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     // ══════════════════════════════════════════════════════════════════════════
 
     if (googleClient) {
+        const selection = logModelSelected({
+            logger,
+            model: MODEL_CONFIG.primary,
+            intent: 'INTENT_CLASSIFICATION',
+            isFallback: false,
+            reason: 'primary',
+        });
+
         try {
-            const { object } = await generateObject({
+            const response = await generateObject({
                 model: googleClient(MODEL_CONFIG.primary, { structuredOutputs: true }),
                 schema: ClassificationSchema,
                 messages: [{ role: 'user', content: text }],
                 system: `Classify the user's intent. Options: DRAFT_OUTREACH (cold emails), DRAFT_EMAIL (specific requests), DATABASE_ACTION (lookups), CAMPAIGN_WORKFLOW (automation), GENERAL_CHAT (other).`,
                 temperature: 0,
             });
+            const { object } = response;
 
             const parsed = ClassificationSchema.safeParse(object);
+            logModelResponseReceived(selection, response, {
+                classifiedIntent: parsed.success ? parsed.data.intent : null,
+            });
+
             if (parsed.success) {
                 const intent = parsed.data.intent as IntentType;
                 const config = getIntentConfig(intent);
@@ -941,6 +980,7 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
                 };
             }
         } catch (error) {
+            logModelResponseError(selection, error);
             console.warn('[Router] LLM classification failed:', error);
         }
     }
