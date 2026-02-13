@@ -46,7 +46,7 @@ const PATTERNS = {
     continueDraft: /\b(rest\s+of|the\s+rest|finish|complete|full|entire|continue|resume|remaining|keep\s+going|carry\s+on)\b/i,
     replyVerb: /\b(reply|respond|response|replying|responding|answer|answering)\b/i,
     emailMedium: /\b(email|message|draft)\b/i,
-    outreach: /\boutreach\b/i,
+    outreach: /\b(outreach|outreac|outrec)\b/i,
     payPackage: /\bpay\s*package\b/i,
     marginApproval: /\b(margin\s*approval|margin\s*approve|approval\s*for\s*margin|low\s*margin)\b/i,
     marginPercent: /\b\d{1,2}(?:\.\d{1,2})?\s*%\b/i,
@@ -258,6 +258,56 @@ function getLastAssistantEmailScan(history: NormalizedMessage[], scanLimit: numb
     return { found: false, scanned };
 }
 
+function getLastAssistantText(history: NormalizedMessage[] | undefined): string {
+    if (!Array.isArray(history) || history.length === 0) return '';
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+        const msg = history[i];
+        if (!msg || msg.role !== 'assistant') continue;
+        const text = msg.content
+            .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+            .map(c => c.text)
+            .join('\n')
+            .trim();
+        if (text) return text;
+    }
+    return '';
+}
+
+function getPreviousUserText(history: NormalizedMessage[] | undefined): string {
+    if (!Array.isArray(history) || history.length === 0) return '';
+    let seenLatest = false;
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+        const msg = history[i];
+        if (!msg || msg.role !== 'user') continue;
+        const text = msg.content
+            .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+            .map(c => c.text)
+            .join('\n')
+            .trim();
+        if (!text) continue;
+        if (!seenLatest) {
+            seenLatest = true;
+            continue;
+        }
+        return text;
+    }
+    return '';
+}
+
+function didLastAssistantAskMessageType(history: NormalizedMessage[] | undefined): boolean {
+    const text = getLastAssistantText(history).toLowerCase();
+    if (!text) return false;
+    return /email\s+or\s+(a\s+)?text/.test(text) || /as\s+an\s+email\s+or\s+a\s+text/.test(text);
+}
+
+function extractMessageTypeChoice(text: string): 'email' | 'text' | 'sms' | 'slack' | null {
+    const match = (text || '').trim().toLowerCase().match(/^(email|text|sms|slack)\b/);
+    if (!match?.[1]) return null;
+    const value = match[1];
+    if (value === 'email' || value === 'text' || value === 'sms' || value === 'slack') return value;
+    return null;
+}
+
 function getLastUserImage(history: NormalizedMessage[] | undefined): string | null {
     if (!Array.isArray(history) || history.length === 0) return null;
     for (let i = history.length - 1; i >= 0; i -= 1) {
@@ -329,6 +379,9 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     const lower = text.toLowerCase();
     const lastEmailScan = getLastAssistantEmailScan(input.history, 6);
     const lastEmailFound = lastEmailScan.found;
+    const askedForMessageType = didLastAssistantAskMessageType(input.history);
+    const messageTypeChoice = extractMessageTypeChoice(text);
+    const previousUserText = getPreviousUserText(input.history);
     let visionOverride: ClassifyResult | null | undefined;
 
     const getVisionOverride = async (): Promise<ClassifyResult | null> => {
@@ -361,6 +414,44 @@ export async function classify(input: ClassifyInput, googleClient?: any): Promis
     if (!text && !hasImage) {
         return {
             ...createResult(Intent.GENERAL_CHAT, null, 'Empty input'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
+    }
+
+    // Follow-up after "email or text?" prompt:
+    // treat channel-only replies as continuation of the prior drafting intent.
+    if (askedForMessageType && messageTypeChoice) {
+        const contextText = `${previousUserText} ${input.modeContext || ''}`.trim();
+        const templateType = detectTemplateType(contextText, input.modeContext || '');
+        if (PATTERNS.reassign.test(contextText.toLowerCase()) || /reassign/i.test(input.modeContext || '')) {
+            return {
+                ...createResult(Intent.REASSIGNMENT_REQUEST, TemplateType.REASSIGNMENT, `Message-type follow-up: ${messageTypeChoice}`),
+                debug: {
+                    messageLength: text.length,
+                    hasImage,
+                    lastEmailFound,
+                    lastEmailScanDepth: lastEmailScan.scanned,
+                },
+            };
+        }
+        if (isOutreachRequest(contextText) || hasImage || !!getLastUserImage(input.history)) {
+            return {
+                ...createResult(Intent.DRAFT_OUTREACH, templateType, `Message-type follow-up: ${messageTypeChoice}`),
+                debug: {
+                    messageLength: text.length,
+                    hasImage,
+                    lastEmailFound,
+                    lastEmailScanDepth: lastEmailScan.scanned,
+                },
+            };
+        }
+        return {
+            ...createResult(Intent.DRAFT_EMAIL, templateType, `Message-type follow-up: ${messageTypeChoice}`),
             debug: {
                 messageLength: text.length,
                 hasImage,

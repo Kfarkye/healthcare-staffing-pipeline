@@ -438,6 +438,33 @@ function stripSignatureBlock(text: string): string {
     return lines.slice(0, sigStart).join('\n').trimEnd();
 }
 
+function stripDraftWrapper(text: string): string {
+    if (!text) return text;
+    let current = text.trim();
+    // Some model outputs may nest <draft> blocks; unwrap safely.
+    for (let i = 0; i < 3; i += 1) {
+        const match = current.match(/^\s*<draft>\s*([\s\S]*?)\s*<\/draft>\s*$/i);
+        if (!match?.[1]) break;
+        current = match[1].trim();
+    }
+    return current;
+}
+
+function shouldUsePreviousDraftContext(input: HandlerInput, lastDraft: string | null): boolean {
+    if (!lastDraft) return false;
+    if (!input.hasImage) return true;
+
+    const text = (input.inputText || '').toLowerCase();
+    if (!text) return false;
+
+    // With screenshots, only reuse previous draft when the user clearly asks to edit prior copy.
+    if (CONTINUE_DRAFT_RX.test(text)) return true;
+    if (EDIT_INSTRUCTION_RX.test(text)) return true;
+    if (/\b(this|above|previous|last)\b/.test(text)) return true;
+
+    return false;
+}
+
 function buildProspectUpsertMarker(prospect: any): string {
     if (!prospect || typeof prospect !== 'object') return '';
     const payload = {
@@ -620,14 +647,15 @@ export async function handleChatIntent(
         }
 
         const lastDraft = intent === Intent.EDIT_CONTENT ? getLastAssistantDraft(input.messages) : null;
+        const usePreviousDraftContext = intent === Intent.EDIT_CONTENT && shouldUsePreviousDraftContext(input, lastDraft);
         const basePrompt = PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
-        const regenerate = intent === Intent.EDIT_CONTENT && lastDraft ? shouldRegenerateDraft(input.inputText || '') : false;
-        const continuation = intent === Intent.EDIT_CONTENT && lastDraft ? isContinuationRequest(input.inputText || '') : false;
+        const regenerate = intent === Intent.EDIT_CONTENT && usePreviousDraftContext ? shouldRegenerateDraft(input.inputText || '') : false;
+        const continuation = intent === Intent.EDIT_CONTENT && usePreviousDraftContext ? isContinuationRequest(input.inputText || '') : false;
         const editMode = intent === Intent.EDIT_CONTENT
-            ? (continuation ? 'continue' : regenerate ? 'regenerate' : lastDraft ? 'edit' : 'none')
+            ? (continuation ? 'continue' : regenerate ? 'regenerate' : usePreviousDraftContext ? 'edit' : 'none')
             : 'none';
         const systemPrompt =
-            intent === Intent.EDIT_CONTENT && lastDraft
+            intent === Intent.EDIT_CONTENT && usePreviousDraftContext && lastDraft
                 ? buildEditPrompt(basePrompt, lastDraft, {
                     mode: continuation ? 'continue' : regenerate ? 'regenerate' : 'edit',
                     updateText: input.inputText || '',
@@ -639,6 +667,7 @@ export async function handleChatIntent(
             intent,
             hasTools: !!tools,
             hasLastDraft: !!lastDraft,
+            usePreviousDraftContext,
             editMode,
             messageType: input.messageType,
         });
@@ -678,6 +707,7 @@ export async function handleChatIntent(
 
         let text = result.text || '';
         if (intent === Intent.EDIT_CONTENT) {
+            text = stripDraftWrapper(text);
             text = stripSignatureBlock(text);
         }
         if (!text.trim()) {
@@ -739,14 +769,15 @@ export function handleChatIntentStreaming(
 ) {
     const { google, logger } = context;
     const lastDraft = intent === Intent.EDIT_CONTENT ? getLastAssistantDraft(input.messages) : null;
+    const usePreviousDraftContext = intent === Intent.EDIT_CONTENT && shouldUsePreviousDraftContext(input, lastDraft);
     const basePrompt = PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
-    const regenerate = intent === Intent.EDIT_CONTENT && lastDraft ? shouldRegenerateDraft(input.inputText || '') : false;
-    const continuation = intent === Intent.EDIT_CONTENT && lastDraft ? isContinuationRequest(input.inputText || '') : false;
+    const regenerate = intent === Intent.EDIT_CONTENT && usePreviousDraftContext ? shouldRegenerateDraft(input.inputText || '') : false;
+    const continuation = intent === Intent.EDIT_CONTENT && usePreviousDraftContext ? isContinuationRequest(input.inputText || '') : false;
     const editMode = intent === Intent.EDIT_CONTENT
-        ? (continuation ? 'continue' : regenerate ? 'regenerate' : lastDraft ? 'edit' : 'none')
+        ? (continuation ? 'continue' : regenerate ? 'regenerate' : usePreviousDraftContext ? 'edit' : 'none')
         : 'none';
     const systemPrompt =
-        intent === Intent.EDIT_CONTENT && lastDraft
+        intent === Intent.EDIT_CONTENT && usePreviousDraftContext && lastDraft
             ? buildEditPrompt(basePrompt, lastDraft, {
                 mode: continuation ? 'continue' : regenerate ? 'regenerate' : 'edit',
                 updateText: input.inputText || '',
@@ -758,6 +789,7 @@ export function handleChatIntentStreaming(
         intent,
         hasTools: !!tools,
         hasLastDraft: !!lastDraft,
+        usePreviousDraftContext,
         editMode,
         messageType: input.messageType,
     });

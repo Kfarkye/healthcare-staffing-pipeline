@@ -271,6 +271,13 @@ export async function handleEmailIntent(
         const templateType = resolveTemplateType(input, classifiedTemplateType);
         logger.info('template_resolved', { templateType, modeContext: input.modeContext });
 
+        // Default AUTO to EMAIL for external drafting flows to avoid channel-clarification loops.
+        const requestedMessageType = input.messageType || MessageType.AUTO;
+        const effectiveMessageType =
+            requestedMessageType === MessageType.AUTO && !INTERNAL_TEMPLATES.has(templateType)
+                ? MessageType.EMAIL
+                : requestedMessageType;
+
         // 2. Extract data
         const data = await extractDataForTemplate(templateType, input, context);
         const requirementsCount = Array.isArray((data as PayPackageData).requirements)
@@ -281,24 +288,24 @@ export async function handleEmailIntent(
             hasImage: input.hasImage,
             dataKeys: Object.keys(data).filter(k => data[k]),
             requirementsCount,
-            messageType: input.messageType,
+            messageType: effectiveMessageType,
         });
 
         // 3. Build email (DETERMINISTIC - no LLM)
-        const email: EmailOutput = buildEmail(templateType, data, input.messageType);
+        const email: EmailOutput = buildEmail(templateType, data, effectiveMessageType);
         logger.info('email_built', {
             templateType: email.templateType,
             isComplete: email.isComplete,
             missing: email.missing
         });
 
-        const needsMessageType = !INTERNAL_TEMPLATES.has(templateType) && input.messageType === MessageType.AUTO;
+        const needsMessageType = !INTERNAL_TEMPLATES.has(templateType) && effectiveMessageType === MessageType.AUTO;
 
-        // Hard-fail for missing required fields on outreach templates
-        if (HARD_FAIL_TEMPLATES.has(templateType) && email.missing.length > 0) {
+        // Hard-fail only for non-image requests. For image-driven outreach, return best-effort draft.
+        if (HARD_FAIL_TEMPLATES.has(templateType) && email.missing.length > 0 && !input.hasImage) {
             return {
                 type: 'chat',
-                content: buildClarifyPrompt(templateType, email.missing, input.messageType),
+                content: buildClarifyPrompt(templateType, email.missing, effectiveMessageType),
             };
         }
 
@@ -306,7 +313,7 @@ export async function handleEmailIntent(
         if (templateType === TemplateType.MARGIN_APPROVAL && email.missing.length > 0) {
             return {
                 type: 'chat',
-                content: buildClarifyPrompt(templateType, email.missing, input.messageType),
+                content: buildClarifyPrompt(templateType, email.missing, effectiveMessageType),
             };
         }
 
