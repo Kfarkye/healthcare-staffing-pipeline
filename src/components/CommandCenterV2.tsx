@@ -1293,7 +1293,9 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
             const hasImage = Array.from(items).some(i => i.type?.startsWith('image/'));
             if (!hasImage) return; // allow normal text paste
 
-            // Intercept image paste
+            // Intercept image paste once at capture phase to avoid duplicate add via textarea onPaste.
+            clipboardEvent.preventDefault();
+            clipboardEvent.stopPropagation();
             handlePaste(clipboardEvent as unknown as React.ClipboardEvent);
         };
 

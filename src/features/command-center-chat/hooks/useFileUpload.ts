@@ -228,6 +228,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
     const [isDragActive, setIsDragActive] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const dragCounter = useRef(0);
+    const lastPasteRef = useRef<{ signature: string; ts: number } | null>(null);
 
     useEffect(() => () => attachments.forEach(a => a.previewUrl && URL.revokeObjectURL(a.previewUrl)), []);
 
@@ -304,8 +305,27 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
     const handleDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); dragCounter.current--; if (dragCounter.current === 0) setIsDragActive(false); }, []);
     const handleDrop = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragActive(false); dragCounter.current = 0; if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files); }, [addFiles]);
     const handlePaste = useCallback((e: React.ClipboardEvent) => {
-        const files = Array.from(e.clipboardData?.items || []).filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean) as File[];
-        if (files.length) { e.preventDefault(); addFiles(files); }
+        const files = Array.from(e.clipboardData?.items || [])
+            .filter(i => i.kind === 'file')
+            .map(i => i.getAsFile())
+            .filter(Boolean) as File[];
+
+        if (!files.length) return;
+
+        const signature = files
+            .map(file => `${file.name}|${file.size}|${file.type}|${file.lastModified}`)
+            .join('||');
+        const now = Date.now();
+        const duplicatePaste =
+            lastPasteRef.current &&
+            lastPasteRef.current.signature === signature &&
+            now - lastPasteRef.current.ts < 1200;
+
+        e.preventDefault();
+        if (duplicatePaste) return;
+
+        lastPasteRef.current = { signature, ts: now };
+        addFiles(files);
     }, [addFiles]);
 
     // Computed
