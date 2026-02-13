@@ -706,6 +706,7 @@ export async function handleChatIntent(
         const modelName = MODEL_CONFIG.primary;
         const modelSelection = logModelSelected({
             logger,
+            traceId,
             model: modelName,
             intent,
             isFallback: false,
@@ -799,7 +800,7 @@ export function handleChatIntentStreaming(
     intent: IntentType,
     tools?: Record<string, any>
 ) {
-    const { google, logger } = context;
+    const { google, logger, traceId } = context;
     const lastDraft = intent === Intent.EDIT_CONTENT ? getLastAssistantDraft(input.messages) : null;
     const usePreviousDraftContext = intent === Intent.EDIT_CONTENT && shouldUsePreviousDraftContext(input, lastDraft);
     const basePrompt = PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
@@ -829,6 +830,7 @@ export function handleChatIntentStreaming(
     const modelName = MODEL_CONFIG.primary;
     const modelSelection = logModelSelected({
         logger,
+        traceId,
         model: modelName,
         intent,
         isFallback: false,

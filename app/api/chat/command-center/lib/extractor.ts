@@ -224,6 +224,7 @@ function emptyMarginApprovalData(): MarginApprovalData {
 
 interface LLMLogContext {
     logger?: Logger;
+    traceId?: string;
     intent?: IntentType | string;
     isFallback?: boolean;
     primaryModel?: string;
@@ -243,6 +244,7 @@ async function generateTextWithModelLogging(
     const modelName = MODEL_CONFIG.primary;
     const selection = logModelSelected({
         logger: logContext?.logger,
+        traceId: logContext?.traceId,
         model: modelName,
         intent: logContext?.intent,
         isFallback: logContext?.isFallback ?? false,
