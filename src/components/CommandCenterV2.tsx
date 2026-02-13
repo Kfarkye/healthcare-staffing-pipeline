@@ -901,13 +901,22 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
         if (jsonMatch) {
             try {
                 const parsed = JSON.parse(jsonMatch[1]);
-                const email = parsed.email;
-                const nextSteps = parsed.next_steps as NextStepAction[];
+                const draftKind = parsed?.kind;
+                const email = parsed?.email || {};
+                const nextSteps = (parsed?.nextSteps ?? parsed?.next_steps ?? []) as NextStepAction[];
 
-                if (email?.kind === 'email_draft') {
+                if (draftKind === 'email_draft' && email && typeof email === 'object') {
                     const splitStructured = splitMergedSubjectAndBody(email.subject || '', email.body || '');
                     const normalizedStructuredSubject = splitStructured.subject || '(No Subject)';
                     const normalizedStructuredBody = normalizeEmailBodyLayout(splitStructured.body || '');
+                    const normalizedTo = extractFirstEmail(
+                        typeof email.to === 'string'
+                            ? email.to
+                            : (typeof email.to_email === 'string' ? email.to_email : undefined)
+                    );
+                    const normalizedCc = Array.isArray(email.cc)
+                        ? email.cc[0]
+                        : (typeof email.cc === 'string' ? email.cc : DEFAULT_CC);
 
                     // Extract intel from email metadata
                     const intel: IntelData = {
@@ -916,7 +925,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                     };
 
                     // Extract specialty and location from subject
-                    const subjectMatch = normalizedStructuredSubject.match(/^([^-]+)\s*-\s*([^|]+)/);
+                    const subjectMatch = normalizedStructuredSubject.match(/^(.+?)\s(?:-|–|—)\s[^|]+/);
                     if (subjectMatch) {
                         intel.specialty = subjectMatch[1]?.trim();
                     }
@@ -936,8 +945,8 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                     return (
                         <>
                             <EmailCard
-                                to={email.to_email || undefined}
-                                cc={email.cc?.[0] || DEFAULT_CC}
+                                to={normalizedTo || undefined}
+                                cc={normalizedCc || DEFAULT_CC}
                                 subject={normalizedStructuredSubject}
                                 body={normalizedStructuredBody}
                                 signature={email.signature}
@@ -965,7 +974,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
 
             // Extract intel from subject/body
             const intel: IntelData = {};
-            const subMatch = tagSubject.match(/^([^-]+)\s*-\s*([^|]+)/);
+            const subMatch = tagSubject.match(/^(.+?)\s(?:-|–|—)\s[^|]+/);
             if (subMatch) intel.specialty = subMatch[1]?.trim();
             const payMatch = tagSubject.match(/\$([0-9,]+)/);
             if (payMatch) intel.weeklyPay = parseInt(payMatch[1].replace(/,/g, ''), 10);
@@ -997,7 +1006,13 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                 const subjectIdx = processedContent.search(/Subject:[^\n]*/i);
                 if (subjectIdx !== -1) {
                     const afterSubject = processedContent.slice(subjectIdx).replace(/Subject:[^\n]*\n?/i, '');
-                    body = afterSubject.trim();
+                    body = afterSubject
+                        .replace(/^\s+/, '')
+                        .replace(
+                            /^(?:(?:\*\*|__)?(?:To|CC|BCC|From|Date|Sent|Reply-?To):(?:\*\*|__)?\s*[^\n]*\n\s*)+/i,
+                            ''
+                        )
+                        .trim();
                 }
             }
 
@@ -1011,7 +1026,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
             // Extract intel from subject/body
             const intel: IntelData = {};
             if (normalizedSubject) {
-                const subMatch = normalizedSubject.match(/^([^-]+)\s*-\s*([^|]+)/);
+                const subMatch = normalizedSubject.match(/^(.+?)\s(?:-|–|—)\s[^|]+/);
                 if (subMatch) intel.specialty = subMatch[1]?.trim();
                 const payMatch = normalizedSubject.match(/\$([0-9,]+)/);
                 if (payMatch) intel.weeklyPay = parseInt(payMatch[1].replace(/,/g, ''), 10);
