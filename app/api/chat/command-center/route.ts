@@ -31,7 +31,7 @@ import type {
     ChatModeType,
     MessageTypeValue,
 } from './types/index';
-import { Intent, ChatMode, MessageType } from './types/index';
+import { Intent, ChatMode, MessageType, TemplateType } from './types/index';
 import { classify } from './lib/router';
 import { getIntentConfig, HTTP_CONFIG } from './lib/config';
 import { createCommandCenterTools } from './lib/tools';
@@ -366,7 +366,7 @@ export async function POST(request: Request) {
     // 5. Classify Intent
     // ══════════════════════════════════════════════════════════════════════════
 
-    const classification = await classify({
+    let classification = await classify({
         message: inputText || (imagePresent ? 'Process this image' : ''),
         history: normalizedMessages,
         mode: (mode || 'default') as ChatModeType,
@@ -374,6 +374,28 @@ export async function POST(request: Request) {
         hasImage: imagePresent,
         modeContext: systemContext || '',
     }, google, logger, traceId);
+
+    const reassignmentSignal =
+        /\breassign(?:ment)?\b/i.test(inputText) ||
+        /internal\s+reassignment\s+request/i.test(systemContext || '');
+
+    if (reassignmentSignal && classification.intent !== Intent.REASSIGNMENT_REQUEST) {
+        logger.warn('intent_override_applied', {
+            fromIntent: classification.intent,
+            toIntent: Intent.REASSIGNMENT_REQUEST,
+            reason: 'Reassignment signal override',
+        });
+        classification = {
+            ...classification,
+            intent: Intent.REASSIGNMENT_REQUEST,
+            templateType: TemplateType.REASSIGNMENT,
+            requiresExtraction: false,
+            requiresTools: true,
+            confidence: Math.max(classification.confidence, 0.9),
+            reason: 'Reassignment signal override',
+            fastPath: true,
+        };
+    }
 
     logger.info('intent_classified', {
         intent: classification.intent,

@@ -146,41 +146,32 @@ export function buildPayPackageEmail(data: PayPackageData): EmailOutput {
 
     lines.push(`Hi ${firstName},`);
     lines.push('');
-
-    // Intro with location context
-    const roleLabel = data.specialty ? data.specialty : 'assignment';
-    const locationStr = city && state ? `${city}, ${state}` : (city || state || '');
-    const locationSuffix = locationStr ? ` in ${locationStr}` : '';
-    lines.push(`I am reaching out to share a new ${roleLabel}${locationSuffix} that matches your experience.`);
+    lines.push('Here is one option that matches your background:');
     lines.push('');
 
-    // Job details
-    if (data.facility) lines.push(`Facility: ${data.facility}`);
-    if (city || state) lines.push(`Location: ${city}${city && state ? ', ' : ''}${state}`);
+    const roleLabel = data.specialty || 'Assignment';
+    const locationStr = city && state ? `${city}, ${state}` : (city || state || 'Location TBD');
+    const header = [data.facility || 'Facility TBD', locationStr].filter(Boolean).join(' | ');
+    lines.push(header);
+    if (data.weeklyTotal) lines.push(`- Gross Pay: ${formatWeekly(data.weeklyTotal)}`);
+    lines.push(`- Role: ${roleLabel}`);
+    if (data.hourlyRate || data.stipend) {
+        const breakdown = [
+            data.hourlyRate ? `Taxable ${formatHourlyRate(data.hourlyRate)}` : null,
+            data.stipend ? `Stipend ${formatWeekly(data.stipend)}` : null,
+        ].filter(Boolean).join(' + ');
+        if (breakdown) lines.push(`- Pay Breakdown: ${breakdown}`);
+    }
     if (data.startDate || data.endDate) {
-        lines.push(`Assignment Dates: ${[data.startDate, data.endDate].filter(Boolean).join(' - ')}`);
+        lines.push(`- Assignment Dates: ${[data.startDate, data.endDate].filter(Boolean).join(' - ')}`);
     }
-    if (data.shifts) lines.push(`Shifts: ${data.shifts} (${hours} hrs/wk)`);
+    if (data.shifts) lines.push(`- Shift: ${data.shifts} (${hours} hrs/wk)`);
+    lines.push(`- Why this fits: ${roleLabel} demand is active in this market and aligns with your profile.`);
     lines.push('');
-
-    // Pay package
-    if (data.hourlyRate || data.stipend || data.weeklyTotal) {
-        lines.push('Pay Package:');
-        if (data.hourlyRate) lines.push(`- Taxable Hourly Rate: ${formatHourlyRate(data.hourlyRate)}`);
-        if (data.stipend) lines.push(`- Meals & Housing Stipend: ${formatWeekly(data.stipend)}`);
-        if (data.weeklyTotal) lines.push(`- Total Gross Weekly Pay: ${formatWeekly(data.weeklyTotal)}`);
-        lines.push('');
-    }
 
     appendRequirementsSection(lines, data.requirements);
 
-    // CTA with cert reminder
-    lines.push('To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):');
-    lines.push(`- Available to start ${data.startDate || 'on the start date'}?`);
-    lines.push('- Any time-off during the assignment?');
-    lines.push('- Is your Aya profile current?');
-    lines.push('');
-    lines.push('Let me know and I can get you submitted right away.');
+    lines.push(`Reply with "interested" plus your start-date window${data.startDate ? ` (target ${data.startDate})` : ''} and I can submit right away.`);
     lines.push('');
     lines.push('Thank you!');
     if (missing.length > 0) {
@@ -217,29 +208,29 @@ export function buildWorkingTravelerEmail(data: PayPackageData): EmailOutput {
 
     lines.push(`Hi ${firstName},`);
     lines.push('');
-    lines.push('I saw you clicked interested on this one - here are the details:');
+    lines.push('Quick breakdown below:');
     lines.push('');
 
-    if (data.facility) lines.push(`Facility: ${data.facility}`);
-    if (city || state) lines.push(`Location: ${city}${city && state ? ', ' : ''}${state}`);
-    if (data.startDate || data.endDate) {
-        lines.push(`Dates: ${[data.startDate, data.endDate].filter(Boolean).join(' - ')}`);
-    }
-    if (data.shifts) lines.push(`Shift: ${data.shifts} (${hours} hrs/wk)`);
-    lines.push('');
-
-    if (data.hourlyRate || data.stipend || data.weeklyTotal) {
+    const header = [data.facility || 'Facility TBD', [city, state].filter(Boolean).join(', ') || 'Location TBD']
+        .filter(Boolean)
+        .join(' | ');
+    lines.push(header);
+    if (data.weeklyTotal) lines.push(`- Gross Pay: ${formatWeekly(data.weeklyTotal)}`);
+    lines.push(`- Role: ${specialty}`);
+    if (data.hourlyRate || data.stipend) {
         const parts: string[] = [];
-        if (data.hourlyRate) parts.push(formatHourlyRate(data.hourlyRate));
-        if (data.stipend) parts.push(`${formatWeekly(data.stipend)} stipends`);
-        if (data.weeklyTotal) parts.push(formatWeekly(data.weeklyTotal));
-        lines.push(`Pay: ${parts.join(' + ')}`);
-        lines.push('');
+        if (data.hourlyRate) parts.push(`Taxable ${formatHourlyRate(data.hourlyRate)}`);
+        if (data.stipend) parts.push(`Stipend ${formatWeekly(data.stipend)}`);
+        lines.push(`- Pay Breakdown: ${parts.join(' + ')}`);
     }
+    if (data.startDate || data.endDate) lines.push(`- Dates: ${[data.startDate, data.endDate].filter(Boolean).join(' - ')}`);
+    if (data.shifts) lines.push(`- Shift: ${data.shifts} (${hours} hrs/wk)`);
+    lines.push('- Why this fits: solid match to your recent interests and availability profile.');
+    lines.push('');
 
     appendRequirementsSection(lines, data.requirements);
 
-    lines.push('Let me know if you have any time-off needs and I will get you submitted.');
+    lines.push('Reply with your availability and any time-off so I can submit immediately.');
     if (missing.length > 0) {
         lines.push('');
         lines.push('---');
@@ -274,29 +265,29 @@ export function buildReengagedTravelerEmail(data: PayPackageData): EmailOutput {
 
     lines.push(`Hi ${firstName},`);
     lines.push('');
-    lines.push('I hope you are doing well! I saw you clicked interested on this one - here are the details:');
+    lines.push('Great to reconnect — here is a role you may want to review:');
     lines.push('');
 
-    if (data.facility) lines.push(`Facility: ${data.facility}`);
-    if (city || state) lines.push(`Location: ${city}${city && state ? ', ' : ''}${state}`);
-    if (data.startDate || data.endDate) {
-        lines.push(`Dates: ${[data.startDate, data.endDate].filter(Boolean).join(' - ')}`);
-    }
-    if (data.shifts) lines.push(`Shift: ${data.shifts} (${hours} hrs/wk)`);
-    lines.push('');
-
-    if (data.hourlyRate || data.stipend || data.weeklyTotal) {
+    const header = [data.facility || 'Facility TBD', [city, state].filter(Boolean).join(', ') || 'Location TBD']
+        .filter(Boolean)
+        .join(' | ');
+    lines.push(header);
+    if (data.weeklyTotal) lines.push(`- Gross Pay: ${formatWeekly(data.weeklyTotal)}`);
+    lines.push(`- Role: ${specialty}`);
+    if (data.hourlyRate || data.stipend) {
         const parts: string[] = [];
-        if (data.hourlyRate) parts.push(formatHourlyRate(data.hourlyRate));
-        if (data.stipend) parts.push(`${formatWeekly(data.stipend)} stipends`);
-        if (data.weeklyTotal) parts.push(formatWeekly(data.weeklyTotal));
-        lines.push(`Pay: ${parts.join(' + ')}`);
-        lines.push('');
+        if (data.hourlyRate) parts.push(`Taxable ${formatHourlyRate(data.hourlyRate)}`);
+        if (data.stipend) parts.push(`Stipend ${formatWeekly(data.stipend)}`);
+        lines.push(`- Pay Breakdown: ${parts.join(' + ')}`);
     }
+    if (data.startDate || data.endDate) lines.push(`- Dates: ${[data.startDate, data.endDate].filter(Boolean).join(' - ')}`);
+    if (data.shifts) lines.push(`- Shift: ${data.shifts} (${hours} hrs/wk)`);
+    lines.push('- Why this fits: aligns with your profile and current market demand.');
+    lines.push('');
 
     appendRequirementsSection(lines, data.requirements);
 
-    lines.push('Let me know if you have any time-off needs and I will get you submitted. Happy to jump on a quick call if you would like to chat through anything.');
+    lines.push('Reply with your preferred option and start-date window, and I will move this forward today.');
     if (missing.length > 0) {
         lines.push('');
         lines.push('---');

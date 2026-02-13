@@ -75,7 +75,9 @@ export interface UseFileUploadReturn {
     isUploading: boolean;
     /** True if any image is still being processed (base64 not ready) */
     isProcessing: boolean;
+    isCaptureSupported: boolean;
     addFiles: (files: FileList | File[]) => void;
+    captureScreenshot: () => Promise<void>;
     removeFile: (id: string) => void;
     clearAll: () => void;
     dragHandlers: {
@@ -217,6 +219,55 @@ async function readFileBase64(file: File): Promise<{ base64: string | null; mime
     });
 }
 
+async function captureScreenshotFile(): Promise<File | null> {
+    if (typeof window === 'undefined' || !navigator.mediaDevices?.getDisplayMedia) {
+        return null;
+    }
+
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 30, max: 60 } },
+        audio: false,
+    });
+
+    const stopTracks = () => stream.getTracks().forEach((track) => track.stop());
+
+    try {
+        const track = stream.getVideoTracks()[0];
+        if (!track) return null;
+
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.muted = true;
+        video.playsInline = true;
+
+        await video.play();
+        await new Promise<void>((resolve) => {
+            if (video.readyState >= 2) {
+                resolve();
+                return;
+            }
+            video.onloadeddata = () => resolve();
+        });
+
+        const width = video.videoWidth || 1920;
+        const height = video.videoHeight || 1080;
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+
+        ctx.drawImage(video, 0, 0, width, height);
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+        if (!blob) return null;
+
+        const now = Date.now();
+        return new File([blob], `screenshot_${now}.png`, { type: 'image/png', lastModified: now });
+    } finally {
+        stopTracks();
+    }
+}
+
 // ============================================================================
 // MAIN HOOK
 // ============================================================================
@@ -229,6 +280,11 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
     const fileInputRef = useRef<HTMLInputElement>(null);
     const dragCounter = useRef(0);
     const lastPasteRef = useRef<{ signature: string; ts: number } | null>(null);
+    const captureInFlightRef = useRef(false);
+    const isCaptureSupported =
+        typeof window !== 'undefined' &&
+        typeof navigator !== 'undefined' &&
+        Boolean(navigator.mediaDevices?.getDisplayMedia);
 
     useEffect(() => () => attachments.forEach(a => a.previewUrl && URL.revokeObjectURL(a.previewUrl)), []);
 
@@ -315,7 +371,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
         // Some clipboard providers expose duplicate file items for one image paste.
         const uniqueFiles = Array.from(
             rawFiles.reduce((map, file) => {
-                const key = `${file.type}|${file.size}|${file.name || 'clipboard-image'}`;
+                const key = `${file.type}|${file.size}`;
                 if (!map.has(key)) map.set(key, file);
                 return map;
             }, new Map<string, File>()).values()
@@ -324,7 +380,7 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
         if (!uniqueFiles.length) return;
 
         const signature = uniqueFiles
-            .map(file => `${file.name || 'clipboard-image'}|${file.size}|${file.type}`)
+            .map(file => `${file.type}|${file.size}`)
             .join('||');
         const now = Date.now();
         const duplicatePaste =
@@ -339,14 +395,28 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
         addFiles(uniqueFiles);
     }, [addFiles]);
 
+    const captureScreenshot = useCallback(async () => {
+        if (!isCaptureSupported || captureInFlightRef.current) return;
+        captureInFlightRef.current = true;
+        try {
+            const file = await captureScreenshotFile();
+            if (!file) return;
+            addFiles([file]);
+        } catch {
+            // User canceled or browser blocked capture; no-op.
+        } finally {
+            captureInFlightRef.current = false;
+        }
+    }, [addFiles, isCaptureSupported]);
+
     // Computed
     const isUploading = attachments.some(a => a.isUploading);
     const isProcessing = attachments.some(a => a.isUploading || (!a.base64Data && !a.skippedAnalysis));
     const totalPayloadSize = attachments.reduce((sum, a) => sum + a.payloadSize, 0);
 
     return {
-        attachments, isDragActive, isUploading, isProcessing,
-        addFiles, removeFile, clearAll,
+        attachments, isDragActive, isUploading, isProcessing, isCaptureSupported,
+        addFiles, captureScreenshot, removeFile, clearAll,
         dragHandlers: { onDragEnter: handleDragEnter, onDragOver: (e) => { e.preventDefault(); e.stopPropagation(); }, onDragLeave: handleDragLeave, onDrop: handleDrop },
         handlePaste, fileInputRef, triggerFileSelect: () => fileInputRef.current?.click(),
         totalPayloadSize

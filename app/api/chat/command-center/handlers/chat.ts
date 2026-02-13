@@ -127,6 +127,16 @@ Guidelines:
 7. Do NOT include any signature or contact block (the email client already adds it)
 8. If a previous draft is provided, edit that draft directly and keep its structure.
 9. Do NOT invent new details or a brand-new email when the user asked for a small edit.
+10. Avoid AI filler phrasing:
+    - Never use "I have officially"
+    - Never use "As requested"
+    - Avoid ending sentences with "as well"
+11. If listing multiple opportunities/pay packages, format each as:
+    [Facility Name] | [City, ST]
+    - Gross Pay: ...
+    - Role: ...
+    - Why this fits: ...
+12. Use action-step closes (e.g., "Reply with your preferred option and start-date window.")
 
 OUTPUT FORMAT (use when producing an email):
 To: [email if visible]
@@ -482,6 +492,43 @@ function stripCommonModelWrappers(text: string): string {
     return current;
 }
 
+function refineEmailTone(text: string): string {
+    if (!text) return text;
+
+    let current = text;
+    current = current.replace(/\bI have officially\b/gi, 'I');
+    current = current.replace(/^\s*As requested,?\s*/gim, '');
+    current = current.replace(/\bas well\b(?=[\s\.,;!?]|$)/gi, '');
+    current = current.replace(/\s{2,}/g, ' ');
+    current = current.replace(/\n{3,}/g, '\n\n');
+
+    return current.trim();
+}
+
+function applyDefaultBulletFormatting(text: string): string {
+    if (!text) return text;
+    const lines = text.split('\n');
+    const bulletFields = [
+        /^total\s+gross\b/i,
+        /^gross\s+pay\b/i,
+        /^taxable\s+(?:pay|rate)\b/i,
+        /^tax[-\s]?free\s+stipend\b/i,
+        /^role\b/i,
+        /^fit\s+note\b/i,
+        /^why\s+this\s+fits\b/i,
+    ];
+
+    const normalized = lines.map((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return line;
+        if (/^[-*•]\s+/.test(trimmed)) return line;
+        if (!bulletFields.some((rx) => rx.test(trimmed))) return line;
+        return `- ${trimmed}`;
+    });
+
+    return normalized.join('\n');
+}
+
 function shouldUsePreviousDraftContext(input: HandlerInput, lastDraft: string | null): boolean {
     if (!lastDraft) return false;
     if (!input.hasImage) return true;
@@ -795,6 +842,8 @@ export async function handleChatIntent(
         let text = result.text || '';
         text = stripCommonModelWrappers(text);
         text = stripDraftWrapper(text);
+        text = refineEmailTone(text);
+        text = applyDefaultBulletFormatting(text);
         if (intent === Intent.EDIT_CONTENT) {
             text = stripSignatureBlock(text);
         }

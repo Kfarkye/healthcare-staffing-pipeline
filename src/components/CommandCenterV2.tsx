@@ -31,7 +31,7 @@ import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
     X, Minimize2, Maximize2, ArrowUp, Copy, Check, Square, Paperclip,
     FileText, Users, Activity, ChevronRight,
-    Zap, Loader2, Image as ImageIcon, ExternalLink, Mail, Globe
+    Zap, Loader2, Image as ImageIcon, ExternalLink, Mail, Globe, Camera
 } from 'lucide-react';
 
 // Obsidian Weissach Design System
@@ -1070,10 +1070,10 @@ ToolResultCard.displayName = 'ToolResultCard';
 // ============================================================================
 
 interface InputDeckProps {
-    value: string; onChange: (value: string) => void; onSend: () => void; onStop: () => void; isProcessing: boolean; inputRef: React.RefObject<HTMLTextAreaElement>; attachments: Attachment[]; onRemoveAttachment: (id: string) => void; isDragActive: boolean; isUploading: boolean; dragHandlers: DragHandlerProps; handlePaste: (e: ClipboardEvent) => void; triggerFileSelect: () => void; fileInputRef: React.RefObject<HTMLInputElement>; onFilesSelected: (files: FileList | null) => void;
+    value: string; onChange: (value: string) => void; onSend: () => void; onStop: () => void; isProcessing: boolean; inputRef: React.RefObject<HTMLTextAreaElement>; attachments: Attachment[]; onRemoveAttachment: (id: string) => void; isDragActive: boolean; isUploading: boolean; dragHandlers: DragHandlerProps; handlePaste: (e: ClipboardEvent) => void; triggerFileSelect: () => void; captureScreenshot: () => void; isCaptureSupported: boolean; fileInputRef: React.RefObject<HTMLInputElement>; onFilesSelected: (files: FileList | null) => void;
 }
 
-const InputDeck: FC<InputDeckProps> = memo(({ value, onChange, onSend, onStop, isProcessing, inputRef, attachments, onRemoveAttachment, isDragActive, isUploading, dragHandlers, handlePaste, triggerFileSelect, fileInputRef, onFilesSelected }) => {
+const InputDeck: FC<InputDeckProps> = memo(({ value, onChange, onSend, onStop, isProcessing, inputRef, attachments, onRemoveAttachment, isDragActive, isUploading, dragHandlers, handlePaste, triggerFileSelect, captureScreenshot, isCaptureSupported, fileInputRef, onFilesSelected }) => {
     useAutoResizeTextArea(inputRef, value);
     const [lightboxImage, setLightboxImage] = useState<{ url: string; name: string } | null>(null);
 
@@ -1181,6 +1181,17 @@ const InputDeck: FC<InputDeckProps> = memo(({ value, onChange, onSend, onStop, i
                 </AnimatePresence>
                 <div className="flex items-end gap-2">
                     <button onClick={triggerFileSelect} disabled={isProcessing} className="p-3.5 min-h-[48px] min-w-[48px] rounded-[18px] transition-colors text-zinc-500 hover:text-white hover:bg-white/5 disabled:opacity-50" aria-label="Attach"><Paperclip size={18} strokeWidth={1.5} /></button>
+                    {isCaptureSupported && (
+                        <button
+                            onClick={captureScreenshot}
+                            disabled={isProcessing}
+                            className="p-3.5 min-h-[48px] min-w-[48px] rounded-[18px] transition-colors text-zinc-500 hover:text-white hover:bg-white/5 disabled:opacity-50"
+                            aria-label="Take Screenshot"
+                            title="Take screenshot"
+                        >
+                            <Camera size={18} strokeWidth={1.5} />
+                        </button>
+                    )}
                     <textarea ref={inputRef} value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={handleKeyDown} onPaste={handlePaste} placeholder={isDragActive ? 'Drop files here...' : 'Message Command Center...'} rows={1} disabled={isProcessing} className={cn('flex-1 bg-transparent border-none outline-none resize-none py-4 min-h-[52px] max-h-[160px]', SYSTEM.type.body, 'text-white placeholder:text-zinc-500 disabled:opacity-50', isDragActive && 'placeholder:text-indigo-400')} />
                     <motion.button initial={{ scale: 0.9 }} animate={{ scale: 1 }} whileTap={{ scale: 0.92 }} onClick={() => isProcessing ? onStop() : onSend()} disabled={!isProcessing && !canSend} className={cn('p-3 min-h-[48px] min-w-[48px] rounded-[18px] transition-all duration-300', canSend || isProcessing ? 'bg-white text-black' : 'bg-white/5 text-zinc-600 cursor-not-allowed')}>{isProcessing ? <Square size={18} className="animate-pulse" /> : isUploading ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} strokeWidth={2.5} />}</motion.button>
                 </div>
@@ -1277,7 +1288,7 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
         }, []),
     });
 
-    const { attachments, isDragActive, isUploading, addFiles, removeFile, clearAll: clearAttachments, dragHandlers, handlePaste, fileInputRef, triggerFileSelect, totalPayloadSize } = useFileUpload({
+    const { attachments, isDragActive, isUploading, addFiles, captureScreenshot, isCaptureSupported, removeFile, clearAll: clearAttachments, dragHandlers, handlePaste, fileInputRef, triggerFileSelect, totalPayloadSize } = useFileUpload({
         onUploadError: (err, file) => { console.error(`Upload error: ${file.name}`, err); showToast(`Upload failed: ${file.name}`); },
     });
 
@@ -1289,6 +1300,14 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
             const clipboardEvent = e as globalThis.ClipboardEvent;
             const items = clipboardEvent.clipboardData?.items;
             if (!items) return;
+
+            const target = clipboardEvent.target as HTMLElement | null;
+            const targetTag = target?.tagName?.toLowerCase() || '';
+            const targetIsEditable =
+                targetTag === 'textarea' ||
+                (targetTag === 'input' && (target as HTMLInputElement).type === 'text') ||
+                Boolean(target?.isContentEditable);
+            if (targetIsEditable) return;
 
             const hasImage = Array.from(items).some(i => i.type?.startsWith('image/'));
             if (!hasImage) return; // allow normal text paste
@@ -1525,7 +1544,7 @@ const InnerCommandCenter: FC<{ isOpen: boolean; setIsOpen: (v: boolean) => void 
                             </motion.div>
                         )}
                         <AnimatePresence>{stableHistory.length < 2 && !streamingMessage && !isLoading && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mb-4"><ModeChips value={modeContext} onChange={setModeContext} /></motion.div>}</AnimatePresence>
-                        <InputDeck value={inputValue} onChange={setInputValue} onSend={() => handleSend()} onStop={stop} isProcessing={isLoading} inputRef={inputRef} attachments={attachments} onRemoveAttachment={removeFile} isDragActive={isDragActive} isUploading={isUploading} dragHandlers={dragHandlers} handlePaste={handlePaste} triggerFileSelect={triggerFileSelect} fileInputRef={fileInputRef} onFilesSelected={(files) => files && addFiles(files)} />
+                        <InputDeck value={inputValue} onChange={setInputValue} onSend={() => handleSend()} onStop={stop} isProcessing={isLoading} inputRef={inputRef} attachments={attachments} onRemoveAttachment={removeFile} isDragActive={isDragActive} isUploading={isUploading} dragHandlers={dragHandlers} handlePaste={handlePaste} triggerFileSelect={triggerFileSelect} captureScreenshot={() => void captureScreenshot()} isCaptureSupported={isCaptureSupported} fileInputRef={fileInputRef} onFilesSelected={(files) => files && addFiles(files)} />
                         {error && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-3 px-4 py-3 bg-rose-500/10 border border-rose-500/20 rounded-lg flex items-center justify-between"><span className="text-[12px] text-rose-400">{error.includes('404') ? '⚡ Cold start. Tap send again.' : `Error: ${error}`}</span><button onClick={() => handleSend()} className="ml-3 px-2 py-1 text-[11px] font-semibold text-rose-300 bg-rose-500/15 hover:bg-rose-500/25 rounded border border-rose-500/30 transition-colors">Retry</button></motion.div>}
                     </div>
                 </footer>
