@@ -357,7 +357,7 @@ export async function POST(request: Request) {
         modeLocked: Boolean(modeLocked),
         hasImage: imagePresent,
         modeContext: systemContext || '',
-    }, google, logger);
+    }, google, logger, traceId);
 
     logger.info('intent_classified', {
         intent: classification.intent,

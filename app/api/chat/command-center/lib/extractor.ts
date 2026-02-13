@@ -21,9 +21,11 @@ import type {
 } from '../types/index';
 import { MODEL_CONFIG } from './config';
 import {
+    fallbackReasonFromError,
     logModelSelected,
     logModelResponseReceived,
     logModelResponseError,
+    shouldAttemptFallback,
 } from './model-logging';
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -241,11 +243,11 @@ async function generateTextWithModelLogging(
     },
     logContext?: LLMLogContext
 ) {
-    const modelName = MODEL_CONFIG.primary;
+    const primaryModel = MODEL_CONFIG.primary;
     const selection = logModelSelected({
         logger: logContext?.logger,
         traceId: logContext?.traceId,
-        model: modelName,
+        model: primaryModel,
         intent: logContext?.intent,
         isFallback: logContext?.isFallback ?? false,
         primaryModel: logContext?.primaryModel,
@@ -254,7 +256,7 @@ async function generateTextWithModelLogging(
 
     try {
         const result = await generateText({
-            model: googleClient(modelName, {
+            model: googleClient(primaryModel, {
                 safetySettings: MODEL_CONFIG.safetySettings
             }),
             system: request.system,
@@ -264,9 +266,40 @@ async function generateTextWithModelLogging(
         });
         logModelResponseReceived(selection, result);
         return result;
-    } catch (error) {
+    } catch (error: unknown) {
         logModelResponseError(selection, error);
-        throw error;
+
+        const fallbackModel = MODEL_CONFIG.fallback;
+        if (!fallbackModel || fallbackModel === primaryModel || !shouldAttemptFallback(error)) {
+            throw error;
+        }
+
+        const fallbackSelection = logModelSelected({
+            logger: logContext?.logger,
+            traceId: logContext?.traceId,
+            model: fallbackModel,
+            intent: logContext?.intent,
+            isFallback: true,
+            primaryModel,
+            reason: fallbackReasonFromError(error),
+        });
+
+        try {
+            const fallbackResult = await generateText({
+                model: googleClient(fallbackModel, {
+                    safetySettings: MODEL_CONFIG.safetySettings
+                }),
+                system: request.system,
+                messages: request.messages,
+                temperature: request.temperature,
+                maxRetries: request.maxRetries,
+            });
+            logModelResponseReceived(fallbackSelection, fallbackResult);
+            return fallbackResult;
+        } catch (fallbackError) {
+            logModelResponseError(fallbackSelection, fallbackError);
+            throw fallbackError;
+        }
     }
 }
 

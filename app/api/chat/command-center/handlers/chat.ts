@@ -26,9 +26,11 @@ import { Intent, TemplateType, MessageType } from '../types/index';
 import { CONFIG, MODEL_CONFIG, buildNovaUrl } from '../lib/config';
 import { buildEmail } from '../lib/email-builder';
 import {
+    fallbackReasonFromError,
     logModelResponseError,
     logModelResponseReceived,
     logModelSelected,
+    shouldAttemptFallback,
 } from '../lib/model-logging';
 import {
     extractCandidateData,
@@ -727,9 +729,40 @@ export async function handleChatIntent(
                 maxRetries: MODEL_CONFIG.chat.maxRetries,
             });
             logModelResponseReceived(modelSelection, result);
-        } catch (error) {
+        } catch (error: unknown) {
             logModelResponseError(modelSelection, error);
-            throw error;
+            const fallbackModel = MODEL_CONFIG.fallback;
+            if (!fallbackModel || fallbackModel === modelName || !shouldAttemptFallback(error)) {
+                throw error;
+            }
+
+            const fallbackSelection = logModelSelected({
+                logger,
+                traceId,
+                model: fallbackModel,
+                intent,
+                isFallback: true,
+                primaryModel: modelName,
+                reason: fallbackReasonFromError(error),
+            });
+
+            try {
+                result = await generateText({
+                    model: google(fallbackModel, {
+                        safetySettings: MODEL_CONFIG.safetySettings
+                    }),
+                    system: systemPrompt,
+                    messages: input.messages as any,
+                    tools,
+                    toolChoice: tools ? 'auto' : undefined,
+                    temperature: MODEL_CONFIG.chat.temperature,
+                    maxRetries: MODEL_CONFIG.chat.maxRetries,
+                });
+                logModelResponseReceived(fallbackSelection, result);
+            } catch (fallbackError) {
+                logModelResponseError(fallbackSelection, fallbackError);
+                throw fallbackError;
+            }
         }
 
         const toolCalls = result.toolCalls?.map(tc => ({
@@ -836,37 +869,65 @@ export function handleChatIntentStreaming(
         isFallback: false,
         reason: 'primary',
     });
-    let responseLogged = false;
-    const logOnce = (result?: any, extra: Record<string, any> = {}) => {
-        if (responseLogged) return;
-        responseLogged = true;
-        logModelResponseReceived(modelSelection, result, extra);
+    const createStream = (model: string, selection: ReturnType<typeof logModelSelected>) => {
+        let responseLogged = false;
+        const logOnce = (result?: any, extra: Record<string, any> = {}) => {
+            if (responseLogged) return;
+            responseLogged = true;
+            logModelResponseReceived(selection, result, extra);
+        };
+
+        return streamText({
+            model: google(model, {
+                safetySettings: MODEL_CONFIG.safetySettings
+            }),
+            system: systemPrompt,
+            messages: input.messages as any,
+            tools,
+            toolChoice: tools ? 'auto' : undefined,
+            temperature: MODEL_CONFIG.chat.temperature,
+            maxRetries: MODEL_CONFIG.chat.maxRetries,
+            onFinish: (event: any) => {
+                const { text, finishReason } = event || {};
+                logOnce(event, { finishReason });
+                logger.info('chat_stream_complete', {
+                    intent,
+                    finishReason,
+                    responseLength: text?.length || 0
+                });
+            },
+            onError: (event: any) => {
+                const err = event?.error ?? event;
+                logOnce(undefined, { error: err instanceof Error ? err.message : String(err) });
+            },
+        });
     };
 
-    return streamText({
-        model: google(modelName, {
-            safetySettings: MODEL_CONFIG.safetySettings
-        }),
-        system: systemPrompt,
-        messages: input.messages as any,
-        tools,
-        toolChoice: tools ? 'auto' : undefined,
-        temperature: MODEL_CONFIG.chat.temperature,
-        maxRetries: MODEL_CONFIG.chat.maxRetries,
-        onFinish: (event: any) => {
-            const { text, finishReason } = event || {};
-            logOnce(event, { finishReason });
-            logger.info('chat_stream_complete', {
-                intent,
-                finishReason,
-                responseLength: text?.length || 0
-            });
-        },
-        onError: (event: any) => {
-            const err = event?.error ?? event;
-            logOnce(undefined, { error: err instanceof Error ? err.message : String(err) });
-        },
-    });
+    try {
+        return createStream(modelName, modelSelection);
+    } catch (error: unknown) {
+        logModelResponseError(modelSelection, error);
+        const fallbackModel = MODEL_CONFIG.fallback;
+        if (!fallbackModel || fallbackModel === modelName || !shouldAttemptFallback(error)) {
+            throw error;
+        }
+
+        const fallbackSelection = logModelSelected({
+            logger,
+            traceId,
+            model: fallbackModel,
+            intent,
+            isFallback: true,
+            primaryModel: modelName,
+            reason: fallbackReasonFromError(error),
+        });
+        try {
+            return createStream(fallbackModel, fallbackSelection);
+        } catch (fallbackError) {
+            logModelResponseError(fallbackSelection, fallbackError);
+            throw fallbackError;
+        }
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════════

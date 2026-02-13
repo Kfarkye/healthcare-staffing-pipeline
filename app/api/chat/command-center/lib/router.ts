@@ -29,9 +29,11 @@ import {
 } from './config';
 import { detectTemplateType } from './email-builder';
 import {
+    fallbackReasonFromError,
     logModelResponseError,
     logModelResponseReceived,
     logModelSelected,
+    shouldAttemptFallback,
 } from './model-logging';
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -337,7 +339,8 @@ function getLastUserImage(history: NormalizedMessage[] | undefined): string | nu
 async function classifyVisionIntent(
     image: string,
     googleClient?: any,
-    logger?: Logger
+    logger?: Logger,
+    traceId?: string
 ): Promise<{ intent: VisionIntent; confidence: number; signals: string[] } | null> {
     if (!googleClient || !image) return null;
     let imageInput: string | URL = image;
@@ -351,6 +354,7 @@ async function classifyVisionIntent(
 
     const selection = logModelSelected({
         logger,
+        traceId,
         model: MODEL_CONFIG.primary,
         intent: 'INTENT_CLASSIFICATION',
         isFallback: false,
@@ -358,8 +362,8 @@ async function classifyVisionIntent(
     });
 
     try {
-        const response = await generateObject({
-            model: googleClient(MODEL_CONFIG.primary, { structuredOutputs: true, safetySettings: MODEL_CONFIG.safetySettings }),
+        const run = (model: string) => generateObject({
+            model: googleClient(model, { structuredOutputs: true, safetySettings: MODEL_CONFIG.safetySettings }),
             schema: VisionIntentSchema,
             temperature: 0,
             system: VISION_SYSTEM_PROMPT,
@@ -373,7 +377,34 @@ async function classifyVisionIntent(
                 },
             ],
         });
-        logModelResponseReceived(selection, response);
+        let response;
+        let activeSelection = selection;
+        try {
+            response = await run(MODEL_CONFIG.primary);
+        } catch (primaryError) {
+            logModelResponseError(selection, primaryError);
+            const fallbackModel = MODEL_CONFIG.fallback;
+            if (!fallbackModel || fallbackModel === MODEL_CONFIG.primary || !shouldAttemptFallback(primaryError)) {
+                return null;
+            }
+            const fallbackSelection = logModelSelected({
+                logger,
+                traceId,
+                model: fallbackModel,
+                intent: 'INTENT_CLASSIFICATION',
+                isFallback: true,
+                primaryModel: MODEL_CONFIG.primary,
+                reason: fallbackReasonFromError(primaryError),
+            });
+            try {
+                response = await run(fallbackModel);
+                activeSelection = fallbackSelection;
+            } catch (fallbackError) {
+                logModelResponseError(fallbackSelection, fallbackError);
+                return null;
+            }
+        }
+        logModelResponseReceived(activeSelection, response);
 
         const { object } = response;
 
@@ -398,7 +429,8 @@ async function classifyVisionIntent(
 export async function classify(
     input: ClassifyInput,
     googleClient?: any,
-    logger?: Logger
+    logger?: Logger,
+    traceId?: string
 ): Promise<ClassifyResult> {
     const { message, mode, modeLocked, hasImage } = input;
     const text = (message || '').trim();
@@ -416,7 +448,7 @@ export async function classify(
         if (!hasImage || !googleClient) return visionOverride;
         const visionImage = getLastUserImage(input.history);
         if (!visionImage) return visionOverride;
-        const visionResult = await classifyVisionIntent(visionImage, googleClient, logger);
+        const visionResult = await classifyVisionIntent(visionImage, googleClient, logger, traceId);
         if (!visionResult || visionResult.confidence < VISION_CONFIDENCE_THRESHOLD) return visionOverride;
         const confidence = visionResult.confidence;
         const reason = `Vision: ${visionResult.intent} (${confidence.toFixed(2)})`;
@@ -939,6 +971,7 @@ export async function classify(
     if (googleClient) {
         const selection = logModelSelected({
             logger,
+            traceId,
             model: MODEL_CONFIG.primary,
             intent: 'INTENT_CLASSIFICATION',
             isFallback: false,
@@ -946,17 +979,44 @@ export async function classify(
         });
 
         try {
-            const response = await generateObject({
-                model: googleClient(MODEL_CONFIG.primary, { structuredOutputs: true }),
+            const run = (model: string) => generateObject({
+                model: googleClient(model, { structuredOutputs: true }),
                 schema: ClassificationSchema,
                 messages: [{ role: 'user', content: text }],
                 system: `Classify the user's intent. Options: DRAFT_OUTREACH (cold emails), DRAFT_EMAIL (specific requests), DATABASE_ACTION (lookups), CAMPAIGN_WORKFLOW (automation), GENERAL_CHAT (other).`,
                 temperature: 0,
             });
+            let response;
+            let activeSelection = selection;
+            try {
+                response = await run(MODEL_CONFIG.primary);
+            } catch (primaryError) {
+                logModelResponseError(selection, primaryError);
+                const fallbackModel = MODEL_CONFIG.fallback;
+                if (!fallbackModel || fallbackModel === MODEL_CONFIG.primary || !shouldAttemptFallback(primaryError)) {
+                    throw primaryError;
+                }
+                const fallbackSelection = logModelSelected({
+                    logger,
+                    traceId,
+                    model: fallbackModel,
+                    intent: 'INTENT_CLASSIFICATION',
+                    isFallback: true,
+                    primaryModel: MODEL_CONFIG.primary,
+                    reason: fallbackReasonFromError(primaryError),
+                });
+                try {
+                    response = await run(fallbackModel);
+                    activeSelection = fallbackSelection;
+                } catch (fallbackError) {
+                    logModelResponseError(fallbackSelection, fallbackError);
+                    throw fallbackError;
+                }
+            }
             const { object } = response;
 
             const parsed = ClassificationSchema.safeParse(object);
-            logModelResponseReceived(selection, response, {
+            logModelResponseReceived(activeSelection, response, {
                 classifiedIntent: parsed.success ? parsed.data.intent : null,
             });
 

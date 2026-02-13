@@ -54,6 +54,51 @@ function normalizeError(error: unknown): string {
     return String(error);
 }
 
+function getErrorStatus(error: any): number | undefined {
+    const candidates = [
+        error?.status,
+        error?.statusCode,
+        error?.cause?.status,
+        error?.cause?.statusCode,
+        error?.response?.status,
+        error?.error?.status,
+    ];
+    for (const value of candidates) {
+        if (typeof value === 'number' && Number.isFinite(value)) return value;
+    }
+    return undefined;
+}
+
+export function fallbackReasonFromError(error: unknown): string {
+    const message = normalizeError(error).toLowerCase();
+    const status = getErrorStatus(error as any);
+
+    if (message.includes('quota') || message.includes('resource exhausted') || message.includes('insufficient_quota')) {
+        return 'quota_exceeded';
+    }
+    if (status === 429 || message.includes('rate limit') || message.includes('too many requests')) {
+        return 'rate_limited';
+    }
+    if (message.includes('timeout') || message.includes('timed out')) {
+        return 'primary_timeout';
+    }
+    return 'primary_error';
+}
+
+export function shouldAttemptFallback(error: unknown): boolean {
+    const message = normalizeError(error).toLowerCase();
+    const status = getErrorStatus(error as any);
+
+    if (status === 429 || status === 408) return true;
+    if (typeof status === 'number' && status >= 500) return true;
+    if (message.includes('quota') || message.includes('resource exhausted') || message.includes('insufficient_quota')) return true;
+    if (message.includes('rate limit') || message.includes('too many requests')) return true;
+    if (message.includes('timeout') || message.includes('timed out')) return true;
+    if (message.includes('overloaded') || message.includes('unavailable') || message.includes('network')) return true;
+
+    return false;
+}
+
 export function logModelSelected(params: ModelSelectionParams): ModelSelectionHandle {
     const {
         logger,
