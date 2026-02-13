@@ -80,6 +80,52 @@ function stripMarkdownForEmail(text: string): string {
         .trim();
 }
 
+function splitMergedSubjectAndBody(subject: string, body: string): { subject: string; body: string } {
+    const cleanSubject = (subject || '').trim();
+    let cleanBody = (body || '').trim();
+    if (!cleanSubject) return { subject: cleanSubject, body: cleanBody };
+
+    const splitIndexCandidates: number[] = [];
+
+    const greetingMatch = cleanSubject.match(/\b(?:hi|hello|hey)\s+[a-z][^,\n]{0,60},/i);
+    if (greetingMatch?.index && greetingMatch.index > 0) {
+        splitIndexCandidates.push(greetingMatch.index);
+    }
+
+    const sectionRx = /\b(?:pay package:|to move forward\b[^:\n]*:?|facility:|location:|assignment details:|assignment dates?:|shifts?(?:\s*&\s*hours)?:)\b/i;
+    const sectionMatch = cleanSubject.match(sectionRx);
+    if (sectionMatch?.index && sectionMatch.index > 0) {
+        splitIndexCandidates.push(sectionMatch.index);
+    }
+
+    if (splitIndexCandidates.length === 0) {
+        return { subject: cleanSubject, body: cleanBody };
+    }
+
+    const splitAt = Math.min(...splitIndexCandidates);
+    const left = cleanSubject.slice(0, splitAt).trim();
+    const right = cleanSubject.slice(splitAt).trim();
+
+    if (!left || !right) return { subject: cleanSubject, body: cleanBody };
+
+    cleanBody = cleanBody ? `${right}\n${cleanBody}` : right;
+    return { subject: left, body: cleanBody };
+}
+
+function normalizeEmailBodyLayout(body: string): string {
+    if (!body) return body;
+    let text = body.replace(/\r\n/g, '\n').trim();
+
+    text = text.replace(
+        /([^\n])\s+(Pay Package:|Assignment Details:|To move forward\b[^:\n]*:?|Facility:|Location:|Assignment Dates?:|Shifts?(?:\s*&\s*Hours)?:)/gi,
+        '$1\n\n$2'
+    );
+
+    text = text.replace(/([^\n])\s+(-\s+)/g, '$1\n$2');
+    text = text.replace(/\n{3,}/g, '\n\n');
+    return text.trim();
+}
+
 // Permissive Email Headers (Case insensitive, flexible spacing)
 // This catches almost any draft format, even if AI forgets the standard header.
 const REGEX_EMAIL_HEADER = /^#?\s*(?:EMAIL|DRAFT)\s*(?:DRAFT|EMAIL)?[\r\n]+/i;
@@ -348,9 +394,10 @@ const EmailCard: FC<{ to?: string; cc?: string; subject: string; body: string; s
     // CRITICAL FIX: Strip markdown BEFORE any processing
     const cleanBody = useMemo(() => stripMarkdownForEmail(body), [body]);
     const cleanSubject = useMemo(() => stripMarkdownForEmail(subject), [subject]);
+    const normalizedBody = useMemo(() => normalizeEmailBodyLayout(cleanBody), [cleanBody]);
 
     // Body only for copy (no signature - Outlook auto-appends)
-    const bodyOnly = useMemo(() => cleanBody.replace(/  \n/g, '\n').replace(/^---\s*$/gm, '').trim(), [cleanBody]);
+    const bodyOnly = useMemo(() => normalizedBody.replace(/  \n/g, '\n').replace(/^---\s*$/gm, '').trim(), [normalizedBody]);
 
     // Full preview (body + signature) for on-screen display only
     const previewBody = useMemo(() => {
@@ -858,6 +905,10 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                 const nextSteps = parsed.next_steps as NextStepAction[];
 
                 if (email?.kind === 'email_draft') {
+                    const splitStructured = splitMergedSubjectAndBody(email.subject || '', email.body || '');
+                    const normalizedStructuredSubject = splitStructured.subject || '(No Subject)';
+                    const normalizedStructuredBody = normalizeEmailBodyLayout(splitStructured.body || '');
+
                     // Extract intel from email metadata
                     const intel: IntelData = {
                         candidateName: email.to_name || email.meta?.candidate?.name,
@@ -865,19 +916,19 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                     };
 
                     // Extract specialty and location from subject
-                    const subjectMatch = email.subject?.match(/^([^-]+)\s*-\s*([^|]+)/);
+                    const subjectMatch = normalizedStructuredSubject.match(/^([^-]+)\s*-\s*([^|]+)/);
                     if (subjectMatch) {
                         intel.specialty = subjectMatch[1]?.trim();
                     }
 
                     // Extract weekly pay from subject
-                    const payMatch = email.subject?.match(/\$([0-9,]+)(?:\/wk|\/week)?/i);
+                    const payMatch = normalizedStructuredSubject.match(/\$([0-9,]+)(?:\/wk|\/week)?/i);
                     if (payMatch) {
                         intel.weeklyPay = parseInt(payMatch[1].replace(/,/g, ''), 10);
                     }
 
                     // Extract location from body
-                    const locMatch = email.body?.match(/Location:\s*([^\n]+)/i);
+                    const locMatch = normalizedStructuredBody.match(/Location:\s*([^\n]+)/i);
                     if (locMatch) {
                         intel.location = locMatch[1]?.trim();
                     }
@@ -887,8 +938,8 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                             <EmailCard
                                 to={email.to_email || undefined}
                                 cc={email.cc?.[0] || DEFAULT_CC}
-                                subject={email.subject}
-                                body={email.body}
+                                subject={normalizedStructuredSubject}
+                                body={normalizedStructuredBody}
                                 signature={email.signature}
                             />
                             <NextStepsPanel steps={nextSteps} />
@@ -905,8 +956,9 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
         const tagSubjectMatch = processedContent.match(REGEX_TAG_SUBJECT);
         const tagBodyMatch = processedContent.match(REGEX_TAG_BODY);
         if (tagSubjectMatch && tagBodyMatch) {
-            const tagSubject = tagSubjectMatch[1].trim();
-            const tagBody = tagBodyMatch[1].trim();
+            const splitTagged = splitMergedSubjectAndBody(tagSubjectMatch[1].trim(), tagBodyMatch[1].trim());
+            const tagSubject = splitTagged.subject;
+            const tagBody = normalizeEmailBodyLayout(splitTagged.body);
             // Prefer explicit To: if present, otherwise first email found (using robust extraction)
             const rawTo = processedContent.match(REGEX_EMAIL_TO)?.[1]?.trim();
             const tagTo = extractFirstEmail(rawTo) || extractFirstEmail(processedContent);
@@ -933,7 +985,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
         if (emailMatch || hasEmailFields) {
             const rawTo = processedContent.match(REGEX_EMAIL_TO)?.[1]?.trim();
             const toEmail = extractFirstEmail(rawTo); // Robust: handles "Name <email>" format
-            const sub = processedContent.match(REGEX_EMAIL_SUBJECT)?.[1].trim();
+            const sub = processedContent.match(REGEX_EMAIL_SUBJECT)?.[1].trim() || '';
 
             // Body extraction: Try --- delimiters first, fallback to everything after Subject line
             let body = '';
@@ -949,25 +1001,29 @@ const MessageBubble: FC<MessageBubbleProps> = memo(({ role, content, isStreaming
                 }
             }
 
+            const splitSubject = splitMergedSubjectAndBody(sub, body);
+            const normalizedSubject = splitSubject.subject;
+            const normalizedBody = normalizeEmailBodyLayout(splitSubject.body);
+
             // Final recipient email: explicit To: email wins; fallback = first email in content
             const recipientEmail = toEmail || extractFirstEmail(processedContent);
 
             // Extract intel from subject/body
             const intel: IntelData = {};
-            if (sub) {
-                const subMatch = sub.match(/^([^-]+)\s*-\s*([^|]+)/);
+            if (normalizedSubject) {
+                const subMatch = normalizedSubject.match(/^([^-]+)\s*-\s*([^|]+)/);
                 if (subMatch) intel.specialty = subMatch[1]?.trim();
-                const payMatch = sub.match(/\$([0-9,]+)/);
+                const payMatch = normalizedSubject.match(/\$([0-9,]+)/);
                 if (payMatch) intel.weeklyPay = parseInt(payMatch[1].replace(/,/g, ''), 10);
             }
-            const locMatch = body.match(/Location:\s*([^\n]+)/i);
+            const locMatch = normalizedBody.match(/Location:\s*([^\n]+)/i);
             if (locMatch) intel.location = locMatch[1]?.trim();
 
             // Render card if we have at least a subject or 'to' field
             // Avoid duplicate rendering: do not attempt to render a "remainder" for header-style drafts
-            if (sub || recipientEmail) {
+            if (normalizedSubject || recipientEmail) {
                 return <>
-                    <EmailCard to={recipientEmail} cc={DEFAULT_CC} subject={sub || '(No Subject)'} body={body} />
+                    <EmailCard to={recipientEmail} cc={DEFAULT_CC} subject={normalizedSubject || '(No Subject)'} body={normalizedBody} />
                 </>;
             }
         }
@@ -1133,48 +1189,62 @@ const InputDeck: FC<InputDeckProps> = memo(({ value, onChange, onSend, onStop, i
                 <AnimatePresence>
                     {attachments.length > 0 && (
                         <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="px-2 pt-2">
-                            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide relative">
-                                {/* Gradient Masks for horizontal scroll cue */}
-                                <div className="absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-[#0A0A0B] to-transparent pointer-events-none z-10" />
-                                <div className="absolute right-0 top-0 bottom-0 w-4 bg-gradient-to-l from-[#0A0A0B] to-transparent pointer-events-none z-10" />
+                            <div className="mb-2 px-1 flex items-center justify-between">
+                                <span className="text-[10px] tracking-wide uppercase text-zinc-500">
+                                    {attachments.length} Attachment{attachments.length > 1 ? 's' : ''}
+                                </span>
+                                {isUploading && (
+                                    <span className="text-[10px] text-zinc-500">Uploading…</span>
+                                )}
+                            </div>
 
-                                {attachments.map((att) => (
-                                    <div
-                                        key={att.id}
-                                        className={cn(
-                                            "relative group flex-shrink-0 w-20 h-20 rounded-xl bg-white/5 border overflow-hidden cursor-pointer transition-all hover:scale-105 hover:border-indigo-500/50",
-                                            att.skippedAnalysis ? "border-amber-500/50" : "border-white/10"
-                                        )}
-                                    >
-                                        {att.previewUrl ? (
-                                            <img
-                                                src={att.previewUrl}
-                                                className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
-                                                alt={att.fileName || 'Attachment'}
-                                                onClick={() => setLightboxImage({ url: att.previewUrl!, name: att.fileName || 'Attachment' })}
-                                            />
-                                        ) : (
-                                            <div className="w-full h-full flex items-center justify-center">
-                                                <FileText size={24} className="text-zinc-500" />
-                                            </div>
-                                        )}
-                                        {att.isUploading && <div className="absolute inset-0 bg-black/60 flex items-center justify-center"><Loader2 size={18} className="animate-spin text-indigo-400" /></div>}
-                                        {att.skippedAnalysis && !att.isUploading && <div className="absolute bottom-0 left-0 right-0 bg-amber-500/90 text-[8px] font-bold text-black text-center py-0.5">LINK ONLY</div>}
-                                        {/* Remove button - top right corner on hover */}
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); onRemoveAttachment(att.id); }}
-                                            className="absolute top-1 right-1 p-1 rounded-full bg-black/70 hover:bg-red-500/90 opacity-0 group-hover:opacity-100 transition-all"
-                                        >
-                                            <X size={12} className="text-white" />
-                                        </button>
-                                        {/* Expand indicator */}
-                                        {att.previewUrl && (
-                                            <div className="absolute bottom-1 right-1 p-1 rounded bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <Maximize2 size={10} className="text-white/80" />
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
+                            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                {attachments.map((att) => {
+                                    const ext = getFileExtension(att.publicUrl || undefined, att.fileName || undefined);
+                                    return (
+                                        <div key={att.id} className="relative group flex-shrink-0">
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); onRemoveAttachment(att.id); }}
+                                                className="absolute -top-1 -right-1 z-20 w-5 h-5 rounded-full bg-zinc-900/90 border border-white/15 text-zinc-200 hover:bg-zinc-800 flex items-center justify-center transition-colors"
+                                                aria-label="Remove attachment"
+                                            >
+                                                <X size={10} />
+                                            </button>
+
+                                            <button
+                                                onClick={() => att.previewUrl && setLightboxImage({ url: att.previewUrl, name: att.fileName || 'Attachment' })}
+                                                disabled={!att.previewUrl}
+                                                className={cn(
+                                                    'relative w-[74px] h-[74px] rounded-2xl border overflow-hidden bg-zinc-900/70',
+                                                    att.skippedAnalysis ? 'border-amber-500/40' : 'border-white/15',
+                                                    att.previewUrl ? 'cursor-zoom-in' : 'cursor-default'
+                                                )}
+                                            >
+                                                {att.previewUrl ? (
+                                                    <img
+                                                        src={att.previewUrl}
+                                                        className="w-full h-full object-cover"
+                                                        alt={att.fileName || 'Attachment'}
+                                                    />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center">
+                                                        <FileText size={22} className="text-zinc-500" />
+                                                    </div>
+                                                )}
+
+                                                {att.isUploading && (
+                                                    <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+                                                        <Loader2 size={16} className="animate-spin text-zinc-200" />
+                                                    </div>
+                                                )}
+
+                                                <div className="absolute left-1.5 bottom-1.5 px-1.5 py-0.5 rounded-md bg-black/70 border border-white/10 text-[8px] font-medium uppercase text-zinc-200">
+                                                    {att.skippedAnalysis ? 'Link' : (ext || 'img')}
+                                                </div>
+                                            </button>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </motion.div>
                     )}
