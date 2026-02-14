@@ -104,6 +104,7 @@ import {
     X, Minimize2, Maximize2, ArrowUp, Copy, Check, Square, Paperclip,
     FileText, Users, Activity, ChevronRight, ChevronDown,
     Zap, Loader2, Image as ImageIcon, ExternalLink, Mail, Camera,
+    Shield, DollarSign, Phone, MapPin,
 } from 'lucide-react';
 
 import {
@@ -141,6 +142,28 @@ const REGEX_EMAIL_BODY     = /(?:^|\n)---[\r\n]+([\s\S]+?)[\r\n]+---(?:\s|$)/;
 const REGEX_TAG_SUBJECT    = /\[SUBJECT\]([\s\S]*?)\[\/SUBJECT\]/i;
 const REGEX_TAG_BODY       = /\[BODY\]([\s\S]*?)\[\/BODY\]/i;
 const REGEX_EMAIL_DRAFT_JSON = /\[EMAIL_DRAFT_JSON\]\s*([\s\S]*?)\s*\[\/EMAIL_DRAFT_JSON\]/i;
+
+// Rich response block extraction
+const REGEX_RESPONSE_BLOCK = /\[RESPONSE_BLOCK:(\w+)\]([\s\S]*?)\[\/RESPONSE_BLOCK\]/g;
+
+interface ParsedResponseBlock {
+    kind: string;
+    data: any;
+}
+
+function extractResponseBlocks(content: string): {
+    blocks: ParsedResponseBlock[];
+    prose: string;
+} {
+    const blocks: ParsedResponseBlock[] = [];
+    const prose = content.replace(REGEX_RESPONSE_BLOCK, (_, kind, json) => {
+        try { blocks.push({ kind, data: JSON.parse(json) }); }
+        catch { /* skip malformed blocks */ }
+        return '';
+    }).trim();
+    REGEX_RESPONSE_BLOCK.lastIndex = 0;
+    return { blocks, prose };
+}
 
 // Recruiting workflow defaults
 const DEFAULT_CC = 'Tiffany.Chavez@ayahealthcare.com';
@@ -730,6 +753,399 @@ const AssessmentHUD: FC<{ content: string; title?: string }> = memo(
     ),
 );
 AssessmentHUD.displayName = 'AssessmentHUD';
+
+// ---------------------------------------------------------------------------
+// Rich Response Cards — CandidateCard, PipelineTable, LicensureCard,
+// PayPackageCard, CitationFooter
+// ---------------------------------------------------------------------------
+
+const CandidateCard: FC<{ data: any }> = memo(({ data }) => {
+    const statusKey =
+        ['active', 'interested', 'ready'].some(k => (data.status || '').toLowerCase().includes(k)) ? 'emerald' :
+        ['submitted', 'interviewing', 'offer'].some(k => (data.status || '').toLowerCase().includes(k)) ? 'blue' :
+        ['pending', 'hold', 'review'].some(k => (data.status || '').toLowerCase().includes(k)) ? 'amber' :
+        ['declined', 'rejected', 'dnr'].some(k => (data.status || '').toLowerCase().includes(k)) ? 'rose' :
+        ['new', 'fresh'].some(k => (data.status || '').toLowerCase().includes(k)) ? 'purple' : 'zinc';
+
+    return (
+        <motion.div
+            layout
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={SYSTEM.anim.fluid}
+            className="mt-4 rounded-[20px] ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]"
+        >
+            {/* Header */}
+            <div className="px-5 pt-5 pb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                    <h3 className="text-[15px] font-semibold text-white truncate">{data.name}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                        {data.specialty && (
+                            <span className="text-[11px] text-zinc-500 font-medium">{data.specialty}</span>
+                        )}
+                        {data.profession && (
+                            <>
+                                <span className="text-zinc-700">·</span>
+                                <span className="text-[11px] text-zinc-500 font-medium">{data.profession}</span>
+                            </>
+                        )}
+                    </div>
+                </div>
+                <span className={cn(
+                    'inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-semibold border shrink-0',
+                    STATUS_STYLES[statusKey],
+                )}>
+                    {data.status || 'Unknown'}
+                </span>
+            </div>
+
+            {/* Details */}
+            <div className="px-5 pb-4 space-y-2">
+                {data.email && (
+                    <div className="flex items-center gap-2">
+                        <Mail size={11} className="text-zinc-600 shrink-0" />
+                        <span className="text-[12px] text-zinc-400 font-mono truncate">{data.email}</span>
+                    </div>
+                )}
+                {data.phone && (
+                    <div className="flex items-center gap-2">
+                        <Phone size={11} className="text-zinc-600 shrink-0" />
+                        <span className="text-[12px] text-zinc-400 font-mono">{data.phone}</span>
+                    </div>
+                )}
+                {data.home_state && (
+                    <div className="flex items-center gap-2">
+                        <MapPin size={11} className="text-zinc-600 shrink-0" />
+                        <span className="text-[12px] text-zinc-400">{data.home_state}</span>
+                    </div>
+                )}
+                {data.recruiter && (
+                    <div className="flex items-center gap-2">
+                        <Users size={11} className="text-zinc-600 shrink-0" />
+                        <span className="text-[12px] text-zinc-400">{data.recruiter}</span>
+                    </div>
+                )}
+
+                {/* License chips */}
+                {data.licenses?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                        {data.licenses.map((lic: string, i: number) => (
+                            <span key={i} className="px-2 py-0.5 rounded-md ring-1 ring-cyan-500/20 bg-cyan-500/[0.06] text-[10px] text-cyan-400/80 font-medium">
+                                {lic}
+                            </span>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Nova link */}
+            {data.nova_url && (
+                <div className="px-5 pb-4">
+                    <a
+                        href={data.nova_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2.5 p-3 rounded-[10px] bg-indigo-500/[0.04] ring-1 ring-indigo-500/10 hover:bg-indigo-500/[0.08] hover:ring-indigo-500/20 transition-all duration-300 group"
+                    >
+                        <div className="w-7 h-7 rounded-[6px] bg-indigo-500/10 flex items-center justify-center group-hover:bg-indigo-500/15 transition-colors duration-300">
+                            <ExternalLink size={12} className="text-indigo-400" />
+                        </div>
+                        <span className="text-[11px] text-indigo-300/70 font-medium flex-1 truncate group-hover:text-indigo-300 transition-colors duration-200">
+                            View in Nova
+                        </span>
+                        <ChevronRight size={12} className="text-indigo-500/20 group-hover:text-indigo-400/60 transition-colors duration-200 shrink-0" />
+                    </a>
+                </div>
+            )}
+        </motion.div>
+    );
+});
+CandidateCard.displayName = 'CandidateCard';
+
+const PipelineTableCard: FC<{ data: any }> = memo(({ data }) => {
+    const columns: string[] = data.columns || [];
+    const rows: Array<Record<string, any>> = data.rows || [];
+    if (!columns.length || !rows.length) return null;
+
+    return (
+        <motion.div
+            layout
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={SYSTEM.anim.fluid}
+            className="mt-4 rounded-[20px] ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]"
+        >
+            {/* Title */}
+            {data.title && (
+                <div className="px-5 py-3 border-b border-white/[0.04] flex items-center gap-2">
+                    <Activity size={11} className="text-zinc-600" />
+                    <span className="text-[10px] font-bold tracking-[0.1em] uppercase text-zinc-500">
+                        {data.title}
+                    </span>
+                </div>
+            )}
+
+            {/* Table */}
+            <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                    <thead>
+                        <tr className="bg-white/[0.02]">
+                            {columns.map((col) => (
+                                <th key={col} className="px-4 py-2.5 text-left text-[10px] font-semibold text-zinc-500 uppercase tracking-wider whitespace-nowrap">
+                                    {col}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.04]">
+                        {rows.map((row, ri) => (
+                            <tr key={ri} className="hover:bg-white/[0.02] transition-colors">
+                                {columns.map((col) => {
+                                    const val = String(row[col] ?? '');
+                                    const lower = val.toLowerCase();
+                                    let chip: string | null = null;
+                                    if (['active', 'interested', 'ready', 'strong match'].some(k => lower.includes(k))) chip = 'emerald';
+                                    else if (['submitted', 'interviewing', 'sourced', 'offer'].some(k => lower.includes(k))) chip = 'blue';
+                                    else if (['pending', 'review', 'hold'].some(k => lower.includes(k))) chip = 'amber';
+                                    else if (['declined', 'rejected', 'not a fit'].some(k => lower.includes(k))) chip = 'rose';
+
+                                    return (
+                                        <td key={col} className="px-4 py-3">
+                                            {chip ? (
+                                                <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border', STATUS_STYLES[chip])}>
+                                                    {val}
+                                                </span>
+                                            ) : (
+                                                <span className="text-[12px] text-zinc-300 tabular-nums">{val}</span>
+                                            )}
+                                        </td>
+                                    );
+                                })}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </motion.div>
+    );
+});
+PipelineTableCard.displayName = 'PipelineTableCard';
+
+const LicensureCard: FC<{ data: any }> = memo(({ data }) => {
+    const statusColor =
+        data.license_status === 'active' ? 'emerald' :
+        data.license_status === 'expired' ? 'rose' :
+        data.license_status === 'pending' ? 'amber' : 'zinc';
+
+    const statusLabel =
+        data.license_status === 'active' ? 'Active' :
+        data.license_status === 'expired' ? 'Expired' :
+        data.license_status === 'pending' ? 'Pending Verification' : 'Not Found';
+
+    return (
+        <motion.div
+            layout
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={SYSTEM.anim.fluid}
+            className="mt-4 rounded-[20px] ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]"
+        >
+            <div className="px-5 py-4">
+                <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                        <Shield size={13} className="text-cyan-400/50" />
+                        <span className="text-[10px] font-bold tracking-[0.1em] uppercase text-zinc-500">
+                            Licensure
+                        </span>
+                    </div>
+                    <span className={cn(
+                        'inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-semibold border',
+                        STATUS_STYLES[statusColor],
+                    )}>
+                        {statusLabel}
+                    </span>
+                </div>
+
+                <h4 className="text-[14px] font-semibold text-white">{data.candidate_name}</h4>
+
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                    <div>
+                        <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">State</span>
+                        <span className="text-[13px] text-zinc-300 font-medium">{data.state}</span>
+                    </div>
+                    <div>
+                        <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">Profession</span>
+                        <span className="text-[13px] text-zinc-300 font-medium">{data.profession}</span>
+                    </div>
+                    {data.license_number && (
+                        <div>
+                            <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">License #</span>
+                            <span className="text-[12px] text-zinc-400 font-mono">{data.license_number}</span>
+                        </div>
+                    )}
+                    {data.expiration && (
+                        <div>
+                            <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">Expires</span>
+                            <span className="text-[12px] text-zinc-400 tabular-nums">{data.expiration}</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Board verification link */}
+            {data.board_url && (
+                <div className="px-5 pb-4">
+                    <a
+                        href={data.board_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2.5 p-3 rounded-[10px] bg-cyan-500/[0.04] ring-1 ring-cyan-500/10 hover:bg-cyan-500/[0.08] hover:ring-cyan-500/20 transition-all duration-300 group"
+                    >
+                        <div className="w-7 h-7 rounded-[6px] bg-cyan-500/10 flex items-center justify-center group-hover:bg-cyan-500/15 transition-colors duration-300">
+                            <ExternalLink size={12} className="text-cyan-400" />
+                        </div>
+                        <span className="text-[11px] text-cyan-300/70 font-medium flex-1 truncate group-hover:text-cyan-300 transition-colors duration-200">
+                            Verify on State Board
+                        </span>
+                        <ChevronRight size={12} className="text-cyan-500/20 group-hover:text-cyan-400/60 transition-colors duration-200 shrink-0" />
+                    </a>
+                </div>
+            )}
+        </motion.div>
+    );
+});
+LicensureCard.displayName = 'LicensureCard';
+
+const PayPackageCard: FC<{ data: any }> = memo(({ data }) => (
+    <motion.div
+        layout
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={SYSTEM.anim.fluid}
+        className="mt-4 rounded-[20px] ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]"
+    >
+        {/* Header */}
+        <div className="px-5 pt-5 pb-3">
+            <div className="flex items-center gap-2 mb-2">
+                <DollarSign size={13} className="text-emerald-400/50" />
+                <span className="text-[10px] font-bold tracking-[0.1em] uppercase text-zinc-500">
+                    Pay Package
+                </span>
+            </div>
+            <h4 className="text-[14px] font-semibold text-white">{data.facility}</h4>
+            <span className="text-[11px] text-zinc-500 font-medium">{data.location} · {data.specialty}</span>
+        </div>
+
+        {/* Hero number */}
+        <div className="px-5 pb-3">
+            <div className="flex items-baseline gap-1">
+                <span className="text-[28px] font-bold text-emerald-400 tabular-nums tracking-tight">
+                    ${typeof data.gross_weekly === 'number' ? data.gross_weekly.toLocaleString() : data.gross_weekly}
+                </span>
+                <span className="text-[11px] text-zinc-500 font-medium">/week</span>
+            </div>
+        </div>
+
+        {/* Breakdown */}
+        <div className="px-5 pb-4 space-y-1.5">
+            {data.taxable_hourly != null && (
+                <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-zinc-500">Taxable Hourly</span>
+                    <span className="text-[12px] text-zinc-300 tabular-nums font-medium">${data.taxable_hourly}/hr</span>
+                </div>
+            )}
+            {data.stipend_weekly != null && (
+                <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-zinc-500">Stipend</span>
+                    <span className="text-[12px] text-zinc-300 tabular-nums font-medium">${data.stipend_weekly}/wk</span>
+                </div>
+            )}
+            {data.housing_weekly != null && (
+                <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-zinc-500">Housing</span>
+                    <span className="text-[12px] text-zinc-300 tabular-nums font-medium">${data.housing_weekly}/wk</span>
+                </div>
+            )}
+            {data.meals_weekly != null && (
+                <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-zinc-500">M&IE</span>
+                    <span className="text-[12px] text-zinc-300 tabular-nums font-medium">${data.meals_weekly}/wk</span>
+                </div>
+            )}
+            {data.hours_per_week && (
+                <div className="flex items-center justify-between pt-1 border-t border-white/[0.04]">
+                    <span className="text-[11px] text-zinc-500">Hours/Week</span>
+                    <span className="text-[12px] text-zinc-300 tabular-nums font-medium">{data.hours_per_week}</span>
+                </div>
+            )}
+            {data.shift && (
+                <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-zinc-500">Shift</span>
+                    <span className="text-[12px] text-zinc-300 font-medium">{data.shift}</span>
+                </div>
+            )}
+        </div>
+
+        {/* Dates */}
+        {(data.start_date || data.end_date) && (
+            <div className="px-5 pb-4 flex gap-4">
+                {data.start_date && (
+                    <div>
+                        <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">Start</span>
+                        <span className="text-[12px] text-zinc-400 tabular-nums">{data.start_date}</span>
+                    </div>
+                )}
+                {data.end_date && (
+                    <div>
+                        <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">End</span>
+                        <span className="text-[12px] text-zinc-400 tabular-nums">{data.end_date}</span>
+                    </div>
+                )}
+            </div>
+        )}
+    </motion.div>
+));
+PayPackageCard.displayName = 'PayPackageCard';
+
+const CitationFooter: FC<{ citations: any[] }> = memo(({ citations }) => {
+    if (!citations?.length) return null;
+
+    return (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            className="mt-3 pt-3 border-t border-white/[0.04]"
+        >
+            <div className="flex items-center gap-1.5 mb-2">
+                <FileText size={10} className="text-zinc-600" />
+                <span className="text-[9px] font-bold tracking-[0.1em] uppercase text-zinc-600">
+                    Sources
+                </span>
+            </div>
+            <div className="space-y-1">
+                {citations.map((cite: any, i: number) => (
+                    <a
+                        key={i}
+                        href={cite.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 group"
+                    >
+                        <span className="text-[10px] text-indigo-400/50 font-mono tabular-nums shrink-0">
+                            [{cite.index}]
+                        </span>
+                        <span className="text-[11px] text-zinc-500 group-hover:text-indigo-300/70 transition-colors duration-200 truncate">
+                            {cite.label}
+                        </span>
+                        <ExternalLink size={8} className="text-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity duration-200 shrink-0" />
+                    </a>
+                ))}
+            </div>
+        </motion.div>
+    );
+});
+CitationFooter.displayName = 'CitationFooter';
 
 // ---------------------------------------------------------------------------
 // Thinking Pill (status indicator during generation)
@@ -1775,6 +2191,24 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                 const label = flattenChildrenText(children).trim();
                 const safeHref = String(href || '').trim();
 
+                // Citation link — [1], [2], etc.
+                if (/^\[\d+\]$/.test(label) && safeHref) {
+                    return (
+                        <sup>
+                            <a
+                                href={safeHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-indigo-400/60 hover:text-indigo-300 text-[10px] font-mono no-underline transition-colors duration-200"
+                                title={safeHref}
+                            >
+                                {label}
+                            </a>
+                        </sup>
+                    );
+                }
+
                 // Nova ID link
                 if (REGEX_NOVA_ID.test(label)) {
                     return (
@@ -1870,7 +2304,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
             },
         }), [isUser]);
 
-        // Render content — email card or markdown
+        // Render content — response blocks, email card, or markdown
         const renderContent = useMemo(() => {
             if (!content) return null;
             const sanitizedContent = content.replace(REGEX_CLIENT_MARKERS, '').trim();
@@ -1896,7 +2330,31 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                 }
             }
 
-            // Try email parsing
+            // ── Rich response blocks ──
+            const { blocks, prose } = extractResponseBlocks(sanitizedContent);
+            if (blocks.length > 0) {
+                return (
+                    <>
+                        {prose && (
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+                                {prose}
+                            </ReactMarkdown>
+                        )}
+                        {blocks.map((block, i) => {
+                            switch (block.kind) {
+                                case 'candidate_card': return <CandidateCard key={i} data={block.data} />;
+                                case 'pipeline_table': return <PipelineTableCard key={i} data={block.data} />;
+                                case 'licensure_card': return <LicensureCard key={i} data={block.data} />;
+                                case 'pay_package_card': return <PayPackageCard key={i} data={block.data} />;
+                                case 'citation_set': return <CitationFooter key={i} citations={Array.isArray(block.data) ? block.data : []} />;
+                                default: return null;
+                            }
+                        })}
+                    </>
+                );
+            }
+
+            // ── Legacy: email parsing ──
             const email = parseEmailFromContent(sanitizedContent);
             if (email) {
                 return (
@@ -1914,7 +2372,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                 );
             }
 
-            // Verdict card
+            // ── Legacy: verdict card ──
             const verdictMatch = sanitizedContent.match(REGEX_VERDICT);
             if (verdictMatch) {
                 return (
@@ -1925,7 +2383,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                 );
             }
 
-            // Insight HUD
+            // ── Legacy: insight HUD ──
             const insightMatch = sanitizedContent.match(REGEX_INSIGHT);
             if (insightMatch) {
                 return <AssessmentHUD content={insightMatch[1].trim()} />;
@@ -1962,12 +2420,12 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
 
                 {/* Bubble */}
                 <div className={cn(
-                    'relative max-w-[96%] sm:max-w-[92%] md:max-w-[88%]',
+                    'relative max-w-[96%] sm:max-w-[92%] md:max-w-[88%] overflow-hidden',
                     isUser
                         ? 'bg-[#F5F5F5] text-black rounded-[20px] rounded-tr-[6px] shadow-[0_1px_6px_rgba(0,0,0,0.08),0_4px_16px_-4px_rgba(0,0,0,0.12)] px-5 py-3.5'
                         : 'bg-transparent text-white px-0',
                 )}>
-                    <div className={cn('prose prose-invert max-w-none', isUser && 'prose-p:text-black/85')}>
+                    <div className={cn('prose prose-invert max-w-none overflow-hidden break-words', isUser && 'prose-p:text-black/85')} style={{ overflowWrap: 'anywhere' }}>
                         {renderContent}
                     </div>
                     {isStreaming && !content && (
@@ -2766,7 +3224,7 @@ const InnerCommandCenter: FC<{
                 {/* ── Scroll Area ── */}
                 <div
                     ref={scrollRef}
-                    className="relative flex-1 overflow-y-auto px-4 sm:px-6 pt-3 sm:pt-4 pb-40 sm:pb-44 scroll-smooth no-scrollbar z-10"
+                    className="relative flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 pt-3 sm:pt-4 pb-40 sm:pb-44 scroll-smooth no-scrollbar z-10"
                     style={isMobile ? { paddingBottom: 220 + keyboardOffset } : undefined}
                 >
                     <div ref={contentRef}>
@@ -2780,12 +3238,10 @@ const InnerCommandCenter: FC<{
                                     className="h-full flex flex-col items-center justify-center text-center pt-20"
                                 >
                                     <motion.div
-                                        animate={{ y: [0, -6, 0] }}
-                                        transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-                                        className="w-16 h-16 rounded-[20px] ring-1 ring-white/[0.06] bg-white/[0.02] flex items-center justify-center mb-6 shadow-[0_8px_32px_-8px_rgba(99,102,241,0.08)]"
-                                    >
-                                        <Zap size={22} className="text-indigo-500/40" />
-                                    </motion.div>
+                                        animate={{ opacity: [0.3, 0.6, 0.3] }}
+                                        transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                                        className="w-1.5 h-1.5 rounded-full bg-indigo-500/50 mb-6"
+                                    />
                                     <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-zinc-600">
                                         Ready
                                     </p>
@@ -2796,8 +3252,8 @@ const InnerCommandCenter: FC<{
                                     {/* Quick Workflow Links */}
                                     <div className="flex flex-wrap items-center justify-center gap-2 mt-8 max-w-[320px]">
                                         {[
-                                            { label: 'Nova', icon: Users, href: 'https://novastaff.ayahealthcare.com', color: 'text-indigo-400/40', hoverColor: 'group-hover:text-indigo-400/70' },
-                                            { label: 'Outlook', icon: Mail, href: 'https://outlook.office.com', color: 'text-blue-400/40', hoverColor: 'group-hover:text-blue-400/70' },
+                                            { label: 'Nova', icon: Users, href: 'https://nova.ayahealthcare.com/#/recruiting/search-all-candidates', color: 'text-indigo-400/40', hoverColor: 'group-hover:text-indigo-400/70' },
+                                            { label: 'Outlook', icon: Mail, href: 'https://outlook.office365.com/mail', color: 'text-blue-400/40', hoverColor: 'group-hover:text-blue-400/70' },
                                             { label: 'Pipeline', icon: Activity, href: '/prospects', color: 'text-emerald-400/40', hoverColor: 'group-hover:text-emerald-400/70' },
                                         ].map((link) => (
                                             <a
