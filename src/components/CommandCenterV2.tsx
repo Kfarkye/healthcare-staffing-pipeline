@@ -2789,9 +2789,9 @@ const InnerCommandCenter: FC<{
                                     {/* Quick Workflow Links */}
                                     <div className="flex flex-wrap items-center justify-center gap-2 mt-8 max-w-[320px]">
                                         {[
-                                            { label: 'Nova', icon: Users, href: 'https://novastaff.ayahealthcare.com', color: 'text-indigo-400/40 hover:text-indigo-400/70' },
-                                            { label: 'Outlook', icon: Mail, href: 'https://outlook.office.com', color: 'text-blue-400/40 hover:text-blue-400/70' },
-                                            { label: 'Pipeline', icon: Activity, href: '/prospects', color: 'text-emerald-400/40 hover:text-emerald-400/70' },
+                                            { label: 'Nova', icon: Users, href: 'https://novastaff.ayahealthcare.com', color: 'text-indigo-400/40', hoverColor: 'group-hover:text-indigo-400/70' },
+                                            { label: 'Outlook', icon: Mail, href: 'https://outlook.office.com', color: 'text-blue-400/40', hoverColor: 'group-hover:text-blue-400/70' },
+                                            { label: 'Pipeline', icon: Activity, href: '/prospects', color: 'text-emerald-400/40', hoverColor: 'group-hover:text-emerald-400/70' },
                                         ].map((link) => (
                                             <a
                                                 key={link.label}
@@ -2799,13 +2799,13 @@ const InnerCommandCenter: FC<{
                                                 target={link.href.startsWith('http') ? '_blank' : undefined}
                                                 rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
                                                 className={cn(
-                                                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg ring-1 ring-white/[0.04] bg-white/[0.01]',
+                                                    'group flex items-center gap-1.5 px-3 py-1.5 rounded-lg ring-1 ring-white/[0.04] bg-white/[0.01]',
                                                     'hover:bg-white/[0.03] hover:ring-white/[0.08] transition-all duration-300',
                                                 )}
                                                 onClick={(e) => e.stopPropagation()}
                                             >
-                                                <link.icon size={10} className={link.color} />
-                                                <span className="text-[10px] font-medium text-zinc-600 hover:text-zinc-400 transition-colors">{link.label}</span>
+                                                <link.icon size={10} className={cn(link.color, link.hoverColor, 'transition-colors duration-200')} />
+                                                <span className="text-[10px] font-medium text-zinc-600 group-hover:text-zinc-400 transition-colors duration-200">{link.label}</span>
                                             </a>
                                         ))}
                                     </div>
