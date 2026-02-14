@@ -129,7 +129,7 @@ const MAX_PAYLOAD_BYTES = 4 * 1024 * 1024;
 // Compiled Regex (module-level, allocated once)
 // ---------------------------------------------------------------------------
 const REGEX_NOVA_ID        = /^\d{6,8}$/;
-const REGEX_ATTACHMENT     = /\[Attached:\s*([^\]]+)\]\(([^)]+)\)/g;
+const REGEX_ATTACHMENT     = /\[(?:Attached:\s*|📎\s*)([^\]]+)\]\((?:<([^>]+)>|([^)]+))\)/g;
 const REGEX_VERDICT        = /VERDICT:\s*(STRONG MATCH|REVIEW NEEDED|NOT A FIT)/i;
 const REGEX_INSIGHT        = /(?:INSIGHT|ASSESSMENT|KEY QUALIFICATIONS):\s*(.+)/is;
 const REGEX_CLIENT_MARKERS = /\[\[(?:PROSPECT_UPSERT:[^\]]+|REFRESH_DASHBOARD)\]\]/g;
@@ -216,7 +216,7 @@ function stripMarkdownForEmail(text: string): string {
         .replace(/^#+\s*/gm, '')
         .replace(/`([^`]+)`/g, '$1')
         .replace(/^>\s*/gm, '')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/\[([^\]]+)\]\((?:<[^>]+>|[^)]+)\)/g, '$1')
         .replace(/\r\n/g, '\n')
         .trim();
 }
@@ -226,6 +226,42 @@ function extractFirstEmail(input?: string): string | undefined {
     if (!input) return undefined;
     const m = input.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
     return m?.[1];
+}
+
+function sanitizeHref(
+    href?: string,
+    opts: { allowRelative?: boolean; allowMailto?: boolean } = {},
+): string | null {
+    if (!href) return null;
+    const value = href.trim();
+    if (!value || /[\u0000-\u001F\u007F]/.test(value)) return null;
+
+    const { allowRelative = false, allowMailto = false } = opts;
+    if (allowRelative && (/^(?:\/|\.{1,2}\/)/.test(value) || value.startsWith('#'))) {
+        return value;
+    }
+
+    try {
+        const parsed = new URL(value, 'https://example.invalid');
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return value;
+        if (allowMailto && parsed.protocol === 'mailto:') return value;
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+function escapeMarkdownLinkLabel(label: string): string {
+    return label
+        .replace(/\\/g, '\\\\')
+        .replace(/\[/g, '\\[')
+        .replace(/\]/g, '\\]')
+        .replace(/\r?\n/g, ' ')
+        .trim();
+}
+
+function toMarkdownLinkTarget(url: string): string {
+    return /[\s()]/.test(url) ? `<${url.replace(/>/g, '%3E')}>` : url;
 }
 
 /**
@@ -456,12 +492,20 @@ type RouterMode = 'default' | 'cold_outreach' | 'batch_reassign' | 'reply_mode';
 const InlineImageThumbnail: FC<{ href: string; label: string }> = memo(
     ({ href, label }) => {
         const cleanLabel = stripPaperclip(label);
+        const safeHref = sanitizeHref(href);
         const [loaded, setLoaded] = useState(false);
         const [errored, setErrored] = useState(false);
-        const ext = getFileExtension(href, label).toUpperCase() || 'IMG';
+        const ext = getFileExtension(safeHref || href, label).toUpperCase() || 'IMG';
+        if (!safeHref) {
+            return (
+                <div className="my-3 px-3 py-2 rounded-xl ring-1 ring-rose-500/20 bg-rose-500/[0.05] text-[11px] text-rose-300">
+                    Invalid attachment link: {cleanLabel}
+                </div>
+            );
+        }
         return (
             <a
-                href={href}
+                href={safeHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block my-4 no-underline group max-w-[340px] outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 rounded-[18px]"
@@ -476,7 +520,7 @@ const InlineImageThumbnail: FC<{ href: string; label: string }> = memo(
                         )}
                         {!errored ? (
                             <img
-                                src={href}
+                                src={safeHref}
                                 alt={cleanLabel}
                                 loading="lazy"
                                 onLoad={() => setLoaded(true)}
@@ -520,10 +564,18 @@ InlineImageThumbnail.displayName = 'InlineImageThumbnail';
 const InlineFilePill: FC<{ href: string; label: string; isPdf?: boolean }> = memo(
     ({ href, label, isPdf }) => {
         const cleanLabel = stripPaperclip(label);
-        const ext = getFileExtension(href, label);
+        const safeHref = sanitizeHref(href);
+        if (!safeHref) {
+            return (
+                <span className="inline-flex my-2 px-3 py-2 rounded-xl ring-1 ring-rose-500/20 bg-rose-500/[0.05] text-[11px] text-rose-300">
+                    Invalid file link: {cleanLabel}
+                </span>
+            );
+        }
+        const ext = getFileExtension(safeHref, label);
         return (
             <a
-                href={href}
+                href={safeHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2.5 my-2.5 px-3 py-2.5 rounded-[14px] ring-1 ring-white/[0.06] bg-[#080809] hover:bg-white/[0.03] hover:ring-white/[0.12] transition-all duration-300 no-underline max-w-full group mr-2 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
@@ -594,10 +646,12 @@ CopyButton.displayName = 'CopyButton';
 const UserAttachment: FC<{ filename: string; url: string }> = memo(
     ({ filename, url }) => {
         const isImage = /\.(png|jpg|jpeg|gif|webp|heic)$/i.test(filename);
-        const ext = getFileExtension(url, filename).toUpperCase() || (isImage ? 'IMG' : 'DOC');
+        const safeUrl = sanitizeHref(url);
+        const ext = getFileExtension(safeUrl || url, filename).toUpperCase() || (isImage ? 'IMG' : 'DOC');
+        if (!safeUrl) return null;
         return (
             <motion.a
-                href={url}
+                href={safeUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 initial={{ opacity: 0, scale: 0.96, y: 4 }}
@@ -608,7 +662,7 @@ const UserAttachment: FC<{ filename: string; url: string }> = memo(
             >
                 <div className="relative w-14 h-14 rounded-[10px] overflow-hidden bg-white/[0.03] shrink-0 flex items-center justify-center ring-1 ring-white/[0.04]">
                     {isImage
-                        ? <img src={url} alt={filename} className="w-full h-full object-cover" />
+                        ? <img src={safeUrl} alt={filename} className="w-full h-full object-cover" />
                         : (
                             <div className="flex flex-col items-center gap-1">
                                 <FileText size={18} className="text-rose-400/80" />
@@ -1381,12 +1435,21 @@ const PostDraftActions: FC<{
         [draftBody, modeContext],
     );
     const [fired, setFired] = useState<string | null>(null);
+    const fireTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => () => {
+        if (fireTimeoutRef.current) clearTimeout(fireTimeoutRef.current);
+    }, []);
 
     const handleTap = useCallback((action: DraftAction) => {
+        if (fireTimeoutRef.current) clearTimeout(fireTimeoutRef.current);
         setFired(action.label);
         triggerHaptic();
         // Brief glow moment before the message fires
-        setTimeout(() => onModify(action.query), 120);
+        fireTimeoutRef.current = setTimeout(() => {
+            onModify(action.query);
+            fireTimeoutRef.current = null;
+        }, 120);
     }, [onModify]);
 
     if (actions.length === 0) return null;
@@ -1707,16 +1770,22 @@ const EmailCard: FC<{
         triggerHaptic();
         playDraftReadyCue();
 
+        const safeTo = extractFirstEmail(to) || '';
+        const safeCcList = (cc || '')
+            .split(',')
+            .map((entry) => extractFirstEmail(entry))
+            .filter((entry): entry is string => Boolean(entry))
+            .join(',');
         const outlookBody = normalizeBodyForMailto(bodyOnly);
         const safeSubject = encodeURIComponent(cleanSubject);
         const safeBody = encodeURIComponent(outlookBody);
-        const safeCc = cc ? `&cc=${encodeURIComponent(cc)}` : '';
-        const mailtoLink = `mailto:${to || ''}?subject=${safeSubject}${safeCc}&body=${safeBody}`;
+        const safeCc = safeCcList ? `&cc=${encodeURIComponent(safeCcList)}` : '';
+        const mailtoLink = `mailto:${safeTo}?subject=${safeSubject}${safeCc}&body=${safeBody}`;
 
         if (mailtoLink.length > 2000) {
             handleCopyAll();
             showToast('Draft too long for mailto. Copied to clipboard.');
-            window.open(`mailto:${to || ''}?subject=${safeSubject}${safeCc}`, '_blank');
+            window.open(`mailto:${safeTo}?subject=${safeSubject}${safeCc}`, '_blank');
         } else {
             window.open(mailtoLink, '_blank');
         }
@@ -1838,16 +1907,22 @@ const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
                 className="max-h-48 overflow-y-auto px-3 py-2.5 space-y-1.5"
                 style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
             >
-                {steps.map((step, idx) => (
+                {steps.map((step, idx) => {
+                    const safeOpenHref = step.type === 'open_nova' ? sanitizeHref(step.href) : null;
+                    const safeSendHref = step.type === 'send_email'
+                        ? sanitizeHref(step.href, { allowMailto: true })
+                        : null;
+
+                    return (
                     <motion.div
                         key={`${step.type}-${idx}`}
                         initial={{ opacity: 0, x: -4 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: 0.08 * idx, ...SYSTEM.anim.fluid }}
                     >
-                        {step.type === 'open_nova' && step.href && (
+                        {step.type === 'open_nova' && safeOpenHref && (
                             <a
-                                href={step.href}
+                                href={safeOpenHref}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 onClick={() => triggerHaptic()}
@@ -1860,9 +1935,11 @@ const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
                                 <ChevronRight size={12} className="text-indigo-500/20 group-hover:text-indigo-400/60 transition-colors duration-200 shrink-0" />
                             </a>
                         )}
-                        {step.type === 'send_email' && step.href && (
+                        {step.type === 'send_email' && safeSendHref && (
                             <a
-                                href={step.href}
+                                href={safeSendHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 onClick={() => { triggerHaptic(); playDraftReadyCue(); }}
                                 className="flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] bg-emerald-500/[0.04] ring-1 ring-emerald-500/10 hover:bg-emerald-500/[0.08] hover:ring-emerald-500/18 transition-all duration-300 group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
                             >
@@ -1907,7 +1984,8 @@ const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
                             </div>
                         )}
                     </motion.div>
-                ))}
+                    );
+                })}
             </div>
         </motion.div>
     );
@@ -1928,6 +2006,7 @@ interface IntelData {
 
 const IntelPanel: FC<{ intel: IntelData }> = memo(({ intel }) => {
     if (!intel.specialty && !intel.location && !intel.novaUrl) return null;
+    const safeNovaUrl = sanitizeHref(intel.novaUrl);
 
     return (
         <motion.div
@@ -1947,9 +2026,9 @@ const IntelPanel: FC<{ intel: IntelData }> = memo(({ intel }) => {
             {/* Intel Grid */}
             <div className="px-4 py-3 space-y-2.5">
                 {/* Nova Profile Link */}
-                {intel.novaUrl && (
+                {safeNovaUrl && (
                     <a
-                        href={intel.novaUrl}
+                        href={safeNovaUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={() => triggerHaptic()}
@@ -2057,16 +2136,29 @@ function parseEmailFromContent(content: string): ParsedEmail | null {
         try {
             const parsed = JSON.parse(jsonMatch[1]);
             const email = parsed.email;
-            if (email?.kind === 'email_draft') {
+            const draftKind = parsed?.kind || email?.kind;
+            if (draftKind === 'email_draft' && email && typeof email === 'object') {
                 const split = splitMergedSubjectAndBody(email.subject || '', email.body || '');
                 const normalizedBody = normalizeEmailBodyLayout(split.body || '');
+                const toEmail = extractFirstEmail(
+                    typeof email.to === 'string'
+                        ? email.to
+                        : (typeof email.to_email === 'string' ? email.to_email : undefined),
+                );
+                const ccEmail = (Array.isArray(email.cc)
+                    ? email.cc[0]
+                    : (typeof email.cc === 'string' ? email.cc : DEFAULT_CC)) || DEFAULT_CC;
+                const nextStepsRaw = parsed.next_steps ?? parsed.nextSteps;
+                const nextSteps = Array.isArray(nextStepsRaw)
+                    ? (nextStepsRaw as NextStepAction[])
+                    : undefined;
                 return {
-                    to: email.to_email || undefined,
-                    cc: email.cc?.[0] || DEFAULT_CC,
+                    to: toEmail,
+                    cc: ccEmail,
                     subject: split.subject || '(No Subject)',
                     body: normalizedBody,
                     signature: email.signature,
-                    nextSteps: parsed.next_steps as NextStepAction[],
+                    nextSteps,
                     intel: extractIntel(
                         split.subject || '',
                         normalizedBody,
@@ -2189,7 +2281,13 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
             ),
             a: ({ href, children }) => {
                 const label = flattenChildrenText(children).trim();
-                const safeHref = String(href || '').trim();
+                const safeHref = sanitizeHref(String(href || '').trim(), {
+                    allowRelative: true,
+                    allowMailto: true,
+                });
+                if (!safeHref) {
+                    return <span className="text-zinc-500">{children}</span>;
+                }
 
                 // Citation link — [1], [2], etc.
                 if (/^\[\d+\]$/.test(label) && safeHref) {
@@ -2315,7 +2413,9 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                 let match;
                 REGEX_ATTACHMENT.lastIndex = 0;
                 while ((match = REGEX_ATTACHMENT.exec(sanitizedContent)) !== null) {
-                    attachments.push({ filename: match[1].trim(), url: match[2] });
+                    const url = match[2] || match[3];
+                    if (!url) continue;
+                    attachments.push({ filename: match[1].trim(), url });
                 }
                 if (attachments.length > 0) {
                     const txt = sanitizedContent.replace(REGEX_ATTACHMENT, '').trim();
@@ -2914,7 +3014,6 @@ const InnerCommandCenter: FC<{
             return () => cancelAnimationFrame(raf);
         }
     }, [isOpen, isMinimized]);
-
     // Mobile detection
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -3034,7 +3133,7 @@ const InnerCommandCenter: FC<{
             content: msg.content || '',
             toolInvocations: msg.toolInvocations as ToolInvocation[],
         }));
-    }, [messages.length, isStreaming]);
+    }, [messages, isStreaming]);
 
     const streamingMessage = isStreaming && messages.length > 0
         ? messages[messages.length - 1]
@@ -3067,10 +3166,13 @@ const InnerCommandCenter: FC<{
         let msg = text;
         if (attachments.length > 0) {
             const links = attachments
-                .filter((a) => a.publicUrl)
-                .map((a) => {
+                .flatMap((a) => {
+                    const safePublicUrl = sanitizeHref(a.publicUrl);
+                    if (!safePublicUrl) return [];
                     const status = a.skippedAnalysis || totalPayloadSize > MAX_PAYLOAD_BYTES ? ' (Link Only)' : '';
-                    return `[📎 ${a.fileName}](${a.publicUrl})${status}`;
+                    const safeLabel = escapeMarkdownLinkLabel(a.fileName || 'Attachment');
+                    const safeTarget = toMarkdownLinkTarget(safePublicUrl);
+                    return [`[📎 ${safeLabel}](${safeTarget})${status}`];
                 })
                 .join('\n');
             if (links) msg = text ? `${text}\n\n${links}` : `Analyze:\n\n${links}`;
