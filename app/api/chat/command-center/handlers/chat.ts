@@ -708,10 +708,28 @@ export async function handleChatIntent(
                 .filter(Boolean)
                 .join(' ');
 
+            // Emit a rich card for the added/updated candidate
+            const prospectBlock = addResult.prospect
+                ? emitCandidateCard({
+                    candidate_id: addResult.prospect.candidate_id ?? addResult.prospect.id,
+                    name: addResult.prospect.name,
+                    email: addResult.prospect.email ?? null,
+                    phone: addResult.prospect.phone ?? null,
+                    specialty: addResult.prospect.specialty ?? null,
+                    profession: addResult.prospect.profession ?? null,
+                    home_state: addResult.prospect.home_state ?? null,
+                    status: addResult.prospect.status ?? 'Unknown',
+                    nova_url: addResult.prospect.nova_url ?? null,
+                    recruiter: addResult.prospect.recruiter ?? null,
+                    licenses: addResult.prospect.licenses ?? [],
+                    engagement_level: addResult.prospect.engagement_level ?? null,
+                })
+                : '';
+
             if (!isReassign) {
                 return {
                     type: 'chat',
-                    content: `${confirmationLines} ${upsertMarker} ${REFRESH_MARKER}`.trim(),
+                    content: `${confirmationLines} ${upsertMarker} ${REFRESH_MARKER}${prospectBlock}`.trim(),
                 };
             }
 
@@ -726,7 +744,7 @@ export async function handleChatIntent(
                 novaId: novaIdForEmail || null,
             });
 
-            const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\n${confirmationLines} ${upsertMarker} ${REFRESH_MARKER}`.trim();
+            const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\n${confirmationLines} ${upsertMarker} ${REFRESH_MARKER}${prospectBlock}`.trim();
             return {
                 type: 'chat',
                 content: tagged,

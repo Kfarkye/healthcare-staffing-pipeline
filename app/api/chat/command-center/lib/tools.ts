@@ -102,7 +102,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
         const limit = Math.min(Number(args.limit || 5), 20);
         let query = supabase
           .from('prospects')
-          .select('id, candidate_id, name, email, phone, status, nova_url, recruiter')
+          .select('id, candidate_id, name, email, phone, status, nova_url, recruiter, specialty, profession, home_state, licenses, engagement_level')
           .limit(limit);
 
         if (args.candidate_id) {
