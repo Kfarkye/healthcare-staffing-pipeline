@@ -104,7 +104,7 @@ import {
     X, Minimize2, Maximize2, ArrowUp, Copy, Check, Square, Paperclip,
     FileText, Users, Activity, ChevronRight, ChevronDown,
     Zap, Loader2, Image as ImageIcon, ExternalLink, Mail, Camera,
-    Shield, DollarSign, Phone, MapPin,
+    Shield, DollarSign, Phone, MapPin, MessageSquare,
 } from 'lucide-react';
 
 import {
@@ -3254,6 +3254,8 @@ const InnerCommandCenter: FC<{
                                         {[
                                             { label: 'Nova', icon: Users, href: 'https://nova.ayahealthcare.com/#/recruiting/search-all-candidates', color: 'text-indigo-400/40', hoverColor: 'group-hover:text-indigo-400/70' },
                                             { label: 'Outlook', icon: Mail, href: 'https://outlook.office365.com/mail', color: 'text-blue-400/40', hoverColor: 'group-hover:text-blue-400/70' },
+                                            { label: 'RingCentral', icon: Phone, href: 'https://app.ringcentral.com', color: 'text-orange-400/40', hoverColor: 'group-hover:text-orange-400/70' },
+                                            { label: 'Teams', icon: MessageSquare, href: 'https://teams.microsoft.com', color: 'text-violet-400/40', hoverColor: 'group-hover:text-violet-400/70' },
                                             { label: 'Pipeline', icon: Activity, href: '/prospects', color: 'text-emerald-400/40', hoverColor: 'group-hover:text-emerald-400/70' },
                                         ].map((link) => (
                                             <a
