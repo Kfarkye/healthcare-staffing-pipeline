@@ -1,7 +1,7 @@
 // src/components/layout/RootLayout.tsx
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from '../Sidebar';
-import { CommandCenterV2 } from '../CommandCenterV2';
+import { WeissachV2 } from '../CommandCenterV2';
 import { useLayout } from '../../context/LayoutContext';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -52,7 +52,7 @@ export default function RootLayout() {
         </AnimatePresence>
       </motion.main>
 
-      <CommandCenterV2 />
+      <WeissachV2 />
     </div>
   );
 }

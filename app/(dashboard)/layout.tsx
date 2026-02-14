@@ -3,7 +3,7 @@
 import { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { Sidebar } from '../../src/components/Sidebar';
-import { CommandCenterV2 } from '../../src/components/CommandCenterV2';
+import { WeissachV2 } from '../../src/components/CommandCenterV2';
 import { useLayout } from '../../src/context/LayoutContext';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -55,7 +55,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 </AnimatePresence>
             </motion.main>
 
-            <CommandCenterV2 />
+            <WeissachV2 />
         </div>
     );
 }

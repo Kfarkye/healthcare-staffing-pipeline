@@ -1,5 +1,5 @@
 /* ============================================================================
-   CommandCenterV2.tsx
+   WeissachV2.tsx
    "Obsidian Weissach" — Healthcare Staffing Edition (v4.6 - Production)
 
    Architecture:
@@ -2664,7 +2664,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                     <div className="flex items-center gap-2 mb-2.5 ml-0.5">
                         <div className="w-1.5 h-1.5 bg-indigo-500/50 rounded-full animate-pulse" />
                         <span className="text-[9px] font-semibold tracking-[0.08em] uppercase text-zinc-600">
-                            Command Center
+                            Weissach
                         </span>
                     </div>
                 )}
@@ -3033,7 +3033,7 @@ const InputDeck: FC<InputDeckProps> = memo(({
                         onChange={(e) => onChange(e.target.value)}
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
-                        placeholder={isDragActive ? 'Drop files here...' : 'Message Command Center...'}
+                        placeholder={isDragActive ? 'Drop files here...' : 'Message Weissach...'}
                         rows={1}
                         disabled={isProcessing}
                         className={cn(
@@ -3107,7 +3107,7 @@ class ChatErrorBoundary extends Component<
     }
 
     componentDidCatch(error: Error, info: React.ErrorInfo) {
-        console.error('[CommandCenter] Error:', error, info);
+        console.error('[Weissach] Error:', error, info);
     }
 
     private handleRetry = () => {
@@ -3121,7 +3121,7 @@ class ChatErrorBoundary extends Component<
                     <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-rose-500 rounded-full" />
                         <span className="text-rose-400 text-sm font-medium">
-                            Command Center error.
+                            Weissach error.
                         </span>
                         <button
                             onClick={this.handleRetry}
@@ -3139,10 +3139,10 @@ class ChatErrorBoundary extends Component<
 }
 
 // ---------------------------------------------------------------------------
-// Inner Command Center
+// Inner Weissach
 // ---------------------------------------------------------------------------
 
-const InnerCommandCenter: FC<{
+const InnerWeissach: FC<{
     isOpen: boolean;
     setIsOpen: (v: boolean) => void;
 }> = ({ isOpen, setIsOpen }) => {
@@ -3373,10 +3373,10 @@ const InnerCommandCenter: FC<{
                         ? 'left-4 right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] justify-center'
                         : 'bottom-8 right-8',
                 )}
-                aria-label="Open Chat"
+                aria-label="Open Weissach"
             >
                 <div className="w-2 h-2 bg-indigo-500 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.4)]" />
-                <span className="text-[12px] font-semibold text-white tracking-[-0.01em]">Command Center</span>
+                <span className="text-[12px] font-semibold text-white tracking-[-0.01em]">Weissach</span>
             </motion.button>
         );
     }
@@ -3400,7 +3400,7 @@ const InnerCommandCenter: FC<{
             >
                 {isLoading && <OrbitalRadar />}
                 <span className="text-[12px] font-semibold text-white tracking-[-0.01em]">
-                    {isLoading ? 'Working…' : 'Command Center'}
+                    {isLoading ? 'Working…' : 'Weissach'}
                 </span>
             </motion.button>
         );
@@ -3437,9 +3437,6 @@ const InnerCommandCenter: FC<{
                             <Zap size={11} className="text-indigo-500" />
                         </div>
                         <span className="text-[13px] font-semibold text-white tracking-[-0.02em]">
-                            Command Center
-                        </span>
-                        <span className="text-[9px] font-medium text-zinc-700/60 tracking-[0.06em] uppercase">
                             Weissach
                         </span>
                     </div>
@@ -3697,15 +3694,15 @@ const InnerCommandCenter: FC<{
 
 export { humanizeFilename, UserAttachment };
 
-export const CommandCenterV2: FC = () => {
+export const WeissachV2: FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     return (
         <ChatErrorBoundary>
             <ToastProvider>
-                <InnerCommandCenter isOpen={isOpen} setIsOpen={setIsOpen} />
+                <InnerWeissach isOpen={isOpen} setIsOpen={setIsOpen} />
             </ToastProvider>
         </ChatErrorBoundary>
     );
 };
 
-export default CommandCenterV2;
+export default WeissachV2;
