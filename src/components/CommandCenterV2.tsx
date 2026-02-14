@@ -45,6 +45,11 @@
    ├─ UX: Mode chips — rounded-[10px], softer active glow, faster stagger
    ├─ UX: Assistant label — refined dot size (1.5px), tighter tracking
    ├─ PERF: will-change-transform on image thumbnails for GPU compositing
+   ├─ A11Y: focus-visible ring on all interactive elements (links, buttons, chips)
+   ├─ A11Y: UserAttachment image alt text now uses filename (was empty)
+   ├─ A11Y: Vignette gradient hidden in error state (no longer overlaps placeholder)
+   ├─ A11Y: Workflow link touch targets increased to min-h 36px
+   ├─ PERF: Removed unnecessary will-change-transform from UserAttachment
    └─ VERSION: 4.5 → 4.6
 
    Changelog v4.5 (Polish Pass):
@@ -436,7 +441,7 @@ const InlineImageThumbnail: FC<{ href: string; label: string }> = memo(
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block my-4 no-underline group max-w-[340px]"
+                className="block my-4 no-underline group max-w-[340px] outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 rounded-[18px]"
                 onClick={(e) => e.stopPropagation()}
                 title={`Open ${cleanLabel}`}
             >
@@ -465,8 +470,10 @@ const InlineImageThumbnail: FC<{ href: string; label: string }> = memo(
                                 <span className="text-[9px] font-medium tracking-[0.08em] uppercase text-zinc-700">Preview unavailable</span>
                             </div>
                         )}
-                        {/* Subtle bottom vignette for text contrast */}
-                        <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-[#080809]/60 to-transparent pointer-events-none" />
+                        {/* Subtle bottom vignette for text contrast (hidden on error) */}
+                        {!errored && (
+                            <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-[#080809]/60 to-transparent pointer-events-none" />
+                        )}
                         {/* External link indicator */}
                         <div className="absolute top-2.5 right-2.5 w-7 h-7 rounded-[10px] bg-black/60 ring-1 ring-white/[0.08] backdrop-blur-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 group-hover:scale-100 scale-90">
                             <ExternalLink size={11} className="text-white/80" />
@@ -496,7 +503,7 @@ const InlineFilePill: FC<{ href: string; label: string; isPdf?: boolean }> = mem
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2.5 my-2.5 px-3 py-2.5 rounded-[14px] ring-1 ring-white/[0.06] bg-[#080809] hover:bg-white/[0.03] hover:ring-white/[0.12] transition-all duration-300 no-underline max-w-full group mr-2"
+                className="inline-flex items-center gap-2.5 my-2.5 px-3 py-2.5 rounded-[14px] ring-1 ring-white/[0.06] bg-[#080809] hover:bg-white/[0.03] hover:ring-white/[0.12] transition-all duration-300 no-underline max-w-full group mr-2 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
                 onClick={(e) => e.stopPropagation()}
                 title={`Open ${cleanLabel}`}
             >
@@ -546,7 +553,7 @@ const CopyButton: FC<{ content: string }> = memo(({ content }) => {
             onClick={handleCopy}
             aria-label={copied ? 'Copied' : 'Copy content'}
             className={cn(
-                'p-1.5 rounded-[8px] transition-all duration-300',
+                'p-1.5 rounded-[8px] transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
                 copied
                     ? 'text-emerald-400 bg-emerald-500/12 ring-1 ring-emerald-500/25 scale-105'
                     : 'text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] active:scale-90',
@@ -574,11 +581,11 @@ const UserAttachment: FC<{ filename: string; url: string }> = memo(
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 whileHover={{ scale: 1.015 }}
                 transition={SYSTEM.anim.fluid}
-                className="flex items-center gap-3 mt-3 p-2.5 rounded-[14px] bg-[#080809] ring-1 ring-white/[0.06] hover:ring-white/[0.12] hover:bg-white/[0.02] transition-all duration-300 cursor-pointer group will-change-transform"
+                className="flex items-center gap-3 mt-3 p-2.5 rounded-[14px] bg-[#080809] ring-1 ring-white/[0.06] hover:ring-white/[0.12] hover:bg-white/[0.02] transition-all duration-300 cursor-pointer group focus-visible:ring-2 focus-visible:ring-indigo-500/50 outline-none"
             >
                 <div className="relative w-14 h-14 rounded-[10px] overflow-hidden bg-white/[0.03] shrink-0 flex items-center justify-center ring-1 ring-white/[0.04]">
                     {isImage
-                        ? <img src={url} alt="" className="w-full h-full object-cover" />
+                        ? <img src={url} alt={filename} className="w-full h-full object-cover" />
                         : (
                             <div className="flex flex-col items-center gap-1">
                                 <FileText size={18} className="text-rose-400/80" />
@@ -819,7 +826,7 @@ const ModeChips: FC<{ value: string; onChange: (v: string) => void }> = memo(
                         whileHover={{ scale: 1.02, y: -1 }}
                         whileTap={{ scale: 0.96 }}
                         className={cn(
-                            'flex-shrink-0 px-3 py-2 rounded-[10px] ring-1 transition-all duration-300',
+                            'flex-shrink-0 px-3 py-2 rounded-[10px] ring-1 transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
                             active
                                 ? 'bg-indigo-500/10 ring-indigo-500/25 text-indigo-300 shadow-[0_0_16px_-4px_rgba(99,102,241,0.2)]'
                                 : 'bg-white/[0.02] ring-white/[0.06] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.04] hover:ring-white/[0.1]',
@@ -1002,7 +1009,7 @@ const PostDraftActions: FC<{
                             // Ghost user-bubble: identical shape to user messages
                             // (user = rounded-tr-[6px], these match — unsent messages)
                             'px-4 py-2.5 rounded-2xl rounded-tr-[6px]',
-                            'transition-all duration-300',
+                            'transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
                             isFired
                                 ? 'bg-indigo-500/20 ring-1 ring-indigo-400/35 text-indigo-200 shadow-[0_0_24px_-4px_rgba(99,102,241,0.25)]'
                                 : isPrimary
@@ -1355,7 +1362,7 @@ const EmailCard: FC<{
                     whileHover={{ scale: 1.01 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={handleOpenOutlook}
-                    className="flex-1 flex items-center justify-center gap-2.5 h-10 rounded-[12px] bg-indigo-500/12 ring-1 ring-indigo-500/20 text-indigo-300 hover:bg-indigo-500/20 hover:ring-indigo-500/30 hover:text-indigo-200 transition-all duration-300 text-[11px] font-semibold tracking-[0.02em]"
+                    className="flex-1 flex items-center justify-center gap-2.5 h-10 rounded-[12px] bg-indigo-500/12 ring-1 ring-indigo-500/20 text-indigo-300 hover:bg-indigo-500/20 hover:ring-indigo-500/30 hover:text-indigo-200 transition-all duration-300 text-[11px] font-semibold tracking-[0.02em] outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
                 >
                     <Mail size={13} strokeWidth={1.8} /> Open in Outlook
                 </motion.button>
@@ -1364,7 +1371,7 @@ const EmailCard: FC<{
                     whileTap={{ scale: 0.92 }}
                     onClick={handleCopyAll}
                     className={cn(
-                        'h-10 w-10 rounded-[12px] flex items-center justify-center transition-all duration-300 shrink-0',
+                        'h-10 w-10 rounded-[12px] flex items-center justify-center transition-all duration-300 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
                         copied
                             ? 'bg-emerald-500/12 ring-1 ring-emerald-500/25 text-emerald-400'
                             : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] ring-1 ring-transparent hover:ring-white/[0.06]',
@@ -1428,7 +1435,7 @@ const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 onClick={() => triggerHaptic()}
-                                className="flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] bg-indigo-500/[0.04] ring-1 ring-indigo-500/10 hover:bg-indigo-500/[0.08] hover:ring-indigo-500/18 transition-all duration-300 group"
+                                className="flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] bg-indigo-500/[0.04] ring-1 ring-indigo-500/10 hover:bg-indigo-500/[0.08] hover:ring-indigo-500/18 transition-all duration-300 group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
                             >
                                 <ExternalLink size={12} className="text-indigo-400/50 shrink-0" />
                                 <span className="text-[12px] text-indigo-300/70 font-medium truncate flex-1 group-hover:text-indigo-300 transition-colors duration-200">
@@ -1441,7 +1448,7 @@ const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
                             <a
                                 href={step.href}
                                 onClick={() => { triggerHaptic(); playDraftReadyCue(); }}
-                                className="flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] bg-emerald-500/[0.04] ring-1 ring-emerald-500/10 hover:bg-emerald-500/[0.08] hover:ring-emerald-500/18 transition-all duration-300 group"
+                                className="flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] bg-emerald-500/[0.04] ring-1 ring-emerald-500/10 hover:bg-emerald-500/[0.08] hover:ring-emerald-500/18 transition-all duration-300 group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
                             >
                                 <Mail size={12} className="text-emerald-400/50 shrink-0" />
                                 <span className="text-[12px] text-emerald-300/70 font-medium truncate flex-1 group-hover:text-emerald-300 transition-colors duration-200">
@@ -1530,7 +1537,7 @@ const IntelPanel: FC<{ intel: IntelData }> = memo(({ intel }) => {
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={() => triggerHaptic()}
-                        className="flex items-center gap-3 p-3 rounded-[10px] bg-indigo-500/[0.04] ring-1 ring-indigo-500/10 hover:bg-indigo-500/[0.08] hover:ring-indigo-500/20 transition-all duration-300 group"
+                        className="flex items-center gap-3 p-3 rounded-[10px] bg-indigo-500/[0.04] ring-1 ring-indigo-500/10 hover:bg-indigo-500/[0.08] hover:ring-indigo-500/20 transition-all duration-300 group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
                     >
                         <div className="w-8 h-8 rounded-[8px] bg-indigo-500/10 flex items-center justify-center group-hover:bg-indigo-500/15 transition-colors duration-300">
                             <Users size={14} className="text-indigo-400" />
@@ -2799,8 +2806,9 @@ const InnerCommandCenter: FC<{
                                                 target={link.href.startsWith('http') ? '_blank' : undefined}
                                                 rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
                                                 className={cn(
-                                                    'group flex items-center gap-1.5 px-3 py-1.5 rounded-lg ring-1 ring-white/[0.04] bg-white/[0.01]',
+                                                    'group flex items-center gap-1.5 px-3.5 py-2 rounded-lg ring-1 ring-white/[0.04] bg-white/[0.01] min-h-[36px]',
                                                     'hover:bg-white/[0.03] hover:ring-white/[0.08] transition-all duration-300',
+                                                    'outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
                                                 )}
                                                 onClick={(e) => e.stopPropagation()}
                                             >
