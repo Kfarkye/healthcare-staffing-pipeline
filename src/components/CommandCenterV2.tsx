@@ -403,6 +403,43 @@ function getFileExtension(href?: string, label?: string): string {
     return '';
 }
 
+/**
+ * Transform machine-generated filenames into clean human-readable labels.
+ */
+function humanizeFilename(filename: string): string {
+    if (!filename) return 'Attachment';
+
+    const stripped = filename.replace(/\.[a-z0-9]{2,5}$/i, '');
+    if (!stripped) return 'Attachment';
+
+    if (/^(?:screenshot|screen[_ -]?shot|capture|grab)/i.test(stripped)) {
+        return 'Screenshot';
+    }
+    if (/^(?:IMG|DSC|DCIM|DJI|photo|image|pic)[_\s-]?\d/i.test(stripped)) {
+        return 'Photo';
+    }
+    if (/^(?:clipboard|paste|pasted)[_\s-]?/i.test(stripped)) {
+        return 'Clipboard Image';
+    }
+
+    let cleaned = stripped;
+
+    cleaned = cleaned.replace(/[_\s-]?\d{10,13}$/g, '');
+    cleaned = cleaned.replace(/^\d{10,13}[_\s-]?/g, '');
+    cleaned = cleaned.replace(
+        /[_\s-]?\d{4}[-_]?\d{2}[-_]?\d{2}(?:[-_T]?\d{2}[-_:]?\d{2}[-_:]?\d{2})?[_\s-]?/g,
+        ' ',
+    );
+    cleaned = cleaned.replace(/[_\s-][0-9a-f]{8,}(?:[_\s-][0-9a-f]{4,}){0,4}/gi, '');
+    cleaned = cleaned.replace(/[_-]+/g, ' ');
+    cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+
+    if (!cleaned || cleaned.length < 2) return 'Attachment';
+
+    cleaned = cleaned.replace(/\b[a-z]/g, (c) => c.toUpperCase());
+    return cleaned;
+}
+
 // ---------------------------------------------------------------------------
 // Auto-resize textarea hook
 // ---------------------------------------------------------------------------
@@ -645,43 +682,147 @@ CopyButton.displayName = 'CopyButton';
 // ---------------------------------------------------------------------------
 const UserAttachment: FC<{ filename: string; url: string }> = memo(
     ({ filename, url }) => {
-        const isImage = /\.(png|jpg|jpeg|gif|webp|heic)$/i.test(filename);
+        const isImage = /\.(png|jpg|jpeg|gif|webp|heic|bmp|svg)$/i.test(filename);
         const safeUrl = sanitizeHref(url);
         const ext = getFileExtension(safeUrl || url, filename).toUpperCase() || (isImage ? 'IMG' : 'DOC');
+        const displayName = humanizeFilename(filename);
+        const [loaded, setLoaded] = useState(false);
+        const [errored, setErrored] = useState(false);
+
         if (!safeUrl) return null;
+
+        if (isImage) {
+            return (
+                <motion.a
+                    href={safeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    initial={{ opacity: 0, scale: 0.97, y: 4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={SYSTEM.anim.fluid}
+                    className={cn(
+                        'block mt-2.5 no-underline group outline-none',
+                        'focus-visible:ring-2 focus-visible:ring-indigo-500/50 rounded-[16px]',
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                    title={`Open ${displayName}`}
+                >
+                    <div className={cn(
+                        'rounded-[16px] overflow-hidden',
+                        'ring-1 ring-black/[0.06]',
+                        'bg-[#E8E8E8]',
+                        'transition-all duration-500 ease-out',
+                        'shadow-[0_1px_4px_rgba(0,0,0,0.06),0_2px_12px_-2px_rgba(0,0,0,0.08)]',
+                        'hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.12)]',
+                        'hover:ring-black/[0.1]',
+                        'will-change-transform',
+                    )}>
+                        <div className="relative aspect-[16/10] bg-[#EBEBEB] overflow-hidden">
+                            {!loaded && !errored && (
+                                <div className="absolute inset-0 bg-[linear-gradient(110deg,#E0E0E0_30%,#EDEDED_50%,#E0E0E0_70%)] bg-[length:200%_100%] animate-[shimmer_2s_infinite_linear]" />
+                            )}
+
+                            {!errored ? (
+                                <img
+                                    src={safeUrl}
+                                    alt={displayName}
+                                    loading="lazy"
+                                    onLoad={() => setLoaded(true)}
+                                    onError={() => setErrored(true)}
+                                    className={cn(
+                                        'absolute inset-0 w-full h-full object-cover',
+                                        'transition-all duration-500 ease-out',
+                                        'group-hover:scale-[1.015] group-hover:brightness-[1.03]',
+                                        loaded ? 'opacity-100' : 'opacity-0',
+                                    )}
+                                />
+                            ) : (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#F0F0F0]">
+                                    <ImageIcon size={20} className="text-[#C0C0C0]" strokeWidth={1.5} />
+                                    <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-[#B0B0B0]">
+                                        Preview unavailable
+                                    </span>
+                                </div>
+                            )}
+
+                            {!errored && loaded && (
+                                <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
+                            )}
+
+                            <div className="absolute left-2 bottom-2 px-2 py-[3px] rounded-[6px] bg-black/50 backdrop-blur-md ring-1 ring-white/[0.08] text-[8px] font-bold tracking-[0.06em] uppercase text-white/90 shadow-sm">
+                                {ext}
+                            </div>
+
+                            <div className={cn(
+                                'absolute top-2 right-2 w-6 h-6 rounded-[8px]',
+                                'bg-black/40 backdrop-blur-md ring-1 ring-white/[0.08]',
+                                'flex items-center justify-center',
+                                'opacity-0 group-hover:opacity-100',
+                                'scale-90 group-hover:scale-100',
+                                'transition-all duration-300',
+                                'shadow-sm',
+                            )}>
+                                <ExternalLink size={10} className="text-white/80" />
+                            </div>
+                        </div>
+
+                        <div className="px-3 py-1.5 flex items-center gap-2 bg-[#F2F2F2] border-t border-black/[0.04]">
+                            <span className="text-[11px] text-[#8A8A8A] truncate flex-1 font-medium group-hover:text-[#6A6A6A] transition-colors duration-300">
+                                {displayName}
+                            </span>
+                        </div>
+                    </div>
+                </motion.a>
+            );
+        }
+
         return (
             <motion.a
                 href={safeUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                initial={{ opacity: 0, scale: 0.96, y: 4 }}
+                initial={{ opacity: 0, scale: 0.97, y: 4 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
-                whileHover={{ scale: 1.015 }}
                 transition={SYSTEM.anim.fluid}
-                className="flex items-center gap-3 mt-3 p-2.5 rounded-[14px] bg-[#080809] ring-1 ring-white/[0.06] hover:ring-white/[0.12] hover:bg-white/[0.02] transition-all duration-300 cursor-pointer group focus-visible:ring-2 focus-visible:ring-indigo-500/50 outline-none"
+                className={cn(
+                    'flex items-center gap-3 mt-2.5 p-3 no-underline group outline-none',
+                    'rounded-[14px] bg-[#ECECEC]',
+                    'ring-1 ring-black/[0.05]',
+                    'hover:bg-[#E4E4E4] hover:ring-black/[0.08]',
+                    'transition-all duration-300',
+                    'shadow-[0_1px_3px_rgba(0,0,0,0.04)]',
+                    'hover:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)]',
+                    'focus-visible:ring-2 focus-visible:ring-indigo-500/50',
+                )}
+                onClick={(e) => e.stopPropagation()}
+                title={`Open ${displayName}`}
             >
-                <div className="relative w-14 h-14 rounded-[10px] overflow-hidden bg-white/[0.03] shrink-0 flex items-center justify-center ring-1 ring-white/[0.04]">
-                    {isImage
-                        ? <img src={safeUrl} alt={filename} className="w-full h-full object-cover" />
-                        : (
-                            <div className="flex flex-col items-center gap-1">
-                                <FileText size={18} className="text-rose-400/80" />
-                            </div>
-                        )
+                <div className={cn(
+                    'w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0',
+                    'transition-colors duration-300',
+                    ext === 'PDF'
+                        ? 'bg-rose-500/10 group-hover:bg-rose-500/15'
+                        : 'bg-black/[0.04] group-hover:bg-black/[0.06]',
+                )}>
+                    {ext === 'PDF'
+                        ? <FileText size={16} className="text-rose-500/80" strokeWidth={1.8} />
+                        : <Paperclip size={16} className="text-[#888]" strokeWidth={1.8} />
                     }
-                    <div className="absolute left-1 bottom-1 px-1.5 py-0.5 rounded-md bg-black/70 ring-1 ring-white/[0.08] text-[7px] font-bold tracking-[0.06em] uppercase text-zinc-300">
-                        {ext}
-                    </div>
                 </div>
+
                 <div className="flex-1 min-w-0">
-                    <p className="text-[12px] text-indigo-400 truncate group-hover:text-indigo-300 transition-colors duration-200 font-medium">
-                        {filename}
+                    <p className="text-[12.5px] text-[#333] font-medium truncate group-hover:text-[#111] transition-colors duration-200">
+                        {displayName}
                     </p>
-                    <p className="text-[10px] text-zinc-600 mt-0.5">
-                        {isImage ? 'Image attachment' : 'Document attachment'}
+                    <p className="text-[9px] text-[#999] font-medium tracking-[0.04em] uppercase mt-0.5">
+                        {ext} Document
                     </p>
                 </div>
-                <ExternalLink size={12} className="text-zinc-700 group-hover:text-zinc-400 transition-colors duration-200 shrink-0 mr-1" />
+
+                <ExternalLink
+                    size={12}
+                    className="text-[#CCC] group-hover:text-[#888] transition-colors duration-200 shrink-0 mr-0.5"
+                />
             </motion.a>
         );
     },
@@ -2251,18 +2392,26 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
 
         // Detect email draft and extract body for contextual actions (memoized)
         const draftInfo = useMemo(() => {
-            if (isUser || isStreaming || !content) return { hasDraft: false, body: '' };
+            if (isUser) {
+                if (!content) return { hasDraft: false, body: '', hasAttachments: false };
+                REGEX_ATTACHMENT.lastIndex = 0;
+                const hasAttachments = REGEX_ATTACHMENT.test(content);
+                REGEX_ATTACHMENT.lastIndex = 0;
+                return { hasDraft: false, body: '', hasAttachments };
+            }
+
+            if (isStreaming || !content) return { hasDraft: false, body: '', hasAttachments: false };
             const hasDraft = (
                 REGEX_EMAIL_DRAFT_JSON.test(content) ||
                 REGEX_TAG_SUBJECT.test(content) ||
                 REGEX_EMAIL_SUBJECT.test(content) ||
                 REGEX_EMAIL_HEADER.test(content)
             );
-            if (!hasDraft) return { hasDraft: false, body: '' };
+            if (!hasDraft) return { hasDraft: false, body: '', hasAttachments: false };
 
             // Extract raw body for action context — lightweight parse
             const parsed = parseEmailFromContent(content);
-            return { hasDraft: true, body: parsed?.body || content };
+            return { hasDraft: true, body: parsed?.body || content, hasAttachments: false };
         }, [content, isUser, isStreaming]);
 
         // Markdown component overrides
@@ -2418,13 +2567,29 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                     attachments.push({ filename: match[1].trim(), url });
                 }
                 if (attachments.length > 0) {
-                    const txt = sanitizedContent.replace(REGEX_ATTACHMENT, '').trim();
+                    let txt = sanitizedContent.replace(REGEX_ATTACHMENT, '').trim();
+                    txt = txt.replace(/📎\s*/gu, '').trim();
+                    txt = txt.replace(/\n{3,}/g, '\n\n').trim();
                     return (
                         <>
-                            {txt && <p className={cn(SYSTEM.type.body, 'text-[#1a1a1a]')}>{txt}</p>}
-                            {attachments.map((a, i) => (
-                                <UserAttachment key={i} filename={a.filename} url={a.url} />
-                            ))}
+                            {txt && (
+                                <p className={cn(SYSTEM.type.body, 'text-[#1a1a1a]', attachments.length > 0 && 'mb-1')}>
+                                    {txt}
+                                </p>
+                            )}
+                            {attachments.length === 1 && (
+                                <UserAttachment
+                                    filename={attachments[0].filename}
+                                    url={attachments[0].url}
+                                />
+                            )}
+                            {attachments.length > 1 && (
+                                <div className="space-y-1.5">
+                                    {attachments.map((a, i) => (
+                                        <UserAttachment key={i} filename={a.filename} url={a.url} />
+                                    ))}
+                                </div>
+                            )}
                         </>
                     );
                 }
@@ -2522,7 +2687,11 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                 <div className={cn(
                     'relative max-w-[96%] sm:max-w-[92%] md:max-w-[88%] overflow-hidden',
                     isUser
-                        ? 'bg-[#F5F5F5] text-black rounded-[20px] rounded-tr-[6px] shadow-[0_1px_6px_rgba(0,0,0,0.08),0_4px_16px_-4px_rgba(0,0,0,0.12)] px-5 py-3.5'
+                        ? cn(
+                            'bg-[#F5F5F5] text-black rounded-[20px] rounded-tr-[6px]',
+                            'shadow-[0_1px_6px_rgba(0,0,0,0.06),0_4px_16px_-4px_rgba(0,0,0,0.1)]',
+                            draftInfo.hasAttachments ? 'px-3.5 pt-3.5 pb-2' : 'px-5 py-3.5',
+                        )
                         : 'bg-transparent text-white px-0',
                 )}>
                     <div className={cn('prose prose-invert max-w-none overflow-hidden break-words', isUser && 'prose-p:text-black/85')} style={{ overflowWrap: 'anywhere' }}>
@@ -3539,6 +3708,8 @@ const InnerCommandCenter: FC<{
 // ============================================================================
 // §9  EXPORT
 // ============================================================================
+
+export { humanizeFilename, UserAttachment };
 
 export const CommandCenterV2: FC = () => {
     const [isOpen, setIsOpen] = useState(false);
