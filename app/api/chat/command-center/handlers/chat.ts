@@ -38,7 +38,7 @@ import {
     extractCandidateNameFromMessages,
     extractNovaLinkFromMessages
 } from '../lib/extractor';
-import { emitFromLookupResult, emitCandidateCard } from '../lib/response-blocks';
+import { emitFromLookupResult, emitCandidateCard, prospectToCardData } from '../lib/response-blocks';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // System Prompts
@@ -710,20 +710,7 @@ export async function handleChatIntent(
 
             // Emit a rich card for the added/updated candidate
             const prospectBlock = addResult.prospect
-                ? emitCandidateCard({
-                    candidate_id: addResult.prospect.candidate_id ?? addResult.prospect.id,
-                    name: addResult.prospect.name,
-                    email: addResult.prospect.email ?? null,
-                    phone: addResult.prospect.phone ?? null,
-                    specialty: addResult.prospect.specialty ?? null,
-                    profession: addResult.prospect.profession ?? null,
-                    home_state: addResult.prospect.home_state ?? null,
-                    status: addResult.prospect.status ?? 'Unknown',
-                    nova_url: addResult.prospect.nova_url ?? null,
-                    recruiter: addResult.prospect.recruiter ?? null,
-                    licenses: addResult.prospect.licenses ?? [],
-                    engagement_level: addResult.prospect.engagement_level ?? null,
-                })
+                ? emitCandidateCard(prospectToCardData(addResult.prospect))
                 : '';
 
             if (!isReassign) {
@@ -904,21 +891,7 @@ export async function handleChatIntent(
                     (tr.toolName === 'add_candidate' || tr.toolName === 'update_candidate') &&
                     res.prospect
                 ) {
-                    const p = res.prospect;
-                    text += emitCandidateCard({
-                        candidate_id: p.candidate_id ?? p.id,
-                        name: p.name,
-                        email: p.email ?? null,
-                        phone: p.phone ?? null,
-                        specialty: p.specialty ?? null,
-                        profession: p.profession ?? null,
-                        home_state: p.home_state ?? null,
-                        status: p.status ?? 'Unknown',
-                        nova_url: p.nova_url ?? null,
-                        recruiter: p.recruiter ?? null,
-                        licenses: p.licenses ?? [],
-                        engagement_level: p.engagement_level ?? null,
-                    });
+                    text += emitCandidateCard(prospectToCardData(res.prospect));
                 }
             }
         }

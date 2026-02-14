@@ -59,6 +59,32 @@ export function emitCitations(citations: CitationData[]): string {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// Prospect → CandidateCardData mapping (single source of truth)
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Map a raw prospect/match record to CandidateCardData.
+ * Used by emitFromLookupResult, and directly by handleChatIntent for
+ * add_candidate / update_candidate tool results.
+ */
+export function prospectToCardData(p: any): CandidateCardData {
+    return {
+        candidate_id: p.candidate_id ?? p.id,
+        name: p.name,
+        email: p.email ?? null,
+        phone: p.phone ?? null,
+        specialty: p.specialty ?? null,
+        profession: p.profession ?? null,
+        home_state: p.home_state ?? null,
+        status: p.status ?? 'Unknown',
+        nova_url: p.nova_url ?? null,
+        recruiter: p.recruiter ?? null,
+        licenses: p.licenses ?? [],
+        engagement_level: p.engagement_level ?? null,
+    };
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // Tool result → block mapping
 // ════════════════════════════════════════════════════════════════════════════════
 
@@ -70,28 +96,15 @@ export function emitFromLookupResult(result: any): string {
     if (!result?.ok || !result?.matches?.length) return '';
 
     if (result.matches.length === 1) {
-        const m = result.matches[0];
-        return emitCandidateCard({
-            candidate_id: m.candidate_id,
-            name: m.name,
-            email: m.email ?? null,
-            phone: m.phone ?? null,
-            specialty: m.specialty ?? null,
-            profession: m.profession ?? null,
-            home_state: m.home_state ?? null,
-            status: m.status ?? 'Unknown',
-            nova_url: m.nova_url ?? null,
-            recruiter: m.recruiter ?? null,
-            licenses: m.licenses ?? [],
-            engagement_level: m.engagement_level ?? null,
-        });
+        return emitCandidateCard(prospectToCardData(result.matches[0]));
     }
 
-    const columns = ['Name', 'Status', 'Specialty', 'Email'];
+    const columns = ['Name', 'Specialty', 'Status', 'State', 'Email'];
     const rows = result.matches.map((m: any) => ({
         Name: m.name,
-        Status: m.status ?? '',
         Specialty: m.specialty ?? '',
+        Status: m.status ?? '',
+        State: m.home_state ?? '',
         Email: m.email ?? '',
     }));
 
