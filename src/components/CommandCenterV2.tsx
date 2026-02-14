@@ -691,35 +691,26 @@ const UserAttachment: FC<{ filename: string; url: string }> = memo(
 
         if (!safeUrl) return null;
 
+        // ── Image Attachment: Hero Layout ──
         if (isImage) {
             return (
                 <motion.a
                     href={safeUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    initial={{ opacity: 0, scale: 0.97, y: 4 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    initial={{ opacity: 0, scale: 0.97 }}
+                    animate={{ opacity: 1, scale: 1 }}
                     transition={SYSTEM.anim.fluid}
-                    className={cn(
-                        'block mt-2.5 no-underline group outline-none',
-                        'focus-visible:ring-2 focus-visible:ring-indigo-500/50 rounded-[16px]',
-                    )}
+                    className="block mt-2 -mx-1 no-underline group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 rounded-[14px]"
                     onClick={(e) => e.stopPropagation()}
                     title={`Open ${displayName}`}
                 >
-                    <div className={cn(
-                        'rounded-[16px] overflow-hidden',
-                        'ring-1 ring-black/[0.06]',
-                        'bg-[#E8E8E8]',
-                        'transition-all duration-500 ease-out',
-                        'shadow-[0_1px_4px_rgba(0,0,0,0.06),0_2px_12px_-2px_rgba(0,0,0,0.08)]',
-                        'hover:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.12)]',
-                        'hover:ring-black/[0.1]',
-                        'will-change-transform',
-                    )}>
-                        <div className="relative aspect-[16/10] bg-[#EBEBEB] overflow-hidden">
+                    <div className="rounded-[14px] overflow-hidden ring-1 ring-black/[0.08] transition-all duration-400 ease-out hover:ring-black/[0.14] will-change-transform">
+                        {/* ── Image Hero — edge-to-edge, no internal padding ── */}
+                        <div className="relative aspect-[16/10] bg-[#E8E8E8] overflow-hidden">
+                            {/* Shimmer skeleton */}
                             {!loaded && !errored && (
-                                <div className="absolute inset-0 bg-[linear-gradient(110deg,#E0E0E0_30%,#EDEDED_50%,#E0E0E0_70%)] bg-[length:200%_100%] animate-[shimmer_2s_infinite_linear]" />
+                                <div className="absolute inset-0 bg-[linear-gradient(110deg,#E0E0E0_30%,#EEEEEE_50%,#E0E0E0_70%)] bg-[length:200%_100%] animate-[shimmer_2s_infinite_linear]" />
                             )}
 
                             {!errored ? (
@@ -732,42 +723,38 @@ const UserAttachment: FC<{ filename: string; url: string }> = memo(
                                     className={cn(
                                         'absolute inset-0 w-full h-full object-cover',
                                         'transition-all duration-500 ease-out',
-                                        'group-hover:scale-[1.015] group-hover:brightness-[1.03]',
+                                        'group-hover:scale-[1.02] group-hover:brightness-[1.04]',
                                         loaded ? 'opacity-100' : 'opacity-0',
                                     )}
                                 />
                             ) : (
-                                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#F0F0F0]">
-                                    <ImageIcon size={20} className="text-[#C0C0C0]" strokeWidth={1.5} />
-                                    <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-[#B0B0B0]">
+                                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-[#F0F0F0]">
+                                    <ImageIcon size={18} className="text-[#C0C0C0]" strokeWidth={1.5} />
+                                    <span className="text-[8px] font-semibold tracking-[0.08em] uppercase text-[#B0B0B0]">
                                         Preview unavailable
                                     </span>
                                 </div>
                             )}
 
+                            {/* Subtle vignette — contrast for badges */}
                             {!errored && loaded && (
-                                <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
+                                <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/25 to-transparent pointer-events-none" />
                             )}
 
-                            <div className="absolute left-2 bottom-2 px-2 py-[3px] rounded-[6px] bg-black/50 backdrop-blur-md ring-1 ring-white/[0.08] text-[8px] font-bold tracking-[0.06em] uppercase text-white/90 shadow-sm">
+                            {/* Extension badge — bottom-left, frosted, always visible */}
+                            <div className="absolute left-2.5 bottom-2.5 px-2 py-[3px] rounded-[5px] bg-black/55 backdrop-blur-sm text-[7.5px] font-bold tracking-[0.08em] uppercase text-white/90 shadow-sm">
                                 {ext}
                             </div>
 
-                            <div className={cn(
-                                'absolute top-2 right-2 w-6 h-6 rounded-[8px]',
-                                'bg-black/40 backdrop-blur-md ring-1 ring-white/[0.08]',
-                                'flex items-center justify-center',
-                                'opacity-0 group-hover:opacity-100',
-                                'scale-90 group-hover:scale-100',
-                                'transition-all duration-300',
-                                'shadow-sm',
-                            )}>
-                                <ExternalLink size={10} className="text-white/80" />
+                            {/* External link — top-right, hover-only */}
+                            <div className="absolute top-2.5 right-2.5 w-6 h-6 rounded-[7px] bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 transition-all duration-300 shadow-sm">
+                                <ExternalLink size={10} className="text-white/85" />
                             </div>
                         </div>
 
-                        <div className="px-3 py-1.5 flex items-center gap-2 bg-[#F2F2F2] border-t border-black/[0.04]">
-                            <span className="text-[11px] text-[#8A8A8A] truncate flex-1 font-medium group-hover:text-[#6A6A6A] transition-colors duration-300">
+                        {/* ── Label bar — whisper weight ── */}
+                        <div className="px-3 py-[5px] bg-[#F0F0F0]">
+                            <span className="text-[10.5px] text-[#999] font-medium tracking-[0.01em] group-hover:text-[#777] transition-colors duration-300">
                                 {displayName}
                             </span>
                         </div>
@@ -2389,29 +2376,28 @@ interface MessageBubbleProps {
 const MessageBubble: FC<MessageBubbleProps> = memo(
     ({ role, content, isStreaming, toolInvocations, onModify, isLatest, modeContext = '' }) => {
         const isUser = role === 'user';
+        const hasUserAttachments = useMemo(() => {
+            if (!isUser || !content) return false;
+            REGEX_ATTACHMENT.lastIndex = 0;
+            const result = REGEX_ATTACHMENT.test(content);
+            REGEX_ATTACHMENT.lastIndex = 0;
+            return result;
+        }, [isUser, content]);
 
         // Detect email draft and extract body for contextual actions (memoized)
         const draftInfo = useMemo(() => {
-            if (isUser) {
-                if (!content) return { hasDraft: false, body: '', hasAttachments: false };
-                REGEX_ATTACHMENT.lastIndex = 0;
-                const hasAttachments = REGEX_ATTACHMENT.test(content);
-                REGEX_ATTACHMENT.lastIndex = 0;
-                return { hasDraft: false, body: '', hasAttachments };
-            }
-
-            if (isStreaming || !content) return { hasDraft: false, body: '', hasAttachments: false };
+            if (isUser || isStreaming || !content) return { hasDraft: false, body: '' };
             const hasDraft = (
                 REGEX_EMAIL_DRAFT_JSON.test(content) ||
                 REGEX_TAG_SUBJECT.test(content) ||
                 REGEX_EMAIL_SUBJECT.test(content) ||
                 REGEX_EMAIL_HEADER.test(content)
             );
-            if (!hasDraft) return { hasDraft: false, body: '', hasAttachments: false };
+            if (!hasDraft) return { hasDraft: false, body: '' };
 
             // Extract raw body for action context — lightweight parse
             const parsed = parseEmailFromContent(content);
-            return { hasDraft: true, body: parsed?.body || content, hasAttachments: false };
+            return { hasDraft: true, body: parsed?.body || content };
         }, [content, isUser, isStreaming]);
 
         // Markdown component overrides
@@ -2690,7 +2676,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                         ? cn(
                             'bg-[#F5F5F5] text-black rounded-[20px] rounded-tr-[6px]',
                             'shadow-[0_1px_6px_rgba(0,0,0,0.06),0_4px_16px_-4px_rgba(0,0,0,0.1)]',
-                            draftInfo.hasAttachments ? 'px-3.5 pt-3.5 pb-2' : 'px-5 py-3.5',
+                            hasUserAttachments ? 'px-3 pt-3.5 pb-1.5' : 'px-5 py-3.5',
                         )
                         : 'bg-transparent text-white px-0',
                 )}>
