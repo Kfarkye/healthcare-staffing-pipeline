@@ -1,7 +1,7 @@
 /* ============================================================================
    CommandCenterV2.tsx
-   "Obsidian Weissach" — Healthcare Staffing Edition (v4.4 - Production)
-   
+   "Obsidian Weissach" — Healthcare Staffing Edition (v4.6 - Production)
+
    Architecture:
    ├─ §0  Constants, Config, Regex Engine
    ├─ §1  Helpers, Hooks, Audio
@@ -13,6 +13,58 @@
    ├─ §7  Input Deck
    ├─ §8  Shell (Error Boundary, Layout, Scroll)
    └─ §9  Export
+
+   Changelog v4.6 (Micro-Detail Polish):
+   ├─ UX: InlineImageThumbnail — loading skeleton shimmer, proper error fallback
+   │  (replaces emoji SVG with clean vector placeholder), image fade-in on load,
+   │  subtle bottom vignette, file extension badge, refined proportions (18px radius,
+   │  16:10 aspect, restrained 1.02 hover scale, brightness boost)
+   ├─ UX: UserAttachment — larger 56px thumbnail, file type badge overlay,
+   │  external link affordance, refined ring/radius treatment
+   ├─ UX: InlineFilePill — tighter icon-to-text proportions, larger 32px icon
+   │  container, refined hover transitions
+   ├─ UX: InputDeck attachment thumbnails — refined 72px/14px radius,
+   │  ring-based borders, hover scale on preview images
+   ├─ UX: Lightbox — larger radius (2xl), system-level shadow, refined close button
+   ├─ UX: CandidateVerdict — tighter display type (20/24px), larger status circle,
+   │  pulsing status dot, heavier icon strokes
+   ├─ UX: EmailCard — refined subject typography (13.5px semibold), taller action
+   │  bar buttons (40px), ghost ring on copy hover, smoother transitions
+   ├─ UX: EmailBody — warmer greeting size (15px), refined section header labels
+   │  (9px/0.12em tracking), tighter bullet dot alignment
+   ├─ UX: PostDraftActions — larger tap targets (py-2.5), smoother stagger (0.1s),
+   │  font-medium labels, subtle scale on hover
+   ├─ UX: ToolResultCard — system-level spring animation, refined dot pulse
+   ├─ UX: Empty state — embedded quick-launch workflow links (Nova, Outlook, Pipeline)
+   ├─ UX: IntelPanel — refined Nova profile card with chevron affordance, larger
+   │  icon container, improved label hierarchy
+   ├─ UX: NextStepsPanel — refined link padding, softer ring values, text transitions
+   ├─ UX: Header — refined brand label (9px uppercase tracking), tighter Clear button
+   ├─ UX: Nova ID links — hover background highlight, larger gap
+   ├─ UX: Standard markdown links — refined underline offset (3px), decoration transitions
+   ├─ UX: Mode chips — rounded-[10px], softer active glow, faster stagger
+   ├─ UX: Assistant label — refined dot size (1.5px), tighter tracking
+   ├─ PERF: will-change-transform on image thumbnails for GPU compositing
+   ├─ A11Y: focus-visible ring on all interactive elements (links, buttons, chips)
+   ├─ A11Y: UserAttachment image alt text now uses filename (was empty)
+   ├─ A11Y: Vignette gradient hidden in error state (no longer overlaps placeholder)
+   ├─ A11Y: Workflow link touch targets increased to min-h 36px
+   ├─ PERF: Removed unnecessary will-change-transform from UserAttachment
+   └─ VERSION: 4.5 → 4.6
+
+   Changelog v4.5 (Polish Pass):
+   ├─ FIX: Removed dead mountedRef (allocated but never read)
+   ├─ FIX: ToolResultCard clipboard — removed silent-fail auto-copy useEffect
+   │  (modern browsers block clipboard writes outside user gestures), hardened
+   │  manual copy with systemCopyToClipboard + haptic feedback
+   ├─ FIX: File input reset — allows re-selecting the same file (cleared after onChange)
+   ├─ FIX: AnimatePresence keys — empty state and message list now keyed for
+   │  proper enter/exit transitions
+   ├─ UX: Focus management — input auto-focuses on panel open, returns focus
+   │  after message send (the UI anticipates intent)
+   ├─ UX: Error boundary upgraded with retry button (no more dead-end "refresh")
+   ├─ A11Y: Added aria-labels to close button and error retry
+   └─ HYGIENE: Version bump, changelog, dead code removal
 
    Changelog v4.4:
    ├─ UX: EmailCard stripped to 3 elements (subject, body, 2-button action bar)
@@ -381,34 +433,56 @@ type RouterMode = 'default' | 'cold_outreach' | 'batch_reassign' | 'reply_mode';
 const InlineImageThumbnail: FC<{ href: string; label: string }> = memo(
     ({ href, label }) => {
         const cleanLabel = stripPaperclip(label);
+        const [loaded, setLoaded] = useState(false);
+        const [errored, setErrored] = useState(false);
+        const ext = getFileExtension(href, label).toUpperCase() || 'IMG';
         return (
             <a
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block my-3 no-underline group max-w-[360px]"
+                className="block my-4 no-underline group max-w-[340px] outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 rounded-[18px]"
                 onClick={(e) => e.stopPropagation()}
                 title={`Open ${cleanLabel}`}
             >
-                <div className="rounded-2xl overflow-hidden ring-1 ring-white/[0.06] hover:ring-indigo-500/25 bg-[#080809] transition-all duration-300 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.5)] hover:shadow-[0_8px_32px_-4px_rgba(99,102,241,0.1)]">
-                    <div className="relative aspect-video bg-black/60">
-                        <img
-                            src={href}
-                            alt={cleanLabel}
-                            loading="lazy"
-                            className="absolute inset-0 w-full h-full object-contain transition-transform duration-500 ease-out group-hover:scale-[1.03]"
-                            onError={(e) => {
-                                (e.target as HTMLImageElement).src =
-                                    'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🖼️</text></svg>';
-                            }}
-                        />
-                        <div className="absolute top-2.5 right-2.5 w-6 h-6 rounded-full bg-black/70 ring-1 ring-white/10 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                            <ExternalLink size={10} className="text-white/70" />
+                <div className="rounded-[18px] overflow-hidden ring-1 ring-white/[0.06] hover:ring-white/[0.12] bg-[#080809] transition-all duration-500 ease-out shadow-[0_2px_16px_-4px_rgba(0,0,0,0.6)] hover:shadow-[0_8px_40px_-8px_rgba(0,0,0,0.7)] will-change-transform">
+                    <div className="relative aspect-[16/10] bg-[#050506]">
+                        {/* Loading skeleton */}
+                        {!loaded && !errored && (
+                            <div className="absolute inset-0 bg-[linear-gradient(110deg,#0a0a0b_30%,#111113_50%,#0a0a0b_70%)] bg-[length:200%_100%] animate-[shimmer_2s_infinite_linear]" />
+                        )}
+                        {!errored ? (
+                            <img
+                                src={href}
+                                alt={cleanLabel}
+                                loading="lazy"
+                                onLoad={() => setLoaded(true)}
+                                className={cn(
+                                    'absolute inset-0 w-full h-full object-contain transition-all duration-700 ease-out',
+                                    'group-hover:scale-[1.02] group-hover:brightness-110',
+                                    loaded ? 'opacity-100' : 'opacity-0',
+                                )}
+                                onError={() => setErrored(true)}
+                            />
+                        ) : (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                                <ImageIcon size={24} className="text-zinc-700" strokeWidth={1.5} />
+                                <span className="text-[9px] font-medium tracking-[0.08em] uppercase text-zinc-700">Preview unavailable</span>
+                            </div>
+                        )}
+                        {/* Subtle bottom vignette for text contrast (hidden on error) */}
+                        {!errored && (
+                            <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-[#080809]/60 to-transparent pointer-events-none" />
+                        )}
+                        {/* External link indicator */}
+                        <div className="absolute top-2.5 right-2.5 w-7 h-7 rounded-[10px] bg-black/60 ring-1 ring-white/[0.08] backdrop-blur-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 group-hover:scale-100 scale-90">
+                            <ExternalLink size={11} className="text-white/80" />
                         </div>
                     </div>
-                    <div className="px-3 py-1.5 flex items-center gap-2 border-t border-white/[0.04]">
-                        <ImageIcon size={10} className="text-emerald-500/60 shrink-0" />
-                        <span className="text-[10px] text-zinc-500 truncate">{cleanLabel}</span>
+                    <div className="px-3.5 py-2 flex items-center gap-2.5 border-t border-white/[0.04]">
+                        <ImageIcon size={11} className="text-indigo-400/50 shrink-0" />
+                        <span className="text-[11px] text-zinc-500 truncate flex-1 group-hover:text-zinc-400 transition-colors duration-300">{cleanLabel}</span>
+                        <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-zinc-700 shrink-0">{ext}</span>
                     </div>
                 </div>
             </a>
@@ -429,30 +503,30 @@ const InlineFilePill: FC<{ href: string; label: string; isPdf?: boolean }> = mem
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2.5 my-2 px-3 py-2 rounded-xl ring-1 ring-white/[0.06] bg-[#080809] hover:bg-white/[0.03] hover:ring-white/[0.12] transition-all duration-200 no-underline max-w-full group mr-2"
+                className="inline-flex items-center gap-2.5 my-2.5 px-3 py-2.5 rounded-[14px] ring-1 ring-white/[0.06] bg-[#080809] hover:bg-white/[0.03] hover:ring-white/[0.12] transition-all duration-300 no-underline max-w-full group mr-2 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
                 onClick={(e) => e.stopPropagation()}
                 title={`Open ${cleanLabel}`}
             >
                 <div className={cn(
-                    'w-7 h-7 rounded-lg flex items-center justify-center shrink-0',
-                    isPdf ? 'bg-rose-500/10' : 'bg-zinc-500/10',
+                    'w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0 transition-colors duration-300',
+                    isPdf ? 'bg-rose-500/10 group-hover:bg-rose-500/15' : 'bg-zinc-500/8 group-hover:bg-zinc-500/12',
                 )}>
                     {isPdf
-                        ? <FileText size={13} className="text-rose-400" />
-                        : <Paperclip size={13} className="text-zinc-400" />
+                        ? <FileText size={14} className="text-rose-400" />
+                        : <Paperclip size={14} className="text-zinc-400" />
                     }
                 </div>
                 <div className="flex-1 min-w-0 flex items-baseline gap-2">
-                    <span className="text-[12px] text-zinc-300 truncate group-hover:text-white transition-colors">
+                    <span className="text-[12px] text-zinc-300 truncate group-hover:text-white transition-colors duration-200 font-medium">
                         {cleanLabel}
                     </span>
                     {ext && (
-                        <span className="text-[9px] font-semibold tracking-wider uppercase text-zinc-600 shrink-0">
+                        <span className="text-[8px] font-bold tracking-[0.08em] uppercase text-zinc-600 shrink-0">
                             {ext}
                         </span>
                     )}
                 </div>
-                <ExternalLink size={11} className="text-zinc-700 group-hover:text-zinc-400 transition-colors shrink-0" />
+                <ExternalLink size={11} className="text-zinc-700 group-hover:text-zinc-400 transition-colors duration-200 shrink-0" />
             </a>
         );
     },
@@ -470,7 +544,7 @@ const CopyButton: FC<{ content: string }> = memo(({ content }) => {
         if (success) {
             setCopied(true);
             triggerHaptic();
-            setTimeout(() => setCopied(false), 1500);
+            setTimeout(() => setCopied(false), 2000);
         }
     }, [content]);
 
@@ -479,13 +553,13 @@ const CopyButton: FC<{ content: string }> = memo(({ content }) => {
             onClick={handleCopy}
             aria-label={copied ? 'Copied' : 'Copy content'}
             className={cn(
-                'p-1.5 rounded-lg transition-all duration-200',
+                'p-1.5 rounded-[8px] transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
                 copied
-                    ? 'text-emerald-400 bg-emerald-500/10 ring-1 ring-emerald-500/20'
+                    ? 'text-emerald-400 bg-emerald-500/12 ring-1 ring-emerald-500/25 scale-105'
                     : 'text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.06] active:scale-90',
             )}
         >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? <Check size={12} strokeWidth={2.5} /> : <Copy size={12} />}
         </button>
     );
 });
@@ -497,30 +571,40 @@ CopyButton.displayName = 'CopyButton';
 const UserAttachment: FC<{ filename: string; url: string }> = memo(
     ({ filename, url }) => {
         const isImage = /\.(png|jpg|jpeg|gif|webp|heic)$/i.test(filename);
+        const ext = getFileExtension(url, filename).toUpperCase() || (isImage ? 'IMG' : 'DOC');
         return (
             <motion.a
                 href={url}
                 target="_blank"
                 rel="noopener noreferrer"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                whileHover={{ scale: 1.02 }}
-                className="flex items-center gap-3 mt-3 p-2 rounded-xl bg-[#080809] ring-1 ring-white/[0.06] hover:ring-white/[0.1] hover:bg-white/[0.02] transition-all cursor-pointer group will-change-transform"
+                initial={{ opacity: 0, scale: 0.96, y: 4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                whileHover={{ scale: 1.015 }}
+                transition={SYSTEM.anim.fluid}
+                className="flex items-center gap-3 mt-3 p-2.5 rounded-[14px] bg-[#080809] ring-1 ring-white/[0.06] hover:ring-white/[0.12] hover:bg-white/[0.02] transition-all duration-300 cursor-pointer group focus-visible:ring-2 focus-visible:ring-indigo-500/50 outline-none"
             >
-                <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-white/5 shrink-0 flex items-center justify-center">
+                <div className="relative w-14 h-14 rounded-[10px] overflow-hidden bg-white/[0.03] shrink-0 flex items-center justify-center ring-1 ring-white/[0.04]">
                     {isImage
-                        ? <img src={url} alt="" className="w-full h-full object-cover" />
-                        : <FileText size={20} className="text-rose-400" />
+                        ? <img src={url} alt={filename} className="w-full h-full object-cover" />
+                        : (
+                            <div className="flex flex-col items-center gap-1">
+                                <FileText size={18} className="text-rose-400/80" />
+                            </div>
+                        )
                     }
+                    <div className="absolute left-1 bottom-1 px-1.5 py-0.5 rounded-md bg-black/70 ring-1 ring-white/[0.08] text-[7px] font-bold tracking-[0.06em] uppercase text-zinc-300">
+                        {ext}
+                    </div>
                 </div>
                 <div className="flex-1 min-w-0">
-                    <p className="text-[12px] text-indigo-400 truncate group-hover:text-indigo-300 transition-colors">
+                    <p className="text-[12px] text-indigo-400 truncate group-hover:text-indigo-300 transition-colors duration-200 font-medium">
                         {filename}
                     </p>
-                    <p className="text-[10px] text-zinc-500 mt-0.5">
-                        {isImage ? 'Image' : 'Document'}
+                    <p className="text-[10px] text-zinc-600 mt-0.5">
+                        {isImage ? 'Image attachment' : 'Document attachment'}
                     </p>
                 </div>
+                <ExternalLink size={12} className="text-zinc-700 group-hover:text-zinc-400 transition-colors duration-200 shrink-0 mr-1" />
             </motion.a>
         );
     },
@@ -576,42 +660,42 @@ const CandidateVerdict: FC<{
 
             {/* Header */}
             <div className="px-6 py-3 border-b border-white/[0.04] flex items-center justify-between">
-                <span className="text-[10px] font-bold tracking-[0.08em] uppercase text-zinc-600">
+                <span className="text-[9px] font-bold tracking-[0.1em] uppercase text-zinc-600">
                     Candidate Assessment
                 </span>
                 <div className={cn(
-                    'flex items-center gap-1.5 px-2 py-0.5 rounded-full ring-1',
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-full ring-1',
                     config.bg, config.ring,
                 )}>
-                    <span className={cn('w-1.5 h-1.5 rounded-full', config.dot)} />
-                    <span className={cn('text-[9px] font-bold tracking-[0.06em] uppercase', config.text)}>
+                    <span className={cn('w-1.5 h-1.5 rounded-full animate-pulse', config.dot)} />
+                    <span className={cn('text-[9px] font-bold tracking-[0.08em] uppercase', config.text)}>
                         {config.label}
                     </span>
                 </div>
             </div>
 
             {/* Body */}
-            <div className="relative p-6 flex items-start gap-4">
-                <div className="flex-1">
-                    <div className="text-[22px] md:text-[26px] font-semibold text-white tracking-[-0.02em] leading-none">
+            <div className="relative p-6 flex items-start gap-5">
+                <div className="flex-1 min-w-0">
+                    <div className="text-[20px] md:text-[24px] font-semibold text-white tracking-[-0.03em] leading-none">
                         {verdict}
                     </div>
                     {details && (
-                        <div className="text-[13px] text-zinc-500 mt-3 leading-[1.65]">
+                        <div className="text-[13px] text-zinc-500 mt-3.5 leading-[1.7] max-w-[90%]">
                             {details}
                         </div>
                     )}
-                    <div className={cn('text-[9px] font-bold tracking-[0.1em] uppercase mt-3', config.text)}>
+                    <div className={cn('text-[9px] font-bold tracking-[0.1em] uppercase mt-4', config.text)}>
                         {config.sub}
                     </div>
                 </div>
                 <div className={cn(
-                    'w-10 h-10 rounded-full ring-1 flex items-center justify-center shrink-0',
+                    'w-11 h-11 rounded-full ring-1 flex items-center justify-center shrink-0',
                     config.bg, config.ring,
                 )}>
-                    {verdict === 'STRONG MATCH' && <Check size={18} className="text-emerald-400" />}
-                    {verdict === 'REVIEW NEEDED' && <span className="text-amber-400 text-sm font-bold">?</span>}
-                    {verdict === 'NOT A FIT' && <X size={18} className="text-rose-400" />}
+                    {verdict === 'STRONG MATCH' && <Check size={18} className="text-emerald-400" strokeWidth={2.5} />}
+                    {verdict === 'REVIEW NEEDED' && <span className="text-amber-400 text-[14px] font-bold">?</span>}
+                    {verdict === 'NOT A FIT' && <X size={18} className="text-rose-400" strokeWidth={2.5} />}
                 </div>
             </div>
         </motion.div>
@@ -626,19 +710,19 @@ const AssessmentHUD: FC<{ content: string; title?: string }> = memo(
     ({ content, title = 'Match Insight' }) => (
         <motion.div
             layout
-            initial={{ x: -5, opacity: 0 }}
+            initial={{ x: -6, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={SYSTEM.anim.fluid}
-            className="my-6 relative overflow-hidden rounded-r-[16px] border-l-[3px] border-l-indigo-500/60 bg-[#080809] ring-1 ring-white/[0.04] shadow-[12px_0_32px_-8px_rgba(99,102,241,0.04)]"
+            className="my-6 relative overflow-hidden rounded-r-[16px] border-l-[3px] border-l-indigo-500/50 bg-[#080809] ring-1 ring-white/[0.04] shadow-[12px_0_32px_-8px_rgba(99,102,241,0.04)]"
         >
             <div className="p-5">
                 <div className="flex items-center gap-2 mb-3">
-                    <Activity size={12} className="text-indigo-400/60" />
-                    <span className="text-[9px] font-bold text-indigo-500/50 uppercase tracking-[0.1em]">
+                    <Activity size={11} className="text-indigo-400/50" />
+                    <span className="text-[9px] font-bold text-indigo-500/40 uppercase tracking-[0.1em]">
                         {title}
                     </span>
                 </div>
-                <div className="text-[13.5px] text-zinc-300 leading-[1.7] font-medium">
+                <div className="text-[13.5px] text-zinc-300 leading-[1.75] font-normal">
                     {content}
                 </div>
             </div>
@@ -738,13 +822,13 @@ const ModeChips: FC<{ value: string; onChange: (v: string) => void }> = memo(
                         onClick={() => { triggerHaptic(); onChange(chip.context); }}
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.03, ...SYSTEM.anim.fluid }}
+                        transition={{ delay: index * 0.025, ...SYSTEM.anim.fluid }}
                         whileHover={{ scale: 1.02, y: -1 }}
-                        whileTap={{ scale: 0.97 }}
+                        whileTap={{ scale: 0.96 }}
                         className={cn(
-                            'flex-shrink-0 px-3 py-2 rounded-xl ring-1 transition-all duration-200',
+                            'flex-shrink-0 px-3 py-2 rounded-[10px] ring-1 transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
                             active
-                                ? 'bg-indigo-500/12 ring-indigo-500/30 text-indigo-300 shadow-[0_0_12px_-4px_rgba(99,102,241,0.3)]'
+                                ? 'bg-indigo-500/10 ring-indigo-500/25 text-indigo-300 shadow-[0_0_16px_-4px_rgba(99,102,241,0.2)]'
                                 : 'bg-white/[0.02] ring-white/[0.06] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.04] hover:ring-white/[0.1]',
                         )}
                     >
@@ -908,32 +992,32 @@ const PostDraftActions: FC<{
                         key={action.label}
                         initial={{ opacity: 0, x: 12, scale: 0.96 }}
                         animate={{
-                            opacity: isFading ? 0.3 : 1,
+                            opacity: isFading ? 0.25 : 1,
                             x: 0,
                             scale: isFired ? 0.97 : 1,
                         }}
                         transition={{
-                            delay: isFading ? 0 : 0.75 + idx * 0.08,
-                            duration: 0.4,
+                            delay: isFading ? 0 : 0.75 + idx * 0.1,
+                            duration: 0.45,
                             ease: [0.23, 1, 0.32, 1],
                         }}
-                        whileHover={{ x: -3 }}
-                        whileTap={{ scale: 0.93 }}
+                        whileHover={{ x: -4, scale: 1.01 }}
+                        whileTap={{ scale: 0.94 }}
                         onClick={() => handleTap(action)}
                         disabled={fired !== null}
                         className={cn(
                             // Ghost user-bubble: identical shape to user messages
                             // (user = rounded-tr-[6px], these match — unsent messages)
-                            'px-4 py-2 rounded-2xl rounded-tr-[6px]',
-                            'transition-all duration-200',
+                            'px-4 py-2.5 rounded-2xl rounded-tr-[6px]',
+                            'transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
                             isFired
-                                ? 'bg-indigo-500/20 ring-1 ring-indigo-400/40 text-indigo-200 shadow-[0_0_20px_-4px_rgba(99,102,241,0.3)]'
+                                ? 'bg-indigo-500/20 ring-1 ring-indigo-400/35 text-indigo-200 shadow-[0_0_24px_-4px_rgba(99,102,241,0.25)]'
                                 : isPrimary
                                     ? 'bg-white/[0.04] ring-1 ring-white/[0.1] text-zinc-300 hover:bg-white/[0.07] hover:ring-white/[0.16] hover:text-white'
                                     : 'bg-white/[0.02] ring-1 ring-white/[0.06] text-zinc-500 hover:bg-white/[0.05] hover:ring-white/[0.12] hover:text-zinc-300',
                         )}
                     >
-                        <span className="text-[13px] leading-none">
+                        <span className="text-[12.5px] leading-none font-medium">
                             {action.label}
                         </span>
                     </motion.button>
@@ -1062,7 +1146,7 @@ const EmailBodyRenderer: FC<{ body: string; signature?: string | null }> = memo(
 
                 case 'greeting':
                     return (
-                        <p key={idx} className="text-[14.5px] text-zinc-100 leading-[1.65] tracking-[0.005em] mb-3">
+                        <p key={idx} className="text-[15px] text-zinc-100 leading-[1.6] tracking-[-0.005em] mb-3.5">
                             {line.content}
                         </p>
                     );
@@ -1076,22 +1160,22 @@ const EmailBodyRenderer: FC<{ body: string; signature?: string | null }> = memo(
                         <div
                             key={idx}
                             className={cn(
-                                'mt-5 mb-2 first:mt-0 pl-3 border-l-2',
+                                'mt-5 mb-2.5 first:mt-0 pl-3.5 border-l-2',
                                 isPay
-                                    ? 'border-emerald-500/30'
-                                    : 'border-indigo-500/20',
+                                    ? 'border-emerald-500/25'
+                                    : 'border-indigo-500/15',
                             )}
                         >
                             <span className={cn(
-                                'text-[10px] font-bold tracking-[0.1em] uppercase',
-                                isPay ? 'text-emerald-400/70' : 'text-indigo-400/60',
+                                'text-[9px] font-bold tracking-[0.12em] uppercase',
+                                isPay ? 'text-emerald-400/60' : 'text-indigo-400/50',
                             )}>
                                 {label}
                             </span>
                             {value && (
                                 <HighlightedText
                                     text={value}
-                                    className="text-[14px] text-zinc-200 ml-2 font-medium"
+                                    className="text-[14px] text-zinc-200 ml-2.5 font-medium"
                                 />
                             )}
                         </div>
@@ -1100,11 +1184,11 @@ const EmailBodyRenderer: FC<{ body: string; signature?: string | null }> = memo(
 
                 case 'bullet':
                     return (
-                        <div key={idx} className="flex items-start gap-3 py-[3px] pl-3.5">
-                            <span className="mt-[8px] w-[3px] h-[3px] rounded-full bg-zinc-600 shrink-0" />
+                        <div key={idx} className="flex items-start gap-3 py-[2px] pl-4">
+                            <span className="mt-[9px] w-[3px] h-[3px] rounded-full bg-zinc-600/80 shrink-0" />
                             <HighlightedText
                                 text={line.content}
-                                className="text-[13.5px] text-[#B4B4B4] leading-[1.65]"
+                                className="text-[13.5px] text-[#B4B4B4] leading-[1.7]"
                             />
                         </div>
                     );
@@ -1231,7 +1315,7 @@ const EmailCard: FC<{
         >
             {/* ── Subject ── */}
             <div className="px-6 pt-5 pb-3">
-                <p className="text-[13px] font-medium text-white select-all line-clamp-2 leading-snug">
+                <p className="text-[13.5px] font-semibold text-white select-all line-clamp-2 leading-[1.4] tracking-[-0.01em]">
                     {cleanSubject}
                 </p>
             </div>
@@ -1253,7 +1337,7 @@ const EmailCard: FC<{
                 {isLongBody && (
                     <button
                         onClick={() => setIsExpanded(!isExpanded)}
-                        className="mt-4 flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-300 font-medium transition-colors group/expand"
+                        className="mt-4 flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-300 font-medium transition-all duration-200 group/expand"
                     >
                         <ChevronDown
                             size={13}
@@ -1275,26 +1359,26 @@ const EmailCard: FC<{
             {/* ── Action Bar ── */}
             <div className="px-4 py-3 border-t border-white/[0.04] flex items-center gap-2">
                 <motion.button
-                    whileHover={{ scale: 1.015 }}
+                    whileHover={{ scale: 1.01 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={handleOpenOutlook}
-                    className="flex-1 flex items-center justify-center gap-2 h-9 rounded-xl bg-indigo-500/15 ring-1 ring-indigo-500/25 text-indigo-300 hover:bg-indigo-500/25 hover:ring-indigo-500/35 hover:text-indigo-200 transition-all text-[11px] font-semibold tracking-wide"
+                    className="flex-1 flex items-center justify-center gap-2.5 h-10 rounded-[12px] bg-indigo-500/12 ring-1 ring-indigo-500/20 text-indigo-300 hover:bg-indigo-500/20 hover:ring-indigo-500/30 hover:text-indigo-200 transition-all duration-300 text-[11px] font-semibold tracking-[0.02em] outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
                 >
-                    <Mail size={13} /> Open in Outlook
+                    <Mail size={13} strokeWidth={1.8} /> Open in Outlook
                 </motion.button>
                 <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.9 }}
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.92 }}
                     onClick={handleCopyAll}
                     className={cn(
-                        'h-9 w-9 rounded-xl flex items-center justify-center transition-all duration-200 shrink-0',
+                        'h-10 w-10 rounded-[12px] flex items-center justify-center transition-all duration-300 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
                         copied
-                            ? 'bg-emerald-500/15 ring-1 ring-emerald-500/30 text-emerald-400'
-                            : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.04]',
+                            ? 'bg-emerald-500/12 ring-1 ring-emerald-500/25 text-emerald-400'
+                            : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] ring-1 ring-transparent hover:ring-white/[0.06]',
                     )}
                     aria-label="Copy draft"
                 >
-                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                    {copied ? <Check size={14} strokeWidth={2.5} /> : <Copy size={14} />}
                 </motion.button>
             </div>
         </motion.div>
@@ -1327,15 +1411,15 @@ const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2, ...SYSTEM.anim.fluid }}
-            className="mt-4 rounded-xl ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden"
+            className="mt-4 rounded-[14px] ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden"
         >
-            <div className="px-4 py-2 border-b border-white/[0.04]">
+            <div className="px-4 py-2.5 border-b border-white/[0.04]">
                 <span className="text-[9px] font-bold tracking-[0.1em] uppercase text-zinc-600">
                     Next Steps
                 </span>
             </div>
             <div
-                className="max-h-44 overflow-y-auto px-3 py-2.5 space-y-1.5"
+                className="max-h-48 overflow-y-auto px-3 py-2.5 space-y-1.5"
                 style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
             >
                 {steps.map((step, idx) => (
@@ -1351,26 +1435,26 @@ const NextStepsPanel: FC<{ steps: NextStepAction[] }> = memo(({ steps }) => {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 onClick={() => triggerHaptic()}
-                                className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-indigo-500/[0.04] ring-1 ring-indigo-500/12 hover:bg-indigo-500/[0.08] hover:ring-indigo-500/20 transition-all duration-200 group"
+                                className="flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] bg-indigo-500/[0.04] ring-1 ring-indigo-500/10 hover:bg-indigo-500/[0.08] hover:ring-indigo-500/18 transition-all duration-300 group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
                             >
-                                <ExternalLink size={12} className="text-indigo-400/60 shrink-0" />
-                                <span className="text-[12px] text-indigo-300/80 font-medium truncate flex-1">
+                                <ExternalLink size={12} className="text-indigo-400/50 shrink-0" />
+                                <span className="text-[12px] text-indigo-300/70 font-medium truncate flex-1 group-hover:text-indigo-300 transition-colors duration-200">
                                     {step.label}
                                 </span>
-                                <ChevronRight size={12} className="text-indigo-500/30 group-hover:text-indigo-400 transition-colors shrink-0" />
+                                <ChevronRight size={12} className="text-indigo-500/20 group-hover:text-indigo-400/60 transition-colors duration-200 shrink-0" />
                             </a>
                         )}
                         {step.type === 'send_email' && step.href && (
                             <a
                                 href={step.href}
                                 onClick={() => { triggerHaptic(); playDraftReadyCue(); }}
-                                className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-emerald-500/[0.04] ring-1 ring-emerald-500/12 hover:bg-emerald-500/[0.08] hover:ring-emerald-500/20 transition-all duration-200 group"
+                                className="flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] bg-emerald-500/[0.04] ring-1 ring-emerald-500/10 hover:bg-emerald-500/[0.08] hover:ring-emerald-500/18 transition-all duration-300 group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
                             >
-                                <Mail size={12} className="text-emerald-400/60 shrink-0" />
-                                <span className="text-[12px] text-emerald-300/80 font-medium truncate flex-1">
+                                <Mail size={12} className="text-emerald-400/50 shrink-0" />
+                                <span className="text-[12px] text-emerald-300/70 font-medium truncate flex-1 group-hover:text-emerald-300 transition-colors duration-200">
                                     {step.label}
                                 </span>
-                                <ChevronRight size={12} className="text-emerald-500/30 group-hover:text-emerald-400 transition-colors shrink-0" />
+                                <ChevronRight size={12} className="text-emerald-500/20 group-hover:text-emerald-400/60 transition-colors duration-200 shrink-0" />
                             </a>
                         )}
                         {(step.type === 'await_docs' || step.type === 'await_availability') && (
@@ -1434,11 +1518,11 @@ const IntelPanel: FC<{ intel: IntelData }> = memo(({ intel }) => {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.25, ...SYSTEM.anim.fluid }}
-            className="mt-4 rounded-xl ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden"
+            className="mt-4 rounded-[14px] ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden"
         >
             {/* Header */}
-            <div className="px-4 py-2 border-b border-white/[0.04] flex items-center gap-2">
-                <div className="w-1 h-1 rounded-full bg-cyan-500/50" />
+            <div className="px-4 py-2.5 border-b border-white/[0.04] flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-cyan-500/40" />
                 <span className="text-[9px] font-bold tracking-[0.1em] uppercase text-zinc-600">
                     Context
                 </span>
@@ -1453,18 +1537,18 @@ const IntelPanel: FC<{ intel: IntelData }> = memo(({ intel }) => {
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={() => triggerHaptic()}
-                        className="flex items-center gap-3 p-2.5 rounded-lg bg-indigo-500/[0.04] ring-1 ring-indigo-500/12 hover:bg-indigo-500/[0.08] hover:ring-indigo-500/20 transition-all duration-200 group"
+                        className="flex items-center gap-3 p-3 rounded-[10px] bg-indigo-500/[0.04] ring-1 ring-indigo-500/10 hover:bg-indigo-500/[0.08] hover:ring-indigo-500/20 transition-all duration-300 group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
                     >
-                        <div className="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center">
-                            <Users size={13} className="text-indigo-400" />
+                        <div className="w-8 h-8 rounded-[8px] bg-indigo-500/10 flex items-center justify-center group-hover:bg-indigo-500/15 transition-colors duration-300">
+                            <Users size={14} className="text-indigo-400" />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <span className="text-[10px] text-zinc-600 block">Nova Profile</span>
-                            <span className="text-[12px] text-indigo-300/80 font-medium truncate block">
+                            <span className="text-[9px] font-medium tracking-[0.04em] uppercase text-zinc-600 block">Nova Profile</span>
+                            <span className="text-[12px] text-indigo-300/80 font-medium truncate block mt-0.5">
                                 {intel.candidateName || 'View in Nova'}
                             </span>
                         </div>
-                        <ExternalLink size={12} className="text-indigo-500/30 group-hover:text-indigo-400 transition-colors" />
+                        <ChevronRight size={13} className="text-indigo-500/25 group-hover:text-indigo-400/60 transition-colors duration-200 shrink-0" />
                     </a>
                 )}
 
@@ -1699,10 +1783,10 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 text-zinc-400 hover:text-indigo-400 font-mono text-[12px] group transition-colors"
+                            className="inline-flex items-center gap-1.5 text-zinc-400 hover:text-indigo-400 font-mono text-[12px] group transition-all duration-200 px-1 py-0.5 rounded-md hover:bg-indigo-500/[0.06]"
                         >
                             {label}
-                            <ExternalLink size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <ExternalLink size={10} className="opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
                         </a>
                     );
                 }
@@ -1722,7 +1806,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                         href={safeHref}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-indigo-400 hover:text-indigo-300 underline decoration-indigo-500/30 underline-offset-4 transition-colors"
+                        className="text-indigo-400 hover:text-indigo-300 underline decoration-indigo-500/20 hover:decoration-indigo-500/40 underline-offset-[3px] transition-all duration-200"
                     >
                         {children}
                     </a>
@@ -1869,8 +1953,8 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                 {/* Assistant label */}
                 {!isUser && (content || isStreaming) && (
                     <div className="flex items-center gap-2 mb-2.5 ml-0.5">
-                        <div className="w-1 h-1 bg-indigo-500/60 rounded-full animate-pulse" />
-                        <span className="text-[10px] font-medium tracking-[0.06em] uppercase text-zinc-600">
+                        <div className="w-1.5 h-1.5 bg-indigo-500/50 rounded-full animate-pulse" />
+                        <span className="text-[9px] font-semibold tracking-[0.08em] uppercase text-zinc-600">
                             Command Center
                         </span>
                     </div>
@@ -1949,62 +2033,43 @@ const ToolResultCard: FC<{
         [toolName],
     );
 
-    // Auto-copy pay breakdown on successful extraction
-    useEffect(() => {
-        if (!isComplete || !result) return;
-
-        if (toolName === 'calculate_pay_package' && result.breakdown) {
-            const bd = result.breakdown;
-            const payText = [
-                'PAY BREAKDOWN',
-                `Weekly Gross: $${bd.weekly_gross || bd.gross_weekly_pay || 'N/A'}`,
-                bd.hourly_rate ? `Hourly Rate: $${bd.hourly_rate}/hr` : null,
-                bd.housing_stipend ? `Housing Stipend: $${bd.housing_stipend}/week` : null,
-                bd.meals_stipend ? `Meals Stipend: $${bd.meals_stipend}/week` : null,
-                bd.taxable_hourly ? `Taxable Hourly: $${bd.taxable_hourly}/hr` : null,
-            ].filter(Boolean).join('\n');
-            navigator.clipboard?.writeText(payText).catch(() => {});
-        }
-
-        if (toolName === 'create_campaign' && result.campaign_id) {
-            const summary = `Campaign Created: ${result.message || ''}\nID: ${result.campaign_id}`;
-            navigator.clipboard?.writeText(summary).catch(() => {});
-        }
-    }, [isComplete, result, toolName]);
-
     const handleCopyResult = useCallback(async () => {
         const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-        await navigator.clipboard?.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        const success = await systemCopyToClipboard(text);
+        if (success) {
+            setCopied(true);
+            triggerHaptic();
+            setTimeout(() => setCopied(false), 2000);
+        }
     }, [result]);
 
     return (
         <motion.div
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            className="rounded-[16px] overflow-hidden ring-1 ring-white/[0.06] bg-[#080809]"
+            transition={SYSTEM.anim.fluid}
+            className="rounded-[14px] overflow-hidden ring-1 ring-white/[0.06] bg-[#080809]"
         >
             <button
                 onClick={() => isComplete && setExpanded(!expanded)}
                 disabled={!isComplete}
                 className={cn(
-                    'w-full px-4 py-3 flex items-center justify-between text-left transition-colors',
+                    'w-full px-4 py-3 flex items-center justify-between text-left transition-all duration-200',
                     isComplete && 'hover:bg-white/[0.02] cursor-pointer',
                 )}
             >
                 <div className="flex items-center gap-3">
                     <div className={cn(
-                        'w-1.5 h-1.5 rounded-full shrink-0',
+                        'w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-500',
                         isComplete ? 'bg-emerald-500' : 'bg-zinc-600 animate-pulse',
                     )} />
-                    <span className="text-[11px] font-semibold tracking-[0.04em] text-zinc-300">
+                    <span className="text-[11px] font-semibold tracking-[0.04em] text-zinc-400">
                         {displayName}
                     </span>
                 </div>
                 {!isComplete
                     ? <OrbitalRadar />
-                    : <ChevronRight size={13} className={cn('text-zinc-600 transition-transform duration-200', expanded && 'rotate-90')} />
+                    : <ChevronRight size={13} className={cn('text-zinc-600 transition-transform duration-300 ease-out', expanded && 'rotate-90')} />
                 }
             </button>
             <AnimatePresence>
@@ -2123,16 +2188,16 @@ const InputDeck: FC<InputDeckProps> = memo(({
                             <img
                                 src={lightboxImage.url}
                                 alt={lightboxImage.name}
-                                className="max-w-full max-h-[85vh] rounded-xl shadow-2xl object-contain"
+                                className="max-w-full max-h-[85vh] rounded-2xl shadow-[0_40px_120px_-20px_rgba(0,0,0,0.9)] object-contain"
                             />
-                            <div className="absolute -bottom-10 left-0 right-0 text-center text-sm text-zinc-400 truncate px-4">
+                            <div className="absolute -bottom-12 left-0 right-0 text-center text-[12px] text-zinc-500 truncate px-4 font-medium">
                                 {lightboxImage.name}
                             </div>
                             <button
                                 onClick={() => setLightboxImage(null)}
-                                className="absolute -top-3 -right-3 p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white shadow-lg transition-colors"
+                                className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-zinc-800/90 hover:bg-zinc-700 ring-1 ring-white/[0.1] text-white flex items-center justify-center shadow-lg transition-all duration-200 hover:scale-110"
                             >
-                                <X size={16} />
+                                <X size={14} />
                             </button>
                         </motion.div>
                     </motion.div>
@@ -2160,7 +2225,10 @@ const InputDeck: FC<InputDeckProps> = memo(({
                     multiple
                     accept="image/*,application/pdf,.doc,.docx"
                     className="hidden"
-                    onChange={(e) => onFilesSelected(e.target.files)}
+                    onChange={(e) => {
+                        onFilesSelected(e.target.files);
+                        e.target.value = '';
+                    }}
                 />
 
                 {/* Attachment Preview Strip */}
@@ -2199,21 +2267,21 @@ const InputDeck: FC<InputDeckProps> = memo(({
                                                 onClick={() => att.previewUrl && setLightboxImage({ url: att.previewUrl, name: att.fileName || 'Attachment' })}
                                                 disabled={!att.previewUrl}
                                                 className={cn(
-                                                    'relative w-[74px] h-[74px] rounded-2xl border overflow-hidden bg-zinc-900/70',
-                                                    att.skippedAnalysis ? 'border-amber-500/40' : 'border-white/15',
+                                                    'relative w-[72px] h-[72px] rounded-[14px] overflow-hidden bg-zinc-900/80 ring-1 transition-all duration-200',
+                                                    att.skippedAnalysis ? 'ring-amber-500/30' : 'ring-white/[0.1] hover:ring-white/[0.18]',
                                                     att.previewUrl ? 'cursor-zoom-in' : 'cursor-default',
                                                 )}
                                             >
                                                 {att.previewUrl
-                                                    ? <img src={att.previewUrl} className="w-full h-full object-cover" alt={att.fileName || 'Attachment'} />
-                                                    : <div className="w-full h-full flex items-center justify-center"><FileText size={22} className="text-zinc-500" /></div>
+                                                    ? <img src={att.previewUrl} className="w-full h-full object-cover transition-transform duration-300 hover:scale-105" alt={att.fileName || 'Attachment'} />
+                                                    : <div className="w-full h-full flex items-center justify-center"><FileText size={20} className="text-zinc-600" /></div>
                                                 }
                                                 {att.isUploading && (
-                                                    <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
-                                                        <Loader2 size={16} className="animate-spin text-zinc-200" />
+                                                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+                                                        <Loader2 size={14} className="animate-spin text-zinc-200" />
                                                     </div>
                                                 )}
-                                                <div className="absolute left-1.5 bottom-1.5 px-1.5 py-0.5 rounded-md bg-black/70 border border-white/10 text-[8px] font-medium uppercase text-zinc-200">
+                                                <div className="absolute left-1.5 bottom-1.5 px-1.5 py-0.5 rounded-[5px] bg-black/75 ring-1 ring-white/[0.08] text-[7px] font-bold tracking-[0.04em] uppercase text-zinc-300">
                                                     {att.skippedAnalysis ? 'Link' : (ext || 'img')}
                                                 </div>
                                             </button>
@@ -2329,6 +2397,10 @@ class ChatErrorBoundary extends Component<
         console.error('[CommandCenter] Error:', error, info);
     }
 
+    private handleRetry = () => {
+        this.setState({ hasError: false });
+    };
+
     render() {
         if (this.state.hasError) {
             return (
@@ -2336,8 +2408,15 @@ class ChatErrorBoundary extends Component<
                     <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-rose-500 rounded-full" />
                         <span className="text-rose-400 text-sm font-medium">
-                            Command Center error. Please refresh.
+                            Command Center error.
                         </span>
+                        <button
+                            onClick={this.handleRetry}
+                            aria-label="Retry"
+                            className="ml-2 px-3 py-1 text-[10px] font-semibold tracking-wide uppercase text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg ring-1 ring-rose-500/20 transition-all duration-200"
+                        >
+                            Retry
+                        </button>
                     </div>
                 </div>
             );
@@ -2361,7 +2440,6 @@ const InnerCommandCenter: FC<{
     const [isMobile, setIsMobile] = useState(false);
     const [keyboardOffset, setKeyboardOffset] = useState(0);
     const inputRef = useRef<HTMLTextAreaElement>(null);
-    const mountedRef = useRef(true);
     const { showToast } = useToast();
 
     const {
@@ -2371,10 +2449,13 @@ const InnerCommandCenter: FC<{
         scrollToBottomNow,
     } = usePinnedScroll({ bottomThresholdPx: 100 });
 
+    // Focus input when panel opens (the UI should anticipate intent)
     useEffect(() => {
-        mountedRef.current = true;
-        return () => { mountedRef.current = false; };
-    }, []);
+        if (isOpen && !isMinimized) {
+            const raf = requestAnimationFrame(() => inputRef.current?.focus());
+            return () => cancelAnimationFrame(raf);
+        }
+    }, [isOpen, isMinimized]);
 
     // Mobile detection
     useEffect(() => {
@@ -2550,6 +2631,7 @@ const InnerCommandCenter: FC<{
                 clearAttachments();
                 scrollToBottomNow();
                 triggerHaptic();
+                requestAnimationFrame(() => inputRef.current?.focus());
             },
         });
     }, [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments, showToast, totalPayloadSize, modeContext, scrollToBottomNow]);
@@ -2636,13 +2718,13 @@ const InnerCommandCenter: FC<{
                     )}
                 >
                     <div className="flex items-center gap-2.5">
-                        <div className="w-5 h-5 rounded-md bg-indigo-500/10 flex items-center justify-center">
+                        <div className="w-5 h-5 rounded-[6px] bg-indigo-500/10 flex items-center justify-center">
                             <Zap size={11} className="text-indigo-500" />
                         </div>
-                        <span className="text-[13px] font-semibold text-white tracking-[-0.01em]">
+                        <span className="text-[13px] font-semibold text-white tracking-[-0.02em]">
                             Command Center
                         </span>
-                        <span className="text-[10px] font-medium text-zinc-700 tracking-wider">
+                        <span className="text-[9px] font-medium text-zinc-700/60 tracking-[0.06em] uppercase">
                             Weissach
                         </span>
                     </div>
@@ -2650,7 +2732,7 @@ const InnerCommandCenter: FC<{
                         {(messages.length > 0 || attachments.length > 0) && (
                             <button
                                 onClick={() => { clearChat(); clearAttachments(); setModeContext(''); }}
-                                className="px-2.5 py-1.5 text-zinc-600 hover:text-rose-400 hover:bg-rose-500/8 rounded-lg transition-all duration-200 text-[10px] font-semibold tracking-wide uppercase"
+                                className="px-2.5 py-1.5 text-zinc-600 hover:text-rose-400 hover:bg-rose-500/8 rounded-[8px] transition-all duration-300 text-[9px] font-bold tracking-[0.06em] uppercase"
                             >
                                 Clear
                             </button>
@@ -2674,6 +2756,7 @@ const InnerCommandCenter: FC<{
                         <button
                             onClick={() => { setIsOpen(false); setWorkspaceMode('floating'); }}
                             className="p-2 rounded-lg text-zinc-600 hover:text-white hover:bg-white/[0.04] transition-all duration-200"
+                            aria-label="Close panel"
                         >
                             <X size={14} />
                         </button>
@@ -2690,8 +2773,10 @@ const InnerCommandCenter: FC<{
                         <AnimatePresence mode="popLayout">
                             {stableHistory.length === 0 && !streamingMessage ? (
                                 <motion.div
+                                    key="empty-state"
                                     initial={{ opacity: 0, scale: 0.95 }}
                                     animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.95 }}
                                     className="h-full flex flex-col items-center justify-center text-center pt-20"
                                 >
                                     <motion.div
@@ -2707,11 +2792,37 @@ const InnerCommandCenter: FC<{
                                     <p className="text-[13px] text-zinc-700 mt-1.5 max-w-[240px] leading-relaxed">
                                         Select a mode or type a message to begin.
                                     </p>
+
+                                    {/* Quick Workflow Links */}
+                                    <div className="flex flex-wrap items-center justify-center gap-2 mt-8 max-w-[320px]">
+                                        {[
+                                            { label: 'Nova', icon: Users, href: 'https://novastaff.ayahealthcare.com', color: 'text-indigo-400/40', hoverColor: 'group-hover:text-indigo-400/70' },
+                                            { label: 'Outlook', icon: Mail, href: 'https://outlook.office.com', color: 'text-blue-400/40', hoverColor: 'group-hover:text-blue-400/70' },
+                                            { label: 'Pipeline', icon: Activity, href: '/prospects', color: 'text-emerald-400/40', hoverColor: 'group-hover:text-emerald-400/70' },
+                                        ].map((link) => (
+                                            <a
+                                                key={link.label}
+                                                href={link.href}
+                                                target={link.href.startsWith('http') ? '_blank' : undefined}
+                                                rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
+                                                className={cn(
+                                                    'group flex items-center gap-1.5 px-3.5 py-2 rounded-lg ring-1 ring-white/[0.04] bg-white/[0.01] min-h-[36px]',
+                                                    'hover:bg-white/[0.03] hover:ring-white/[0.08] transition-all duration-300',
+                                                    'outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
+                                                )}
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <link.icon size={10} className={cn(link.color, link.hoverColor, 'transition-colors duration-200')} />
+                                                <span className="text-[10px] font-medium text-zinc-600 group-hover:text-zinc-400 transition-colors duration-200">{link.label}</span>
+                                            </a>
+                                        ))}
+                                    </div>
+
                                     {/* Pulse Grid */}
                                     <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:32px_32px] [mask-image:radial-gradient(ellipse_50%_40%_at_50%_30%,#000_60%,transparent_100%)] pointer-events-none" />
                                 </motion.div>
                             ) : (
-                                <>
+                                <React.Fragment key="messages">
                                     {stableHistory.map((msg, idx) => (
                                         <MessageBubble
                                             key={msg.id}
@@ -2736,7 +2847,7 @@ const InnerCommandCenter: FC<{
                                             modeContext={modeContext}
                                         />
                                     )}
-                                </>
+                                </React.Fragment>
                             )}
                         </AnimatePresence>
                     </div>
@@ -2750,7 +2861,7 @@ const InnerCommandCenter: FC<{
                                 exit={{ opacity: 0, y: 8, scale: 0.95 }}
                                 transition={{ duration: 0.2 }}
                                 onClick={scrollToBottomNow}
-                                className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0A0A0B]/90 ring-1 ring-white/[0.08] text-[10px] font-semibold tracking-wide text-zinc-400 backdrop-blur-xl hover:text-zinc-200 hover:ring-white/[0.14] transition-all shadow-[0_4px_20px_-4px_rgba(0,0,0,0.6)]"
+                                className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0A0A0B]/90 ring-1 ring-white/[0.08] text-[10px] font-semibold tracking-[0.04em] text-zinc-400 backdrop-blur-xl hover:text-zinc-200 hover:ring-white/[0.14] transition-all duration-300 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.7)]"
                             >
                                 <ArrowUp size={11} className="rotate-180" />
                                 Latest
@@ -2850,6 +2961,7 @@ const InnerCommandCenter: FC<{
                                 </span>
                                 <button
                                     onClick={() => handleSend()}
+                                    aria-label="Retry last message"
                                     className="ml-3 px-2.5 py-1 text-[10px] font-semibold tracking-wide uppercase text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg ring-1 ring-rose-500/20 transition-all duration-200"
                                 >
                                     Retry
