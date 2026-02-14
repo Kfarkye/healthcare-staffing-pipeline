@@ -2567,29 +2567,29 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                     attachments.push({ filename: match[1].trim(), url });
                 }
                 if (attachments.length > 0) {
+                    // Strip attachment markdown links completely
                     let txt = sanitizedContent.replace(REGEX_ATTACHMENT, '').trim();
+                    // Strip any remaining 📎 emoji artifacts
                     txt = txt.replace(/📎\s*/gu, '').trim();
+                    // Strip any bare filenames that match known attachment names
+                    for (const att of attachments) {
+                        // Escape special regex chars in filename
+                        const escaped = att.filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        txt = txt.replace(new RegExp(escaped, 'g'), '').trim();
+                    }
+                    // Collapse leftover whitespace/newlines
                     txt = txt.replace(/\n{3,}/g, '\n\n').trim();
+
                     return (
                         <>
                             {txt && (
-                                <p className={cn(SYSTEM.type.body, 'text-[#1a1a1a]', attachments.length > 0 && 'mb-1')}>
+                                <p className={cn(SYSTEM.type.body, 'text-[#1a1a1a]', 'mb-1')}>
                                     {txt}
                                 </p>
                             )}
-                            {attachments.length === 1 && (
-                                <UserAttachment
-                                    filename={attachments[0].filename}
-                                    url={attachments[0].url}
-                                />
-                            )}
-                            {attachments.length > 1 && (
-                                <div className="space-y-1.5">
-                                    {attachments.map((a, i) => (
-                                        <UserAttachment key={i} filename={a.filename} url={a.url} />
-                                    ))}
-                                </div>
-                            )}
+                            {attachments.map((a, i) => (
+                                <UserAttachment key={i} filename={a.filename} url={a.url} />
+                            ))}
                         </>
                     );
                 }
