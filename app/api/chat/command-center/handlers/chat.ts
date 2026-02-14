@@ -38,6 +38,7 @@ import {
     extractCandidateNameFromMessages,
     extractNovaLinkFromMessages
 } from '../lib/extractor';
+import { emitFromLookupResult, emitCandidateCard, prospectToCardData } from '../lib/response-blocks';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // System Prompts
@@ -707,10 +708,15 @@ export async function handleChatIntent(
                 .filter(Boolean)
                 .join(' ');
 
+            // Emit a rich card for the added/updated candidate
+            const prospectBlock = addResult.prospect
+                ? emitCandidateCard(prospectToCardData(addResult.prospect))
+                : '';
+
             if (!isReassign) {
                 return {
                     type: 'chat',
-                    content: `${confirmationLines} ${upsertMarker} ${REFRESH_MARKER}`.trim(),
+                    content: `${confirmationLines} ${upsertMarker} ${REFRESH_MARKER}${prospectBlock}`.trim(),
                 };
             }
 
@@ -725,7 +731,7 @@ export async function handleChatIntent(
                 novaId: novaIdForEmail || null,
             });
 
-            const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\n${confirmationLines} ${upsertMarker} ${REFRESH_MARKER}`.trim();
+            const tagged = `[SUBJECT]${email.subject}[/SUBJECT]\\n[BODY]${email.body}[/BODY]\\n\\n${confirmationLines} ${upsertMarker} ${REFRESH_MARKER}${prospectBlock}`.trim();
             return {
                 type: 'chat',
                 content: tagged,
@@ -861,13 +867,31 @@ export async function handleChatIntent(
                 } else if (res?.ok && res?.notes) {
                     text = `Found ${res.notes.length} note(s).`;
                 } else if (res?.ok && res?.link) {
-                    text = `Here’s the link: ${res.link}`;
+                    text = `Here's the link: ${res.link}`;
                 } else if (res?.ok) {
                     text = 'Done.';
                 } else if (res?.error) {
                     text = `Unable to complete that: ${res.error}`;
                 } else {
                     text = 'Done.';
+                }
+            }
+        }
+
+        // Append structured response blocks so the frontend renders rich cards
+        const allToolResults = (result as any).toolResults as any[] | undefined;
+        if (allToolResults?.length) {
+            for (const tr of allToolResults) {
+                const res = tr?.result;
+                if (!res?.ok) continue;
+
+                if (tr.toolName === 'lookup_candidate') {
+                    text += emitFromLookupResult(res);
+                } else if (
+                    (tr.toolName === 'add_candidate' || tr.toolName === 'update_candidate') &&
+                    res.prospect
+                ) {
+                    text += emitCandidateCard(prospectToCardData(res.prospect));
                 }
             }
         }
