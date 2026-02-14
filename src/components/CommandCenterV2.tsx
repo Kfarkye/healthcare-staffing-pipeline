@@ -1,7 +1,7 @@
 /* ============================================================================
    CommandCenterV2.tsx
-   "Obsidian Weissach" — Healthcare Staffing Edition (v4.4 - Production)
-   
+   "Obsidian Weissach" — Healthcare Staffing Edition (v4.5 - Production)
+
    Architecture:
    ├─ §0  Constants, Config, Regex Engine
    ├─ §1  Helpers, Hooks, Audio
@@ -13,6 +13,20 @@
    ├─ §7  Input Deck
    ├─ §8  Shell (Error Boundary, Layout, Scroll)
    └─ §9  Export
+
+   Changelog v4.5 (Polish Pass):
+   ├─ FIX: Removed dead mountedRef (allocated but never read)
+   ├─ FIX: ToolResultCard clipboard — removed silent-fail auto-copy useEffect
+   │  (modern browsers block clipboard writes outside user gestures), hardened
+   │  manual copy with systemCopyToClipboard + haptic feedback
+   ├─ FIX: File input reset — allows re-selecting the same file (cleared after onChange)
+   ├─ FIX: AnimatePresence keys — empty state and message list now keyed for
+   │  proper enter/exit transitions
+   ├─ UX: Focus management — input auto-focuses on panel open, returns focus
+   │  after message send (the UI anticipates intent)
+   ├─ UX: Error boundary upgraded with retry button (no more dead-end "refresh")
+   ├─ A11Y: Added aria-labels to close button and error retry
+   └─ HYGIENE: Version bump, changelog, dead code removal
 
    Changelog v4.4:
    ├─ UX: EmailCard stripped to 3 elements (subject, body, 2-button action bar)
@@ -1949,34 +1963,14 @@ const ToolResultCard: FC<{
         [toolName],
     );
 
-    // Auto-copy pay breakdown on successful extraction
-    useEffect(() => {
-        if (!isComplete || !result) return;
-
-        if (toolName === 'calculate_pay_package' && result.breakdown) {
-            const bd = result.breakdown;
-            const payText = [
-                'PAY BREAKDOWN',
-                `Weekly Gross: $${bd.weekly_gross || bd.gross_weekly_pay || 'N/A'}`,
-                bd.hourly_rate ? `Hourly Rate: $${bd.hourly_rate}/hr` : null,
-                bd.housing_stipend ? `Housing Stipend: $${bd.housing_stipend}/week` : null,
-                bd.meals_stipend ? `Meals Stipend: $${bd.meals_stipend}/week` : null,
-                bd.taxable_hourly ? `Taxable Hourly: $${bd.taxable_hourly}/hr` : null,
-            ].filter(Boolean).join('\n');
-            navigator.clipboard?.writeText(payText).catch(() => {});
-        }
-
-        if (toolName === 'create_campaign' && result.campaign_id) {
-            const summary = `Campaign Created: ${result.message || ''}\nID: ${result.campaign_id}`;
-            navigator.clipboard?.writeText(summary).catch(() => {});
-        }
-    }, [isComplete, result, toolName]);
-
     const handleCopyResult = useCallback(async () => {
         const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-        await navigator.clipboard?.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        const success = await systemCopyToClipboard(text);
+        if (success) {
+            setCopied(true);
+            triggerHaptic();
+            setTimeout(() => setCopied(false), 2000);
+        }
     }, [result]);
 
     return (
@@ -2160,7 +2154,10 @@ const InputDeck: FC<InputDeckProps> = memo(({
                     multiple
                     accept="image/*,application/pdf,.doc,.docx"
                     className="hidden"
-                    onChange={(e) => onFilesSelected(e.target.files)}
+                    onChange={(e) => {
+                        onFilesSelected(e.target.files);
+                        e.target.value = '';
+                    }}
                 />
 
                 {/* Attachment Preview Strip */}
@@ -2329,6 +2326,10 @@ class ChatErrorBoundary extends Component<
         console.error('[CommandCenter] Error:', error, info);
     }
 
+    private handleRetry = () => {
+        this.setState({ hasError: false });
+    };
+
     render() {
         if (this.state.hasError) {
             return (
@@ -2336,8 +2337,15 @@ class ChatErrorBoundary extends Component<
                     <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-rose-500 rounded-full" />
                         <span className="text-rose-400 text-sm font-medium">
-                            Command Center error. Please refresh.
+                            Command Center error.
                         </span>
+                        <button
+                            onClick={this.handleRetry}
+                            aria-label="Retry"
+                            className="ml-2 px-3 py-1 text-[10px] font-semibold tracking-wide uppercase text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg ring-1 ring-rose-500/20 transition-all duration-200"
+                        >
+                            Retry
+                        </button>
                     </div>
                 </div>
             );
@@ -2361,7 +2369,6 @@ const InnerCommandCenter: FC<{
     const [isMobile, setIsMobile] = useState(false);
     const [keyboardOffset, setKeyboardOffset] = useState(0);
     const inputRef = useRef<HTMLTextAreaElement>(null);
-    const mountedRef = useRef(true);
     const { showToast } = useToast();
 
     const {
@@ -2371,10 +2378,13 @@ const InnerCommandCenter: FC<{
         scrollToBottomNow,
     } = usePinnedScroll({ bottomThresholdPx: 100 });
 
+    // Focus input when panel opens (the UI should anticipate intent)
     useEffect(() => {
-        mountedRef.current = true;
-        return () => { mountedRef.current = false; };
-    }, []);
+        if (isOpen && !isMinimized) {
+            const raf = requestAnimationFrame(() => inputRef.current?.focus());
+            return () => cancelAnimationFrame(raf);
+        }
+    }, [isOpen, isMinimized]);
 
     // Mobile detection
     useEffect(() => {
@@ -2550,6 +2560,7 @@ const InnerCommandCenter: FC<{
                 clearAttachments();
                 scrollToBottomNow();
                 triggerHaptic();
+                requestAnimationFrame(() => inputRef.current?.focus());
             },
         });
     }, [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments, showToast, totalPayloadSize, modeContext, scrollToBottomNow]);
@@ -2674,6 +2685,7 @@ const InnerCommandCenter: FC<{
                         <button
                             onClick={() => { setIsOpen(false); setWorkspaceMode('floating'); }}
                             className="p-2 rounded-lg text-zinc-600 hover:text-white hover:bg-white/[0.04] transition-all duration-200"
+                            aria-label="Close panel"
                         >
                             <X size={14} />
                         </button>
@@ -2690,8 +2702,10 @@ const InnerCommandCenter: FC<{
                         <AnimatePresence mode="popLayout">
                             {stableHistory.length === 0 && !streamingMessage ? (
                                 <motion.div
+                                    key="empty-state"
                                     initial={{ opacity: 0, scale: 0.95 }}
                                     animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.95 }}
                                     className="h-full flex flex-col items-center justify-center text-center pt-20"
                                 >
                                     <motion.div
@@ -2711,7 +2725,7 @@ const InnerCommandCenter: FC<{
                                     <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:32px_32px] [mask-image:radial-gradient(ellipse_50%_40%_at_50%_30%,#000_60%,transparent_100%)] pointer-events-none" />
                                 </motion.div>
                             ) : (
-                                <>
+                                <React.Fragment key="messages">
                                     {stableHistory.map((msg, idx) => (
                                         <MessageBubble
                                             key={msg.id}
@@ -2736,7 +2750,7 @@ const InnerCommandCenter: FC<{
                                             modeContext={modeContext}
                                         />
                                     )}
-                                </>
+                                </React.Fragment>
                             )}
                         </AnimatePresence>
                     </div>
@@ -2850,6 +2864,7 @@ const InnerCommandCenter: FC<{
                                 </span>
                                 <button
                                     onClick={() => handleSend()}
+                                    aria-label="Retry last message"
                                     className="ml-3 px-2.5 py-1 text-[10px] font-semibold tracking-wide uppercase text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg ring-1 ring-rose-500/20 transition-all duration-200"
                                 >
                                     Retry
