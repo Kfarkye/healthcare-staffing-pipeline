@@ -154,7 +154,7 @@ const REFRESH_MARKER = '[[REFRESH_DASHBOARD]]';
 const PROSPECT_UPSERT_PREFIX = '[[PROSPECT_UPSERT:';
 const PROSPECT_UPSERT_SUFFIX = ']]';
 
-const EDIT_INSTRUCTION_RX = /\b(remove|omit|leave\s+out|shorter|tone|polish|rewrite|revise|edit|fix|tweak|adjust|cut|trim|clean\s*up|change|replace|swap)\b/i;
+const EDIT_INSTRUCTION_RX = /\b(remove|omit|leave\s+out|shorter|tone|polish|rewrite|revise|edit|fix|tweak|adjust|cut|trim|cle?a[nm]\s*(up|this|it)|clean\s*up|tidy|change|replace|swap)\b/i;
 const CONTEXT_UPDATE_RX = /\b(update|fyi|new\s+info|correction|approved|denied|declined|confirmed|extension|rate|offer|accepted|rejected|start\s+date|end\s+date|shift|facility|location|pay|stipend|weekly|bonus|rto|time[-\s]?off)\b/i;
 const ADD_DETAIL_RX = /\b(add|include|mention|note|also|plus|insert)\b/i;
 const CONTINUE_DRAFT_RX = /\b(rest\s+of|the\s+rest|finish|complete|full|entire|continue|resume|remaining|keep\s+going|carry\s+on)\b/i;

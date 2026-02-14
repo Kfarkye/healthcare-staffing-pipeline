@@ -425,3 +425,78 @@ export type Result<T, E = Error> =
  * Async result type
  */
 export type AsyncResult<T, E = Error> = Promise<Result<T, E>>;
+
+// ════════════════════════════════════════════════════════════════════════════════
+// SECTION 10: Rich Response Blocks
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Structured response block — the AI handler emits these as tagged JSON in the
+ * text stream. The frontend extracts and renders each block as the appropriate
+ * component (card, table, citation footer, etc.).
+ *
+ * Wire format: [RESPONSE_BLOCK:<kind>]{...json...}[/RESPONSE_BLOCK]
+ */
+export type ResponseBlock =
+    | { kind: 'candidate_card'; data: CandidateCardData }
+    | { kind: 'pipeline_table'; data: PipelineTableData }
+    | { kind: 'licensure_card'; data: LicensureCardData }
+    | { kind: 'pay_package_card'; data: PayPackageCardData }
+    | { kind: 'citation_set'; data: CitationData[] };
+
+export interface CandidateCardData {
+    candidate_id: number;
+    name: string;
+    email?: string | null;
+    phone?: string | null;
+    specialty?: string | null;
+    profession?: string | null;
+    home_state?: string | null;
+    status: string;
+    nova_url?: string | null;
+    recruiter?: string | null;
+    licenses?: string[];
+    notes_preview?: string | null;
+    engagement_level?: string | null;
+}
+
+export interface PipelineTableData {
+    title: string;
+    columns: string[];
+    rows: Array<Record<string, string | number | null>>;
+    source_table: string;
+}
+
+export interface LicensureCardData {
+    candidate_name: string;
+    state: string;
+    profession: string;
+    license_status: 'active' | 'expired' | 'pending' | 'not_found';
+    board_url?: string | null;
+    expiration?: string | null;
+    license_number?: string | null;
+    nova_url?: string | null;
+}
+
+export interface PayPackageCardData {
+    candidate_name?: string | null;
+    facility: string;
+    location: string;
+    specialty: string;
+    gross_weekly: number;
+    taxable_hourly?: number | null;
+    stipend_weekly?: number | null;
+    housing_weekly?: number | null;
+    meals_weekly?: number | null;
+    hours_per_week: number;
+    shift?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
+}
+
+export interface CitationData {
+    index: number;
+    label: string;
+    url: string;
+    source_type: 'nova' | 'state_board' | 'database' | 'external';
+}
