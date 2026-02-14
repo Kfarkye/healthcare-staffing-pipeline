@@ -38,6 +38,7 @@ import {
     extractCandidateNameFromMessages,
     extractNovaLinkFromMessages
 } from '../lib/extractor';
+import { emitFromLookupResult, emitCandidateCard } from '../lib/response-blocks';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // System Prompts
@@ -861,13 +862,45 @@ export async function handleChatIntent(
                 } else if (res?.ok && res?.notes) {
                     text = `Found ${res.notes.length} note(s).`;
                 } else if (res?.ok && res?.link) {
-                    text = `Here’s the link: ${res.link}`;
+                    text = `Here's the link: ${res.link}`;
                 } else if (res?.ok) {
                     text = 'Done.';
                 } else if (res?.error) {
                     text = `Unable to complete that: ${res.error}`;
                 } else {
                     text = 'Done.';
+                }
+            }
+        }
+
+        // Append structured response blocks so the frontend renders rich cards
+        const allToolResults = (result as any).toolResults as any[] | undefined;
+        if (allToolResults?.length) {
+            for (const tr of allToolResults) {
+                const res = tr?.result;
+                if (!res?.ok) continue;
+
+                if (tr.toolName === 'lookup_candidate') {
+                    text += emitFromLookupResult(res);
+                } else if (
+                    (tr.toolName === 'add_candidate' || tr.toolName === 'update_candidate') &&
+                    res.prospect
+                ) {
+                    const p = res.prospect;
+                    text += emitCandidateCard({
+                        candidate_id: p.candidate_id ?? p.id,
+                        name: p.name,
+                        email: p.email ?? null,
+                        phone: p.phone ?? null,
+                        specialty: p.specialty ?? null,
+                        profession: p.profession ?? null,
+                        home_state: p.home_state ?? null,
+                        status: p.status ?? 'Unknown',
+                        nova_url: p.nova_url ?? null,
+                        recruiter: p.recruiter ?? null,
+                        licenses: p.licenses ?? [],
+                        engagement_level: p.engagement_level ?? null,
+                    });
                 }
             }
         }
