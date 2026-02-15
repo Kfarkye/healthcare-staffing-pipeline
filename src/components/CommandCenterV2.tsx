@@ -112,6 +112,10 @@ import {
     FilmGrain, OrbitalRadar, ToastProvider, useToast,
 } from '../design-system/obsidian';
 
+import { DecisionCard } from './DecisionCard';
+import { composeRecruitingCard, hasDecisionCardData, isVerdict } from './composeDecisionCard';
+import type { RawBlock } from './composeDecisionCard';
+
 import { useCommandCenterChat } from '../features/command-center-chat/hooks/useCommandCenterChat';
 import { useFileUpload, type Attachment } from '../features/command-center-chat/hooks/useFileUpload';
 import { usePinnedScroll } from '../features/command-center-chat/hooks/usePinnedScroll';
