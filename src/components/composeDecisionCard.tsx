@@ -383,7 +383,6 @@ export interface EmailData {
     subject: string;
     body: string;
     recipient?: string;
-    contextPills?: Array<{ label: string; value?: string }>;
     followUps?: EmailFollowUp[];
 }
 
@@ -391,7 +390,6 @@ export interface EmailHandlers {
     onOpenOutlook: () => void;
     onCopy: () => void;
     onShare?: () => void;
-    onFollowUp?: (label: string) => void;
 }
 
 const MAX_EMAIL_SUMMARY_CHARS = 280;
@@ -399,29 +397,33 @@ const MAX_EMAIL_SUMMARY_CHARS = 280;
 function extractEmailHeadline(subject: string): { headline: string; value?: string } {
     // Strip RE:/FW: prefixes for cleaner display
     const clean = subject.replace(/^(?:RE|FW|FWD):\s*/i, '').trim();
-    // Extract dollar amount if present
-    const payMatch = subject.match(/\$([0-9,]+(?:\.\d{2})?(?:\/wk|\/week)?)/i);
+    // Prefer weekly rate (the number that matters for the decision)
+    const weeklyMatch = subject.match(/\$[0-9,]+(?:\.\d{2})?\/wk(?:eek)?/i);
+    if (weeklyMatch) return { headline: clean || '(No Subject)', value: weeklyMatch[0] };
+    // Fall back to bare dollar amount only if no weekly qualifier exists
+    const bareMatch = subject.match(/\$[0-9,]+(?:\.\d{2})?/);
     return {
         headline: clean || '(No Subject)',
-        value: payMatch ? payMatch[0] : undefined,
+        value: bareMatch ? bareMatch[0] : undefined,
     };
 }
 
 function truncateEmailBody(body: string): string {
-    const lines = body.split('\n').filter(l => l.trim().length > 0);
-    let result = '';
-    for (const line of lines) {
-        if (result.length + line.length > MAX_EMAIL_SUMMARY_CHARS) {
-            result = result.trim();
-            if (result.length > 0 && !result.endsWith('…')) result += '…';
-            break;
-        }
-        result += (result ? ' ' : '') + line.trim();
+    // Split into paragraphs (blocks separated by blank lines)
+    const paragraphs = body.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+    // Take the first substantive paragraph (skip one-word greetings like "Hi Sarah,")
+    const first = paragraphs.find(p => p.length > 30) ?? paragraphs[0] ?? '';
+    if (first.length <= MAX_EMAIL_SUMMARY_CHARS) return first;
+    // Truncate at sentence boundary if possible
+    const sliced = first.slice(0, MAX_EMAIL_SUMMARY_CHARS);
+    const lastSentence = sliced.lastIndexOf('. ');
+    if (lastSentence > MAX_EMAIL_SUMMARY_CHARS * 0.4) {
+        return sliced.slice(0, lastSentence + 1);
     }
-    return result || body.slice(0, MAX_EMAIL_SUMMARY_CHARS).trim() + '…';
+    return sliced.trim() + '…';
 }
 
-/** Follow-ups tab content — tappable next-step prompts (ghost bubble style). */
+/** Follow-ups tab content — tappable next-step actions (panel style). */
 const FollowUpsList: React.FC<{ items: EmailFollowUp[] }> = ({ items }) => (
     <div className="space-y-1.5">
         {items.map((item, idx) => (
@@ -429,14 +431,14 @@ const FollowUpsList: React.FC<{ items: EmailFollowUp[] }> = ({ items }) => (
                 key={item.label}
                 onClick={item.onClick}
                 className={[
-                    'w-full text-left px-4 py-2.5 rounded-2xl rounded-tr-[6px]',
+                    'w-full text-left px-4 py-2.5 rounded-[10px]',
                     'transition-all duration-150 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
                     idx === 0
-                        ? 'bg-white/[0.04] ring-1 ring-white/[0.1] text-zinc-300 hover:bg-white/[0.07] hover:ring-white/[0.16] hover:text-white'
-                        : 'bg-white/[0.02] ring-1 ring-white/[0.06] text-zinc-500 hover:bg-white/[0.05] hover:ring-white/[0.12] hover:text-zinc-300',
+                        ? 'bg-white/[0.04] ring-1 ring-white/[0.08] text-zinc-300 hover:bg-white/[0.07] hover:ring-white/[0.12] hover:text-white'
+                        : 'bg-white/[0.02] ring-1 ring-white/[0.04] text-zinc-500 hover:bg-white/[0.05] hover:ring-white/[0.08] hover:text-zinc-300',
                 ].join(' ')}
             >
-                <span className="text-[12.5px] leading-none font-medium">{item.label}</span>
+                <span className="text-[12px] leading-none font-medium">{item.label}</span>
             </button>
         ))}
     </div>
@@ -492,7 +494,6 @@ export function composeEmailCard(
             label="THE DRAFT"
             headline={headline}
             value={value}
-            verdict={{ tone: 'positive' as VerdictTone, label: 'Ready' }}
             summary={summary}
             primaryAction={{ label: 'OPEN IN OUTLOOK', onClick: handlers.onOpenOutlook }}
             secondaryAction={{ label: 'COPY', onClick: handlers.onCopy }}
