@@ -394,28 +394,58 @@ export interface EmailHandlers {
 
 const MAX_EMAIL_SUMMARY_CHARS = 280;
 
+function stripValueFromHeadline(headline: string, value: string): string {
+    // Strip " | $..." or " - $..." or " $..." that contains the matched value
+    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Try pipe/dash delimiter first: "Role - Facility | $2,389.20/week"
+    const delimPattern = new RegExp(`\\s*[|\\-–—]\\s*${escaped}(?:\\/wk(?:eek)?)?\\s*$`, 'i');
+    let stripped = headline.replace(delimPattern, '');
+    if (stripped !== headline) return stripped.trim();
+    // No delimiter — strip bare " $..." from end: "Role - Facility $2,389.20"
+    const barePattern = new RegExp(`\\s+${escaped}(?:\\/wk(?:eek)?)?\\s*$`, 'i');
+    stripped = headline.replace(barePattern, '');
+    return stripped.trim();
+}
+
 function extractEmailHeadline(subject: string): { headline: string; value?: string } {
     // Strip RE:/FW: prefixes for cleaner display
     const clean = subject.replace(/^(?:RE|FW|FWD):\s*/i, '').trim();
     // Prefer weekly rate (the number that matters for the decision)
-    const weeklyMatch = subject.match(/\$[0-9,]+(?:\.\d{2})?\/wk(?:eek)?/i);
-    if (weeklyMatch) return { headline: clean || '(No Subject)', value: weeklyMatch[0] };
+    const weeklyMatch = clean.match(/\$[0-9,]+(?:\.\d{2})?\/wk(?:eek)?/i);
+    if (weeklyMatch) {
+        const headline = stripValueFromHeadline(clean, weeklyMatch[0]) || '(No Subject)';
+        return { headline, value: weeklyMatch[0] };
+    }
     // Fall back to bare dollar amount only if no weekly qualifier exists
-    const bareMatch = subject.match(/\$[0-9,]+(?:\.\d{2})?/);
-    return {
-        headline: clean || '(No Subject)',
-        value: bareMatch ? bareMatch[0] : undefined,
-    };
+    const bareMatch = clean.match(/\$[0-9,]+(?:\.\d{2})?/);
+    if (bareMatch) {
+        const headline = stripValueFromHeadline(clean, bareMatch[0]) || '(No Subject)';
+        return { headline, value: bareMatch[0] };
+    }
+    return { headline: clean || '(No Subject)' };
+}
+
+const GREETING_RE = /^(?:Hi|Hello|Hey|Dear)\s/i;
+const OPENER_RE = /^(?:Here is|I wanted to|Hope you|Thank you for|Thanks for|I hope this|Just wanted to|I'm reaching out)/i;
+
+function isSkippable(paragraph: string): boolean {
+    const firstLine = paragraph.split('\n')[0].trim();
+    // Short greeting: "Hi Katrina," / "Hello Sarah,"
+    if (firstLine.length < 40 && GREETING_RE.test(firstLine)) return true;
+    // Generic opener: "Here is one option that matches your background:"
+    if (OPENER_RE.test(firstLine)) return true;
+    return false;
 }
 
 function truncateEmailBody(body: string): string {
-    // Split into paragraphs (blocks separated by blank lines)
     const paragraphs = body.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
-    // Take the first substantive paragraph (skip one-word greetings like "Hi Sarah,")
-    const first = paragraphs.find(p => p.length > 30) ?? paragraphs[0] ?? '';
-    if (first.length <= MAX_EMAIL_SUMMARY_CHARS) return first;
+    // Find the first paragraph with actual substance
+    const substantive = paragraphs.find(p => !isSkippable(p));
+    // Fall back to first non-empty paragraph if everything was skipped
+    const chosen = substantive ?? paragraphs[0] ?? '';
+    if (chosen.length <= MAX_EMAIL_SUMMARY_CHARS) return chosen;
     // Truncate at sentence boundary if possible
-    const sliced = first.slice(0, MAX_EMAIL_SUMMARY_CHARS);
+    const sliced = chosen.slice(0, MAX_EMAIL_SUMMARY_CHARS);
     const lastSentence = sliced.lastIndexOf('. ');
     if (lastSentence > MAX_EMAIL_SUMMARY_CHARS * 0.4) {
         return sliced.slice(0, lastSentence + 1);
