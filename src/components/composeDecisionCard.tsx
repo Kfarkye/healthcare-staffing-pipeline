@@ -392,65 +392,67 @@ export interface EmailHandlers {
     onShare?: () => void;
 }
 
-const MAX_EMAIL_SUMMARY_CHARS = 280;
+// ── Email Display Derivation ────────────────────────────────────────────────
+// Pure function: derives what the RECRUITER sees on the card surface.
+// Never mutates the original subject/body — those go to Outlook untouched.
 
-function stripValueFromHeadline(headline: string, value: string): string {
-    // Strip " | $..." or " - $..." or " $..." that contains the matched value
-    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Try pipe/dash delimiter first: "Role - Facility | $2,389.20/week"
-    const delimPattern = new RegExp(`\\s*[|\\-–—]\\s*${escaped}(?:\\/wk(?:eek)?)?\\s*$`, 'i');
-    let stripped = headline.replace(delimPattern, '');
-    if (stripped !== headline) return stripped.trim();
-    // No delimiter — strip bare " $..." from end: "Role - Facility $2,389.20"
-    const barePattern = new RegExp(`\\s+${escaped}(?:\\/wk(?:eek)?)?\\s*$`, 'i');
-    stripped = headline.replace(barePattern, '');
-    return stripped.trim();
+interface EmailCardDisplay {
+    cardHeadline: string;
+    cardValue: string | undefined;
+    summary: string;
 }
 
-function extractEmailHeadline(subject: string): { headline: string; value?: string } {
-    // Strip RE:/FW: prefixes for cleaner display
-    const clean = subject.replace(/^(?:RE|FW|FWD):\s*/i, '').trim();
-    // Prefer weekly rate (the number that matters for the decision)
-    const weeklyMatch = clean.match(/\$[0-9,]+(?:\.\d{2})?\/wk(?:eek)?/i);
-    if (weeklyMatch) {
-        const headline = stripValueFromHeadline(clean, weeklyMatch[0]) || '(No Subject)';
-        return { headline, value: weeklyMatch[0] };
+function deriveEmailDisplay(subject: string, body: string): EmailCardDisplay {
+    let cardHeadline = subject;
+    let cardValue: string | undefined;
+
+    // Strip RE:/FW: prefix for display
+    cardHeadline = cardHeadline.replace(/^(?:RE|FW|FWD):\s*/i, '').trim();
+
+    // Extract dollar value — prefer /wk or /week suffixed amounts
+    const weeklyMatch = cardHeadline.match(/\$[\d,]+(?:\.\d{2})?(?:\/wk|\/week)/i);
+    const bareMatch = cardHeadline.match(/\$[\d,]+(?:\.\d{2})?/);
+    const valueMatch = weeklyMatch || bareMatch;
+
+    if (valueMatch) {
+        cardValue = valueMatch[0];
+        // Normalize to /wk for compact display
+        cardValue = cardValue.replace(/\/week$/i, '/wk');
+
+        // Strip the dollar portion AND any preceding delimiter from headline
+        // Handles: "Role - Facility | $2,389.20/week"
+        //          "Role - Facility $2,389.20"
+        //          "Role | $2,389.20/week"
+        cardHeadline = cardHeadline
+            .replace(/\s*[|–—]\s*\$[\d,]+(?:\.\d{2})?(?:\/\w+)?/i, '')   // " | $..."
+            .replace(/\s+\$[\d,]+(?:\.\d{2})?(?:\/\w+)?/i, '')            // " $..." fallback
+            .replace(/[\s|–—-]+$/, '')                                      // trailing delimiters
+            .trim();
     }
-    // Fall back to bare dollar amount only if no weekly qualifier exists
-    const bareMatch = clean.match(/\$[0-9,]+(?:\.\d{2})?/);
-    if (bareMatch) {
-        const headline = stripValueFromHeadline(clean, bareMatch[0]) || '(No Subject)';
-        return { headline, value: bareMatch[0] };
-    }
-    return { headline: clean || '(No Subject)' };
+
+    const summary = extractFirstSubstantiveLine(body);
+
+    return {
+        cardHeadline: cardHeadline || '(No Subject)',
+        cardValue,
+        summary,
+    };
 }
 
-const GREETING_RE = /^(?:Hi|Hello|Hey|Dear)\s/i;
-const OPENER_RE = /^(?:Here is|I wanted to|Hope you|Thank you for|Thanks for|I hope this|Just wanted to|I'm reaching out)/i;
+const SKIP_LINE_RE = /^(?:Hi |Hello |Hey |Dear |Hope you|Here is |I wanted to|Thank you|Thanks for|I hope this|Just wanted to|I'm reaching out)/i;
 
-function isSkippable(paragraph: string): boolean {
-    const firstLine = paragraph.split('\n')[0].trim();
-    // Short greeting: "Hi Katrina," / "Hello Sarah,"
-    if (firstLine.length < 40 && GREETING_RE.test(firstLine)) return true;
-    // Generic opener: "Here is one option that matches your background:"
-    if (OPENER_RE.test(firstLine)) return true;
-    return false;
-}
+function extractFirstSubstantiveLine(body: string, maxLen = 120): string {
+    const lines = body.split('\n').map(l => l.trim()).filter(Boolean);
 
-function truncateEmailBody(body: string): string {
-    const paragraphs = body.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
-    // Find the first paragraph with actual substance
-    const substantive = paragraphs.find(p => !isSkippable(p));
-    // Fall back to first non-empty paragraph if everything was skipped
-    const chosen = substantive ?? paragraphs[0] ?? '';
-    if (chosen.length <= MAX_EMAIL_SUMMARY_CHARS) return chosen;
-    // Truncate at sentence boundary if possible
-    const sliced = chosen.slice(0, MAX_EMAIL_SUMMARY_CHARS);
-    const lastSentence = sliced.lastIndexOf('. ');
-    if (lastSentence > MAX_EMAIL_SUMMARY_CHARS * 0.4) {
-        return sliced.slice(0, lastSentence + 1);
-    }
-    return sliced.trim() + '…';
+    const substantive = lines.find(line =>
+        line.length > 15 && !SKIP_LINE_RE.test(line)
+    );
+
+    if (!substantive) return lines[0]?.slice(0, maxLen) ?? '';
+
+    return substantive.length > maxLen
+        ? substantive.slice(0, maxLen - 1) + '…'
+        : substantive;
 }
 
 /** Follow-ups tab content — tappable next-step actions (panel style). */
@@ -474,13 +476,17 @@ const FollowUpsList: React.FC<{ items: EmailFollowUp[] }> = ({ items }) => (
     </div>
 );
 
-/** Full email body — rendered as preformatted text with recipient header. */
-const EmailDraftPanel: React.FC<{ body: string; recipient?: string }> = ({ body, recipient }) => (
+/** Full email draft — rendered with original subject + recipient + body (all untouched). */
+const EmailDraftPanel: React.FC<{ subject: string; to?: string; body: string }> = ({ subject, to, body }) => (
     <div className="space-y-3">
-        {recipient && (
+        <div className="flex items-start gap-2.5">
+            <span className="text-[9px] font-semibold tracking-[0.1em] uppercase text-zinc-600 mt-px shrink-0">Subject</span>
+            <span className="text-[12px] text-zinc-300 font-medium leading-snug">{subject}</span>
+        </div>
+        {to && (
             <div className="flex items-center gap-2.5">
                 <span className="text-[9px] font-semibold tracking-[0.1em] uppercase text-zinc-600">To</span>
-                <span className="text-[12px] text-zinc-400 font-mono truncate">{recipient}</span>
+                <span className="text-[12px] text-zinc-400 font-mono truncate">{to}</span>
             </div>
         )}
         <div className="text-[13px] text-zinc-300 leading-[1.75] whitespace-pre-wrap break-words">
@@ -497,17 +503,36 @@ export function composeEmailCard(
         return { status: 'empty', reason: 'Email has no subject or body' };
     }
 
-    const { headline, value } = extractEmailHeadline(emailData.subject);
-    const summary = truncateEmailBody(emailData.body);
+    // 1. Derive DISPLAY fields (for the card surface — never sent to Outlook)
+    const display = deriveEmailDisplay(emailData.subject, emailData.body);
 
-    // ── Build tabs (max 2 for email) ──
+    // 2. Build glance stats — recipient is always first (it's the variable)
+    const stats: GlanceStat[] = [];
+
+    if (emailData.recipient) {
+        stats.push({ label: 'To', value: emailData.recipient });
+    }
+
+    // Location if parseable from body: "City, ST ZIP" or "City ST ZIP"
+    const locationMatch = emailData.body.match(
+        /([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)\s*,?\s*([A-Z]{2})\s+(\d{5})/
+    );
+    if (locationMatch) {
+        stats.push({ label: 'Location', value: `${locationMatch[1]}, ${locationMatch[2]}` });
+    }
+
+    // 3. Build tabs — DRAFT tab gets ORIGINAL subject + body (untouched)
     const tabs: DrawerTab[] = [];
 
     tabs.push({
         id: 'draft',
         label: 'Draft',
         content: () => (
-            <EmailDraftPanel body={emailData.body} recipient={emailData.recipient} />
+            <EmailDraftPanel
+                subject={emailData.subject}
+                to={emailData.recipient}
+                body={emailData.body}
+            />
         ),
     });
 
@@ -519,12 +544,15 @@ export function composeEmailCard(
         });
     }
 
+    // 4. Assemble DecisionCard with DERIVED display fields
+    //    Handlers use ORIGINAL emailData (via closure in CommandCenterV2)
     const element = (
         <DecisionCard
             label="THE DRAFT"
-            headline={headline}
-            value={value}
-            summary={summary}
+            headline={display.cardHeadline}
+            value={display.cardValue}
+            stats={stats.length > 0 ? stats : undefined}
+            summary={display.summary}
             primaryAction={{ label: 'OPEN IN OUTLOOK', onClick: handlers.onOpenOutlook }}
             secondaryAction={{ label: 'COPY', onClick: handlers.onCopy }}
             onShare={handlers.onShare}
@@ -533,7 +561,7 @@ export function composeEmailCard(
         />
     );
 
-    return { status: 'success', element, tabCount: tabs.length, statCount: 0 };
+    return { status: 'success', element, tabCount: tabs.length, statCount: stats.length };
 }
 
 export function hasDecisionCardData(blocks: RawBlock[]): boolean {
