@@ -114,7 +114,7 @@ import {
 
 import { DecisionCard } from './DecisionCard';
 import { composeRecruitingCard, hasDecisionCardData, isVerdict } from './composeDecisionCard';
-import type { RawBlock } from './composeDecisionCard';
+import type { RawBlock, VerdictInfo } from './composeDecisionCard';
 
 import { useCommandCenterChat } from '../features/command-center-chat/hooks/useCommandCenterChat';
 import { useFileUpload, type Attachment } from '../features/command-center-chat/hooks/useFileUpload';
@@ -826,93 +826,6 @@ UserAttachment.displayName = 'UserAttachment';
 // ============================================================================
 
 // ---------------------------------------------------------------------------
-// Candidate Verdict Card
-// ---------------------------------------------------------------------------
-const CandidateVerdict: FC<{
-    verdict: 'STRONG MATCH' | 'REVIEW NEEDED' | 'NOT A FIT';
-    details?: string;
-}> = memo(({ verdict, details }) => {
-    const config = useMemo(() => {
-        switch (verdict) {
-            case 'STRONG MATCH':
-                return {
-                    dot: 'bg-emerald-500', text: 'text-emerald-500',
-                    ring: 'ring-emerald-500/20', bg: 'bg-emerald-500/8',
-                    label: 'Proceed', sub: 'Ready for Interview',
-                };
-            case 'REVIEW NEEDED':
-                return {
-                    dot: 'bg-amber-500', text: 'text-amber-500',
-                    ring: 'ring-amber-500/20', bg: 'bg-amber-500/8',
-                    label: 'Review', sub: 'Additional Screening',
-                };
-            case 'NOT A FIT':
-            default:
-                return {
-                    dot: 'bg-rose-500', text: 'text-rose-500',
-                    ring: 'ring-rose-500/20', bg: 'bg-rose-500/8',
-                    label: 'Pass', sub: 'Requirements Not Met',
-                };
-        }
-    }, [verdict]);
-
-    return (
-        <motion.div
-            layout
-            initial={{ scale: 0.98, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={SYSTEM.anim.fluid}
-            className="my-6 relative overflow-hidden rounded-[18px] bg-[#080809] ring-1 ring-white/[0.06] shadow-[0_8px_40px_-8px_rgba(0,0,0,0.5)] group select-none isolate"
-        >
-            {/* Shimmer */}
-            <div className="absolute inset-0 bg-[linear-gradient(115deg,transparent_40%,rgba(255,255,255,0.02)_45%,transparent_50%)] bg-[length:200%_100%] animate-[shimmer_6s_infinite_linear] pointer-events-none" />
-
-            {/* Header */}
-            <div className="px-6 py-3 border-b border-white/[0.04] flex items-center justify-between">
-                <span className="text-[9px] font-bold tracking-[0.1em] uppercase text-zinc-600">
-                    Candidate Assessment
-                </span>
-                <div className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1 rounded-full ring-1',
-                    config.bg, config.ring,
-                )}>
-                    <span className={cn('w-1.5 h-1.5 rounded-full animate-pulse', config.dot)} />
-                    <span className={cn('text-[9px] font-bold tracking-[0.08em] uppercase', config.text)}>
-                        {config.label}
-                    </span>
-                </div>
-            </div>
-
-            {/* Body */}
-            <div className="relative p-6 flex items-start gap-5">
-                <div className="flex-1 min-w-0">
-                    <div className="text-[20px] md:text-[24px] font-semibold text-white tracking-[-0.03em] leading-none">
-                        {verdict}
-                    </div>
-                    {details && (
-                        <div className="text-[13px] text-zinc-500 mt-3.5 leading-[1.7] max-w-[90%]">
-                            {details}
-                        </div>
-                    )}
-                    <div className={cn('text-[9px] font-bold tracking-[0.1em] uppercase mt-4', config.text)}>
-                        {config.sub}
-                    </div>
-                </div>
-                <div className={cn(
-                    'w-11 h-11 rounded-full ring-1 flex items-center justify-center shrink-0',
-                    config.bg, config.ring,
-                )}>
-                    {verdict === 'STRONG MATCH' && <Check size={18} className="text-emerald-400" strokeWidth={2.5} />}
-                    {verdict === 'REVIEW NEEDED' && <span className="text-amber-400 text-[14px] font-bold">?</span>}
-                    {verdict === 'NOT A FIT' && <X size={18} className="text-rose-400" strokeWidth={2.5} />}
-                </div>
-            </div>
-        </motion.div>
-    );
-});
-CandidateVerdict.displayName = 'CandidateVerdict';
-
-// ---------------------------------------------------------------------------
 // Assessment HUD (Insight strip)
 // ---------------------------------------------------------------------------
 const AssessmentHUD: FC<{ content: string; title?: string }> = memo(
@@ -939,399 +852,6 @@ const AssessmentHUD: FC<{ content: string; title?: string }> = memo(
     ),
 );
 AssessmentHUD.displayName = 'AssessmentHUD';
-
-// ---------------------------------------------------------------------------
-// Rich Response Cards — CandidateCard, PipelineTable, LicensureCard,
-// PayPackageCard, CitationFooter
-// ---------------------------------------------------------------------------
-
-const CandidateCard: FC<{ data: any }> = memo(({ data }) => {
-    const statusKey =
-        ['active', 'interested', 'ready'].some(k => (data.status || '').toLowerCase().includes(k)) ? 'emerald' :
-        ['submitted', 'interviewing', 'offer'].some(k => (data.status || '').toLowerCase().includes(k)) ? 'blue' :
-        ['pending', 'hold', 'review'].some(k => (data.status || '').toLowerCase().includes(k)) ? 'amber' :
-        ['declined', 'rejected', 'dnr'].some(k => (data.status || '').toLowerCase().includes(k)) ? 'rose' :
-        ['new', 'fresh'].some(k => (data.status || '').toLowerCase().includes(k)) ? 'purple' : 'zinc';
-
-    return (
-        <motion.div
-            layout
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={SYSTEM.anim.fluid}
-            className="mt-4 rounded-[20px] ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]"
-        >
-            {/* Header */}
-            <div className="px-5 pt-5 pb-3 flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                    <h3 className="text-[15px] font-semibold text-white truncate">{data.name}</h3>
-                    <div className="flex items-center gap-2 mt-1">
-                        {data.specialty && (
-                            <span className="text-[11px] text-zinc-500 font-medium">{data.specialty}</span>
-                        )}
-                        {data.profession && (
-                            <>
-                                <span className="text-zinc-700">·</span>
-                                <span className="text-[11px] text-zinc-500 font-medium">{data.profession}</span>
-                            </>
-                        )}
-                    </div>
-                </div>
-                <span className={cn(
-                    'inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-semibold border shrink-0',
-                    STATUS_STYLES[statusKey],
-                )}>
-                    {data.status || 'Unknown'}
-                </span>
-            </div>
-
-            {/* Details */}
-            <div className="px-5 pb-4 space-y-2">
-                {data.email && (
-                    <div className="flex items-center gap-2">
-                        <Mail size={11} className="text-zinc-600 shrink-0" />
-                        <span className="text-[12px] text-zinc-400 font-mono truncate">{data.email}</span>
-                    </div>
-                )}
-                {data.phone && (
-                    <div className="flex items-center gap-2">
-                        <Phone size={11} className="text-zinc-600 shrink-0" />
-                        <span className="text-[12px] text-zinc-400 font-mono">{data.phone}</span>
-                    </div>
-                )}
-                {data.home_state && (
-                    <div className="flex items-center gap-2">
-                        <MapPin size={11} className="text-zinc-600 shrink-0" />
-                        <span className="text-[12px] text-zinc-400">{data.home_state}</span>
-                    </div>
-                )}
-                {data.recruiter && (
-                    <div className="flex items-center gap-2">
-                        <Users size={11} className="text-zinc-600 shrink-0" />
-                        <span className="text-[12px] text-zinc-400">{data.recruiter}</span>
-                    </div>
-                )}
-
-                {/* License chips */}
-                {data.licenses?.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                        {data.licenses.map((lic: string, i: number) => (
-                            <span key={i} className="px-2 py-0.5 rounded-md ring-1 ring-cyan-500/20 bg-cyan-500/[0.06] text-[10px] text-cyan-400/80 font-medium">
-                                {lic}
-                            </span>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-            {/* Nova link */}
-            {data.nova_url && (
-                <div className="px-5 pb-4">
-                    <a
-                        href={data.nova_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2.5 p-3 rounded-[10px] bg-indigo-500/[0.04] ring-1 ring-indigo-500/10 hover:bg-indigo-500/[0.08] hover:ring-indigo-500/20 transition-all duration-300 group"
-                    >
-                        <div className="w-7 h-7 rounded-[6px] bg-indigo-500/10 flex items-center justify-center group-hover:bg-indigo-500/15 transition-colors duration-300">
-                            <ExternalLink size={12} className="text-indigo-400" />
-                        </div>
-                        <span className="text-[11px] text-indigo-300/70 font-medium flex-1 truncate group-hover:text-indigo-300 transition-colors duration-200">
-                            View in Nova
-                        </span>
-                        <ChevronRight size={12} className="text-indigo-500/20 group-hover:text-indigo-400/60 transition-colors duration-200 shrink-0" />
-                    </a>
-                </div>
-            )}
-        </motion.div>
-    );
-});
-CandidateCard.displayName = 'CandidateCard';
-
-const PipelineTableCard: FC<{ data: any }> = memo(({ data }) => {
-    const columns: string[] = data.columns || [];
-    const rows: Array<Record<string, any>> = data.rows || [];
-    if (!columns.length || !rows.length) return null;
-
-    return (
-        <motion.div
-            layout
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={SYSTEM.anim.fluid}
-            className="mt-4 rounded-[20px] ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]"
-        >
-            {/* Title */}
-            {data.title && (
-                <div className="px-5 py-3 border-b border-white/[0.04] flex items-center gap-2">
-                    <Activity size={11} className="text-zinc-600" />
-                    <span className="text-[10px] font-bold tracking-[0.1em] uppercase text-zinc-500">
-                        {data.title}
-                    </span>
-                </div>
-            )}
-
-            {/* Table */}
-            <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
-                    <thead>
-                        <tr className="bg-white/[0.02]">
-                            {columns.map((col) => (
-                                <th key={col} className="px-4 py-2.5 text-left text-[10px] font-semibold text-zinc-500 uppercase tracking-wider whitespace-nowrap">
-                                    {col}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/[0.04]">
-                        {rows.map((row, ri) => (
-                            <tr key={ri} className="hover:bg-white/[0.02] transition-colors">
-                                {columns.map((col) => {
-                                    const val = String(row[col] ?? '');
-                                    const lower = val.toLowerCase();
-                                    let chip: string | null = null;
-                                    if (['active', 'interested', 'ready', 'strong match'].some(k => lower.includes(k))) chip = 'emerald';
-                                    else if (['submitted', 'interviewing', 'sourced', 'offer'].some(k => lower.includes(k))) chip = 'blue';
-                                    else if (['pending', 'review', 'hold'].some(k => lower.includes(k))) chip = 'amber';
-                                    else if (['declined', 'rejected', 'not a fit'].some(k => lower.includes(k))) chip = 'rose';
-
-                                    return (
-                                        <td key={col} className="px-4 py-3">
-                                            {chip ? (
-                                                <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border', STATUS_STYLES[chip])}>
-                                                    {val}
-                                                </span>
-                                            ) : (
-                                                <span className="text-[12px] text-zinc-300 tabular-nums">{val}</span>
-                                            )}
-                                        </td>
-                                    );
-                                })}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </motion.div>
-    );
-});
-PipelineTableCard.displayName = 'PipelineTableCard';
-
-const LicensureCard: FC<{ data: any }> = memo(({ data }) => {
-    const statusColor =
-        data.license_status === 'active' ? 'emerald' :
-        data.license_status === 'expired' ? 'rose' :
-        data.license_status === 'pending' ? 'amber' : 'zinc';
-
-    const statusLabel =
-        data.license_status === 'active' ? 'Active' :
-        data.license_status === 'expired' ? 'Expired' :
-        data.license_status === 'pending' ? 'Pending Verification' : 'Not Found';
-
-    return (
-        <motion.div
-            layout
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={SYSTEM.anim.fluid}
-            className="mt-4 rounded-[20px] ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]"
-        >
-            <div className="px-5 py-4">
-                <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                        <Shield size={13} className="text-cyan-400/50" />
-                        <span className="text-[10px] font-bold tracking-[0.1em] uppercase text-zinc-500">
-                            Licensure
-                        </span>
-                    </div>
-                    <span className={cn(
-                        'inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-semibold border',
-                        STATUS_STYLES[statusColor],
-                    )}>
-                        {statusLabel}
-                    </span>
-                </div>
-
-                <h4 className="text-[14px] font-semibold text-white">{data.candidate_name}</h4>
-
-                <div className="grid grid-cols-2 gap-3 mt-3">
-                    <div>
-                        <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">State</span>
-                        <span className="text-[13px] text-zinc-300 font-medium">{data.state}</span>
-                    </div>
-                    <div>
-                        <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">Profession</span>
-                        <span className="text-[13px] text-zinc-300 font-medium">{data.profession}</span>
-                    </div>
-                    {data.license_number && (
-                        <div>
-                            <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">License #</span>
-                            <span className="text-[12px] text-zinc-400 font-mono">{data.license_number}</span>
-                        </div>
-                    )}
-                    {data.expiration && (
-                        <div>
-                            <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">Expires</span>
-                            <span className="text-[12px] text-zinc-400 tabular-nums">{data.expiration}</span>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Board verification link */}
-            {data.board_url && (
-                <div className="px-5 pb-4">
-                    <a
-                        href={data.board_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2.5 p-3 rounded-[10px] bg-cyan-500/[0.04] ring-1 ring-cyan-500/10 hover:bg-cyan-500/[0.08] hover:ring-cyan-500/20 transition-all duration-300 group"
-                    >
-                        <div className="w-7 h-7 rounded-[6px] bg-cyan-500/10 flex items-center justify-center group-hover:bg-cyan-500/15 transition-colors duration-300">
-                            <ExternalLink size={12} className="text-cyan-400" />
-                        </div>
-                        <span className="text-[11px] text-cyan-300/70 font-medium flex-1 truncate group-hover:text-cyan-300 transition-colors duration-200">
-                            Verify on State Board
-                        </span>
-                        <ChevronRight size={12} className="text-cyan-500/20 group-hover:text-cyan-400/60 transition-colors duration-200 shrink-0" />
-                    </a>
-                </div>
-            )}
-        </motion.div>
-    );
-});
-LicensureCard.displayName = 'LicensureCard';
-
-const PayPackageCard: FC<{ data: any }> = memo(({ data }) => (
-    <motion.div
-        layout
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={SYSTEM.anim.fluid}
-        className="mt-4 rounded-[20px] ring-1 ring-white/[0.06] bg-[#080809] overflow-hidden shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]"
-    >
-        {/* Header */}
-        <div className="px-5 pt-5 pb-3">
-            <div className="flex items-center gap-2 mb-2">
-                <DollarSign size={13} className="text-emerald-400/50" />
-                <span className="text-[10px] font-bold tracking-[0.1em] uppercase text-zinc-500">
-                    Pay Package
-                </span>
-            </div>
-            <h4 className="text-[14px] font-semibold text-white">{data.facility}</h4>
-            <span className="text-[11px] text-zinc-500 font-medium">{data.location} · {data.specialty}</span>
-        </div>
-
-        {/* Hero number */}
-        <div className="px-5 pb-3">
-            <div className="flex items-baseline gap-1">
-                <span className="text-[28px] font-bold text-emerald-400 tabular-nums tracking-tight">
-                    ${typeof data.gross_weekly === 'number' ? data.gross_weekly.toLocaleString() : data.gross_weekly}
-                </span>
-                <span className="text-[11px] text-zinc-500 font-medium">/week</span>
-            </div>
-        </div>
-
-        {/* Breakdown */}
-        <div className="px-5 pb-4 space-y-1.5">
-            {data.taxable_hourly != null && (
-                <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-zinc-500">Taxable Hourly</span>
-                    <span className="text-[12px] text-zinc-300 tabular-nums font-medium">${data.taxable_hourly}/hr</span>
-                </div>
-            )}
-            {data.stipend_weekly != null && (
-                <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-zinc-500">Stipend</span>
-                    <span className="text-[12px] text-zinc-300 tabular-nums font-medium">${data.stipend_weekly}/wk</span>
-                </div>
-            )}
-            {data.housing_weekly != null && (
-                <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-zinc-500">Housing</span>
-                    <span className="text-[12px] text-zinc-300 tabular-nums font-medium">${data.housing_weekly}/wk</span>
-                </div>
-            )}
-            {data.meals_weekly != null && (
-                <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-zinc-500">M&IE</span>
-                    <span className="text-[12px] text-zinc-300 tabular-nums font-medium">${data.meals_weekly}/wk</span>
-                </div>
-            )}
-            {data.hours_per_week && (
-                <div className="flex items-center justify-between pt-1 border-t border-white/[0.04]">
-                    <span className="text-[11px] text-zinc-500">Hours/Week</span>
-                    <span className="text-[12px] text-zinc-300 tabular-nums font-medium">{data.hours_per_week}</span>
-                </div>
-            )}
-            {data.shift && (
-                <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-zinc-500">Shift</span>
-                    <span className="text-[12px] text-zinc-300 font-medium">{data.shift}</span>
-                </div>
-            )}
-        </div>
-
-        {/* Dates */}
-        {(data.start_date || data.end_date) && (
-            <div className="px-5 pb-4 flex gap-4">
-                {data.start_date && (
-                    <div>
-                        <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">Start</span>
-                        <span className="text-[12px] text-zinc-400 tabular-nums">{data.start_date}</span>
-                    </div>
-                )}
-                {data.end_date && (
-                    <div>
-                        <span className="text-[9px] font-medium tracking-[0.06em] uppercase text-zinc-600 block">End</span>
-                        <span className="text-[12px] text-zinc-400 tabular-nums">{data.end_date}</span>
-                    </div>
-                )}
-            </div>
-        )}
-    </motion.div>
-));
-PayPackageCard.displayName = 'PayPackageCard';
-
-const CitationFooter: FC<{ citations: any[] }> = memo(({ citations }) => {
-    if (!citations?.length) return null;
-
-    return (
-        <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-            className="mt-3 pt-3 border-t border-white/[0.04]"
-        >
-            <div className="flex items-center gap-1.5 mb-2">
-                <FileText size={10} className="text-zinc-600" />
-                <span className="text-[9px] font-bold tracking-[0.1em] uppercase text-zinc-600">
-                    Sources
-                </span>
-            </div>
-            <div className="space-y-1">
-                {citations.map((cite: any, i: number) => (
-                    <a
-                        key={i}
-                        href={cite.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 group"
-                    >
-                        <span className="text-[10px] text-indigo-400/50 font-mono tabular-nums shrink-0">
-                            [{cite.index}]
-                        </span>
-                        <span className="text-[11px] text-zinc-500 group-hover:text-indigo-300/70 transition-colors duration-200 truncate">
-                            {cite.label}
-                        </span>
-                        <ExternalLink size={8} className="text-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity duration-200 shrink-0" />
-                    </a>
-                ))}
-            </div>
-        </motion.div>
-    );
-});
-CitationFooter.displayName = 'CitationFooter';
 
 // ---------------------------------------------------------------------------
 // Thinking Pill (status indicator during generation)
@@ -2585,27 +2105,58 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                 }
             }
 
-            // ── Rich response blocks ──
+            // ── Rich response blocks → DecisionCard ──
             const { blocks, prose } = extractResponseBlocks(sanitizedContent);
-            if (blocks.length > 0) {
+
+            // Detect verdict from prose or full content
+            const verdictMatch = (prose || sanitizedContent).match(REGEX_VERDICT);
+            const verdictInfo: VerdictInfo | null =
+                verdictMatch && isVerdict(verdictMatch[1].toUpperCase())
+                    ? {
+                        verdict: verdictMatch[1].toUpperCase() as VerdictInfo['verdict'],
+                        details: (prose || sanitizedContent).replace(verdictMatch[0], '').trim() || undefined,
+                    }
+                    : null;
+
+            if (blocks.length > 0 && hasDecisionCardData(blocks as RawBlock[])) {
+                const result = composeRecruitingCard(blocks as RawBlock[], verdictInfo, {
+                    onSubmit: () => { /* TODO: wire to submit workflow */ },
+                    onPass: () => { /* TODO: wire to pass workflow */ },
+                    onShare: () => { /* TODO: wire to share workflow */ },
+                });
+
+                if (result.status === 'success') {
+                    const proseWithoutVerdict = verdictMatch
+                        ? prose.replace(verdictMatch[0], '').trim()
+                        : prose;
+                    return (
+                        <>
+                            {proseWithoutVerdict && (
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+                                    {proseWithoutVerdict}
+                                </ReactMarkdown>
+                            )}
+                            {result.element}
+                        </>
+                    );
+                }
+                // Fall through to default markdown on empty/error
+            }
+
+            // Verdict-only (no structured blocks)
+            if (verdictInfo && blocks.length === 0) {
                 return (
-                    <>
-                        {prose && (
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-                                {prose}
-                            </ReactMarkdown>
-                        )}
-                        {blocks.map((block, i) => {
-                            switch (block.kind) {
-                                case 'candidate_card': return <CandidateCard key={i} data={block.data} />;
-                                case 'pipeline_table': return <PipelineTableCard key={i} data={block.data} />;
-                                case 'licensure_card': return <LicensureCard key={i} data={block.data} />;
-                                case 'pay_package_card': return <PayPackageCard key={i} data={block.data} />;
-                                case 'citation_set': return <CitationFooter key={i} citations={Array.isArray(block.data) ? block.data : []} />;
-                                default: return null;
-                            }
-                        })}
-                    </>
+                    <DecisionCard
+                        label="THE MATCH"
+                        headline={verdictInfo.verdict}
+                        verdict={{
+                            tone: verdictInfo.verdict === 'STRONG MATCH' ? 'positive'
+                                : verdictInfo.verdict === 'REVIEW NEEDED' ? 'neutral' : 'negative',
+                            label: verdictInfo.verdict === 'STRONG MATCH' ? 'Proceed'
+                                : verdictInfo.verdict === 'REVIEW NEEDED' ? 'Review' : 'Pass',
+                        }}
+                        summary={verdictInfo.details}
+                    />
                 );
             }
 
@@ -2624,17 +2175,6 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                         {email.nextSteps && <NextStepsPanel steps={email.nextSteps} />}
                         {email.intel && <IntelPanel intel={email.intel} />}
                     </>
-                );
-            }
-
-            // ── Legacy: verdict card ──
-            const verdictMatch = sanitizedContent.match(REGEX_VERDICT);
-            if (verdictMatch) {
-                return (
-                    <CandidateVerdict
-                        verdict={verdictMatch[1].toUpperCase() as any}
-                        details={sanitizedContent.replace(verdictMatch[0], '').trim()}
-                    />
                 );
             }
 
