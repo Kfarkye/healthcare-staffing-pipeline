@@ -129,12 +129,11 @@ Email: Kofi.Farkye@ayahealthcare.com`;
     
     private static formatDate(dateString: string | null): string {
         if (!dateString) return 'ASAP';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric', 
-            year: 'numeric' 
-        });
+        const date = new Date(`${dateString}T00:00:00`);
+        if (Number.isNaN(date.getTime())) return 'ASAP';
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        return `${mm}/${dd}/${date.getFullYear()}`;
     }
     
     private static formatCurrency(amount: number | null): string {

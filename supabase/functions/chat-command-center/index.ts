@@ -444,6 +444,8 @@ When you receive an IMAGE/SCREENSHOT with minimal or no text:
 5. DEFAULT: If unclear, draft a friendly reply to whatever conversation is shown
 
 EMAIL OUTPUT FORMAT (when drafting an outreach email):
+You MUST follow this template EXACTLY. Do not rearrange, rename, or rephrase any section.
+
 [SUBJECT][Specialty] - [Facility Name] | $[total gross]/week[/SUBJECT]
 [BODY]
 Hi [First Name],
@@ -451,17 +453,17 @@ Hi [First Name],
 I am reaching out to share a new [Specialty] assignment in [City] that matches your experience.
 
 Facility: [Facility Name]
-Location: [City], [State]
-Assignment Dates: [Start Date] - [End Date]
-Shifts: [shift description] ([Total Hours] hrs/wk)
+Location: [City], [State] [ZIP]
+Assignment Dates: [MM/DD/YYYY] - [MM/DD/YYYY]
+Shifts: [count], [hours]-hour [day/night/evening] shifts ([Total Hours] hrs/wk)
 
 Pay Package:
-- Taxable Hourly Rate: $[hourly]/hr
-- Meals & Housing Stipend: $[stipend]/week
-- Total Gross Weekly Pay: $[total]/week
+- Taxable Hourly Rate: $[amount]/hr
+- Meals & Housing Stipend: $[amount]/week
+- Total Gross Weekly Pay: $[amount]/week
 
 To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):
-- Available to start [Start Date]?
+- Available to start [MM/DD/YYYY]?
 - Any time-off during the assignment?
 - Is your Aya profile current?
 
@@ -474,16 +476,53 @@ Kofi Farkye
 Senior Recruiter, Fulfillment Specialist
 [/BODY]
 
-EMAIL TEMPLATE RULES:
+CONCRETE EXAMPLE — this is what a correct email looks like:
+[SUBJECT]LTC - Rochester - DeMay Living Center | $943/week[/SUBJECT]
+[BODY]
+Hi Tonajia,
+
+I am reaching out to share a new LTC assignment in Newark that matches your experience.
+
+Facility: Rochester - DeMay Living Center
+Location: Newark, NY 14513
+Assignment Dates: 02/23/2026 - 05/23/2026
+Shifts: 5, 8-hour evening shifts (40 hrs/wk)
+
+Pay Package:
+- Taxable Hourly Rate: $16/hr
+- Meals & Housing Stipend: $303/week
+- Total Gross Weekly Pay: $943/week
+
+To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):
+- Available to start 02/23/2026?
+- Any time-off during the assignment?
+- Is your Aya profile current?
+
+Let me know and I can get you submitted right away.
+
+Thank you!
+
+Best,
+Kofi Farkye
+Senior Recruiter, Fulfillment Specialist
+[/BODY]
+
+EMAIL TEMPLATE RULES — STRICT:
 - The greeting MUST include the clinician's first name
 - The opening sentence names the specialty and city — this is the hook
 - Facility block is structured data, NOT prose. One field per line.
-- Pay Package breaks out taxable hourly, stipend, and total gross separately
-- The three confirm questions are YES/NO — not open-ended
-- Close with urgency without pressure: "get you submitted right away"
+- Dates MUST be MM/DD/YYYY format (e.g. 02/23/2026), NOT "Feb 23, 2026"
+- Shifts MUST be expanded: "5, 8-hour evening shifts" NOT "5x8s" or "5x8 Eve"
+- "Pay Package:" header line MUST appear before the three pay lines
+- Each pay line MUST have its unit suffix: /hr, /week, /week
+- Confirm questions are three dash-prefixed bullets, terse, NOT numbered, NOT tagged with (YES/NO)
+- The parenthetical about certs/licenses goes on the "To move forward" line, NOT on individual questions
+- Close with EXACTLY: "Let me know and I can get you submitted right away."
 - Do NOT add extra prose, pleasantries, or filler between the structured blocks
 - Do NOT use "I hope this email finds you well" or any variant
-- Do NOT wrap facility/pay info in paragraphs — keep it as labeled fields
+- Do NOT wrap facility/pay info in paragraphs — keep as labeled fields
+- Do NOT number the confirm questions or add (YES/NO) after them
+- Do NOT rephrase the confirm questions — use the exact wording above
 - Subject line format: [Specialty] - [Facility Name] | $[total gross]/week
           `.trim(),
                 },

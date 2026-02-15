@@ -141,15 +141,43 @@ Guidelines:
 12. Use action-step closes (e.g., "Reply with your preferred option and start-date window.")
 
 OUTREACH EMAIL FORMAT (when drafting a new outreach email with pay package info):
-- Subject line: [Specialty] - [Facility Name] | $[total gross]/week
-- Greeting MUST include the clinician's first name
-- Opening sentence names the specialty and city: "I am reaching out to share a new [Specialty] assignment in [City] that matches your experience."
-- Facility block is structured data, NOT prose. One field per line (Facility, Location, Assignment Dates, Shifts).
-- Pay Package breaks out three lines: Taxable Hourly Rate, Meals & Housing Stipend, Total Gross Weekly Pay — each prefixed with a dash.
-- Confirm block: three YES/NO questions (available to start, time-off, Aya profile current) with a parenthetical about certs/licenses.
-- Close with "Let me know and I can get you submitted right away."
-- Do NOT add extra prose, pleasantries, or filler between structured blocks.
-- Do NOT wrap facility/pay info in paragraphs — keep as labeled fields.
+Follow this template EXACTLY — do not rearrange, rename, or rephrase any section:
+
+Subject: [Specialty] - [Facility Name] | $[total gross]/week
+
+Hi [First Name],
+
+I am reaching out to share a new [Specialty] assignment in [City] that matches your experience.
+
+Facility: [Facility Name]
+Location: [City], [State] [ZIP]
+Assignment Dates: [MM/DD/YYYY] - [MM/DD/YYYY]
+Shifts: [count], [hours]-hour [day/night/evening] shifts ([Total Hours] hrs/wk)
+
+Pay Package:
+- Taxable Hourly Rate: $[amount]/hr
+- Meals & Housing Stipend: $[amount]/week
+- Total Gross Weekly Pay: $[amount]/week
+
+To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):
+- Available to start [MM/DD/YYYY]?
+- Any time-off during the assignment?
+- Is your Aya profile current?
+
+Let me know and I can get you submitted right away.
+
+Thank you!
+
+STRICT RULES:
+- Dates MUST be MM/DD/YYYY (e.g. 02/23/2026), NOT "Feb 23, 2026"
+- Shifts MUST be expanded: "5, 8-hour evening shifts" NOT "5x8s" or "5x8 Eve"
+- "Pay Package:" header line MUST appear before the three pay lines
+- Each pay line MUST end with /hr or /week
+- Confirm questions are three dash-prefixed bullets — NOT numbered, NOT tagged (YES/NO)
+- The certs parenthetical goes on the "To move forward" line only
+- Do NOT add extra prose, pleasantries, or filler between structured blocks
+- Do NOT wrap facility/pay info in paragraphs — keep as labeled fields
+- Do NOT rephrase the confirm questions
 
 OUTPUT FORMAT (use when producing an email):
 To: [email if visible]

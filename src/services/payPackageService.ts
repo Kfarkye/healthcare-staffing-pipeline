@@ -282,14 +282,17 @@ export const payPackageService = {
   ): string {
     const firstName = candidateName.split(' ')[0];
 
+    const fmtStart = this.formatDate(click.start_date);
+    const shiftDesc = this.getShiftDescription(click.shift_type, pkg.hours_per_week);
+
     return `Hi ${firstName},
 
 I am reaching out to share a new ${click.specialty} assignment in ${click.job_city} that matches your experience.
 
 Facility: ${click.facility_name}
 Location: ${click.job_city}, ${click.job_state}
-Start Date: ${click.start_date || 'ASAP'}
-Shifts: ${click.shift_type || '3x12'} (${pkg.hours_per_week} hrs/wk)
+Start Date: ${fmtStart}
+Shifts: ${shiftDesc} (${pkg.hours_per_week} hrs/wk)
 
 Pay Package:
 - Taxable Hourly Rate: $${pkg.taxable_hourly_rate.toFixed(2)}/hr
@@ -297,7 +300,7 @@ Pay Package:
 - Total Gross Weekly Pay: $${pkg.gross_weekly_pay.toFixed(2)}/week
 
 To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):
-- Available to start ${click.start_date || 'ASAP'}?
+- Available to start ${fmtStart}?
 - Any time-off during the assignment?
 - Is your Aya profile current?
 
@@ -317,8 +320,8 @@ Thank you!`;
     const firstName = candidateName.split(' ')[0];
 
     // Format dates
-    const startDate = click.start_date || 'ASAP';
-    const endDate = click.end_date || '13 weeks from start';
+    const startDate = this.formatDate(click.start_date);
+    const endDate = this.formatDate(click.end_date, '13 weeks from start');
 
     // Determine shift description
     const shiftDescription = this.getShiftDescription(click.shift_type, pkg.hours_per_week);
@@ -356,23 +359,33 @@ Email: Kofi.Farkye@ayahealthcare.com`
     };
   },
 
-  /**
-   * Helper to format shift description
-   */
+  /** Format ISO date to MM/DD/YYYY */
+  formatDate(ds?: string | null, fallback = 'ASAP'): string {
+    if (!ds) return fallback;
+    const d = new Date(`${ds}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return fallback;
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${mm}/${dd}/${d.getFullYear()}`;
+  },
+
+  /** Expand shorthand: "3x12 N" → "3, 12-hour night shifts" */
   getShiftDescription(shiftType?: string, hoursPerWeek?: number): string {
-    if (!shiftType) {
-      if (hoursPerWeek === 36) return '3x12';
-      if (hoursPerWeek === 40) return '4x10 or 5x8';
-      if (hoursPerWeek === 48) return '4x12';
-      return 'Standard';
-    }
-
-    // Clean up shift type for display
-    if (shiftType.includes('3x12 N')) return '3x12 Nights';
-    if (shiftType.includes('3x12 D')) return '3x12 Days';
-    if (shiftType.includes('4x10')) return '4x10 Days';
-    if (shiftType.includes('5x8')) return '5x8 Days';
-
-    return shiftType;
+    const raw = shiftType || (
+      hoursPerWeek === 36 ? '3x12' :
+      hoursPerWeek === 40 ? '5x8' :
+      hoursPerWeek === 48 ? '4x12' : ''
+    );
+    if (!raw) return 'Standard';
+    const m = raw.match(/(\d+)\s*x\s*(\d+)/i);
+    if (!m) return raw;
+    const count = m[1];
+    const hrs = m[2];
+    const lower = raw.toLowerCase();
+    let label = '';
+    if (lower.includes('night') || /\bN\b/.test(raw)) label = ' night';
+    else if (lower.includes('evening') || lower.includes('eve') || /\bE\b/.test(raw)) label = ' evening';
+    else if (lower.includes('day') || /\bD\b/.test(raw)) label = ' day';
+    return `${count}, ${hrs}-hour${label} shifts`;
   }
 };

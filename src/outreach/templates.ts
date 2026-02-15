@@ -8,6 +8,7 @@ export interface ExtractedOfferData {
   facility: string;
   city: string;
   state: string;
+  zip?: string;
   shiftType: string;
   weeklyHours: number;
   startDate: string | null;
@@ -35,9 +36,24 @@ const currency = (n?: number | null) =>
 const shortDate = (ds?: string | null, fallback: string = 'ASAP') => {
   if (!ds) return fallback;
   const d = new Date(`${ds}T00:00:00`);
-  return Number.isNaN(d.getTime())
-    ? fallback
-    : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  if (Number.isNaN(d.getTime())) return fallback;
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${mm}/${dd}/${d.getFullYear()}`;
+};
+
+/** Expand shorthand shift type: "3x12 N" → "3, 12-hour night shifts" */
+const expandShift = (shiftType: string, weeklyHours: number): string => {
+  const m = shiftType.match(/(\d+)\s*x\s*(\d+)/i);
+  if (!m) return `${shiftType} (${weeklyHours} hrs/wk)`;
+  const count = m[1];
+  const hrs = m[2];
+  const lower = shiftType.toLowerCase();
+  let label = '';
+  if (lower.includes('night') || /\bN\b/.test(shiftType)) label = ' night';
+  else if (lower.includes('evening') || lower.includes('eve') || /\bE\b/.test(shiftType)) label = ' evening';
+  else if (lower.includes('day') || /\bD\b/.test(shiftType)) label = ' day';
+  return `${count}, ${hrs}-hour${label} shifts (${weeklyHours} hrs/wk)`;
 };
 
 const formatCurrencyRate = (rate?: number | null): string => {
@@ -67,9 +83,9 @@ export const OUTREACH_EMAIL_TEMPLATES: EmailTemplate[] = [
 I am reaching out to share a new ${d.specialty} assignment in ${d.city} that matches your experience.
 
 Facility: ${d.facility}
-Location: ${d.city}, ${d.state}
+Location: ${d.city}, ${d.state}${d.zip ? ` ${d.zip}` : ''}
 Assignment Dates: ${shortDate(d.startDate)} - ${shortDate(d.endDate)}
-Shifts: ${d.shiftType} (${d.weeklyHours} hrs/wk)
+Shifts: ${expandShift(d.shiftType, d.weeklyHours)}
 
 Pay Package:
 - Taxable Hourly Rate: ${currency(d.taxableRate)}/hr
