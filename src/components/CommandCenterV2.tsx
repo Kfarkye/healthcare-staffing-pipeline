@@ -113,8 +113,8 @@ import {
 } from '../design-system/obsidian';
 
 import { DecisionCard } from './DecisionCard';
-import { composeRecruitingCard, hasDecisionCardData, isVerdict } from './composeDecisionCard';
-import type { RawBlock, VerdictInfo } from './composeDecisionCard';
+import { composeRecruitingCard, composeEmailCard, hasDecisionCardData, isVerdict } from './composeDecisionCard';
+import type { RawBlock, VerdictInfo, EmailFollowUp } from './composeDecisionCard';
 
 import { useCommandCenterChat } from '../features/command-center-chat/hooks/useCommandCenterChat';
 import { useFileUpload, type Attachment } from '../features/command-center-chat/hooks/useFileUpload';
@@ -1908,21 +1908,90 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
             return result;
         }, [isUser, content]);
 
-        // Detect email draft and extract body for contextual actions (memoized)
+        // Detect email draft and extract full parsed data for contextual actions (memoized)
         const draftInfo = useMemo(() => {
-            if (isUser || isStreaming || !content) return { hasDraft: false, body: '' };
+            if (isUser || isStreaming || !content) return { hasDraft: false, body: '', parsed: null as ReturnType<typeof parseEmailFromContent> };
             const hasDraft = (
                 REGEX_EMAIL_DRAFT_JSON.test(content) ||
                 REGEX_TAG_SUBJECT.test(content) ||
                 REGEX_EMAIL_SUBJECT.test(content) ||
                 REGEX_EMAIL_HEADER.test(content)
             );
-            if (!hasDraft) return { hasDraft: false, body: '' };
+            if (!hasDraft) return { hasDraft: false, body: '', parsed: null as ReturnType<typeof parseEmailFromContent> };
 
             // Extract raw body for action context — lightweight parse
             const parsed = parseEmailFromContent(content);
-            return { hasDraft: true, body: parsed?.body || content };
+            return { hasDraft: true, body: parsed?.body || content, parsed };
         }, [content, isUser, isStreaming]);
+
+        const { showToast } = useToast();
+
+        // Email DecisionCard handlers — stable callbacks for the composition layer
+        const handleEmailOutlook = useCallback(() => {
+            const email = draftInfo.parsed;
+            if (!email) return;
+
+            triggerHaptic();
+            playDraftReadyCue();
+
+            const cleanSubject = stripMarkdownForEmail(email.subject);
+            const cleanBody = stripMarkdownForEmail(email.body);
+            const bodyOnly = normalizeEmailBodyLayout(cleanBody)
+                .replace(/  \n/g, '\n').replace(/^---\s*$/gm, '').trim();
+
+            const safeTo = extractFirstEmail(email.to) || '';
+            const safeCcList = (email.cc || '')
+                .split(',')
+                .map((entry) => extractFirstEmail(entry))
+                .filter((entry): entry is string => Boolean(entry))
+                .join(',');
+            const outlookBody = normalizeBodyForMailto(bodyOnly);
+            const safeSubject = encodeURIComponent(cleanSubject);
+            const safeBody = encodeURIComponent(outlookBody);
+            const safeCc = safeCcList ? `&cc=${encodeURIComponent(safeCcList)}` : '';
+            const mailtoLink = `mailto:${safeTo}?subject=${safeSubject}${safeCc}&body=${safeBody}`;
+
+            if (mailtoLink.length > 2000) {
+                const fullDraft = `Subject: ${cleanSubject}\n\n${bodyOnly}`;
+                systemCopyToClipboard(fullDraft);
+                showToast('Draft too long for mailto. Copied to clipboard.');
+                window.open(`mailto:${safeTo}?subject=${safeSubject}${safeCc}`, '_blank');
+            } else {
+                window.open(mailtoLink, '_blank');
+            }
+        }, [draftInfo.parsed, showToast]);
+
+        const handleEmailCopy = useCallback(async () => {
+            const email = draftInfo.parsed;
+            if (!email) return;
+
+            const cleanSubject = stripMarkdownForEmail(email.subject);
+            const cleanBody = stripMarkdownForEmail(email.body);
+            const bodyOnly = normalizeEmailBodyLayout(cleanBody)
+                .replace(/  \n/g, '\n').replace(/^---\s*$/gm, '').trim();
+
+            const fullDraft = `Subject: ${cleanSubject}\n\n${bodyOnly}`;
+            const success = await systemCopyToClipboard(fullDraft);
+            if (success) {
+                triggerHaptic();
+                playDraftReadyCue();
+            } else {
+                showToast('Clipboard access blocked.');
+            }
+        }, [draftInfo.parsed, showToast]);
+
+        // Build follow-up items for the email DecisionCard
+        const emailFollowUps: EmailFollowUp[] = useMemo(() => {
+            if (!draftInfo.hasDraft || !isLatest || !onModify) return [];
+            const actions = selectContextualActions(draftInfo.body, modeContext);
+            return actions.map(action => ({
+                label: action.label,
+                onClick: () => {
+                    triggerHaptic();
+                    onModify(action.query);
+                },
+            }));
+        }, [draftInfo.hasDraft, draftInfo.body, isLatest, onModify, modeContext]);
 
         // Markdown component overrides
         const components: Components = useMemo(() => ({
@@ -2160,7 +2229,26 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                 );
             }
 
-            // ── Legacy: email parsing ──
+            // ── Email draft → DecisionCard composition ──
+            if (draftInfo.parsed) {
+                const emailResult = composeEmailCard(
+                    {
+                        subject: draftInfo.parsed.subject,
+                        body: draftInfo.parsed.body,
+                        recipient: draftInfo.parsed.to,
+                        followUps: emailFollowUps.length > 0 ? emailFollowUps : undefined,
+                    },
+                    {
+                        onOpenOutlook: handleEmailOutlook,
+                        onCopy: handleEmailCopy,
+                    },
+                );
+                if (emailResult.status === 'success') {
+                    return emailResult.element;
+                }
+            }
+
+            // ── Fallback: legacy email parsing ──
             const email = parseEmailFromContent(sanitizedContent);
             if (email) {
                 return (
@@ -2190,7 +2278,7 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                     {sanitizedContent}
                 </ReactMarkdown>
             );
-        }, [content, isUser, components]);
+        }, [content, isUser, components, draftInfo.parsed, emailFollowUps, handleEmailOutlook, handleEmailCopy]);
 
         return (
             <motion.div
@@ -2252,8 +2340,8 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                     />
                 ))}
 
-                {/* Contextual next-step actions */}
-                {draftInfo.hasDraft && isLatest && onModify && (
+                {/* Contextual next-step actions (suppressed when email DecisionCard renders with follow-ups tab) */}
+                {draftInfo.hasDraft && !draftInfo.parsed && isLatest && onModify && (
                     <PostDraftActions
                         onModify={onModify}
                         draftBody={draftInfo.body}

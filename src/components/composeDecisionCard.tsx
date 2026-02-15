@@ -372,6 +372,139 @@ export function composeRecruitingCard(
     return { status: 'success', element, tabCount: tabs.length, statCount: stats.length };
 }
 
+// ── Email Composition ─────────────────────────────────────────────────────
+
+export interface EmailFollowUp {
+    label: string;
+    onClick: () => void;
+}
+
+export interface EmailData {
+    subject: string;
+    body: string;
+    recipient?: string;
+    contextPills?: Array<{ label: string; value?: string }>;
+    followUps?: EmailFollowUp[];
+}
+
+export interface EmailHandlers {
+    onOpenOutlook: () => void;
+    onCopy: () => void;
+    onShare?: () => void;
+    onFollowUp?: (label: string) => void;
+}
+
+const MAX_EMAIL_SUMMARY_CHARS = 280;
+
+function extractEmailHeadline(subject: string): { headline: string; value?: string } {
+    // Strip RE:/FW: prefixes for cleaner display
+    const clean = subject.replace(/^(?:RE|FW|FWD):\s*/i, '').trim();
+    // Extract dollar amount if present
+    const payMatch = subject.match(/\$([0-9,]+(?:\.\d{2})?(?:\/wk|\/week)?)/i);
+    return {
+        headline: clean || '(No Subject)',
+        value: payMatch ? payMatch[0] : undefined,
+    };
+}
+
+function truncateEmailBody(body: string): string {
+    const lines = body.split('\n').filter(l => l.trim().length > 0);
+    let result = '';
+    for (const line of lines) {
+        if (result.length + line.length > MAX_EMAIL_SUMMARY_CHARS) {
+            result = result.trim();
+            if (result.length > 0 && !result.endsWith('…')) result += '…';
+            break;
+        }
+        result += (result ? ' ' : '') + line.trim();
+    }
+    return result || body.slice(0, MAX_EMAIL_SUMMARY_CHARS).trim() + '…';
+}
+
+/** Follow-ups tab content — tappable next-step prompts (ghost bubble style). */
+const FollowUpsList: React.FC<{ items: EmailFollowUp[] }> = ({ items }) => (
+    <div className="space-y-1.5">
+        {items.map((item, idx) => (
+            <button
+                key={item.label}
+                onClick={item.onClick}
+                className={[
+                    'w-full text-left px-4 py-2.5 rounded-2xl rounded-tr-[6px]',
+                    'transition-all duration-150 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
+                    idx === 0
+                        ? 'bg-white/[0.04] ring-1 ring-white/[0.1] text-zinc-300 hover:bg-white/[0.07] hover:ring-white/[0.16] hover:text-white'
+                        : 'bg-white/[0.02] ring-1 ring-white/[0.06] text-zinc-500 hover:bg-white/[0.05] hover:ring-white/[0.12] hover:text-zinc-300',
+                ].join(' ')}
+            >
+                <span className="text-[12.5px] leading-none font-medium">{item.label}</span>
+            </button>
+        ))}
+    </div>
+);
+
+/** Full email body — rendered as preformatted text with recipient header. */
+const EmailDraftPanel: React.FC<{ body: string; recipient?: string }> = ({ body, recipient }) => (
+    <div className="space-y-3">
+        {recipient && (
+            <div className="flex items-center gap-2.5">
+                <span className="text-[9px] font-semibold tracking-[0.1em] uppercase text-zinc-600">To</span>
+                <span className="text-[12px] text-zinc-400 font-mono truncate">{recipient}</span>
+            </div>
+        )}
+        <div className="text-[13px] text-zinc-300 leading-[1.75] whitespace-pre-wrap break-words">
+            {body}
+        </div>
+    </div>
+);
+
+export function composeEmailCard(
+    emailData: EmailData,
+    handlers: EmailHandlers,
+): CompositionResult {
+    if (!isStr(emailData.subject) && !isStr(emailData.body)) {
+        return { status: 'empty', reason: 'Email has no subject or body' };
+    }
+
+    const { headline, value } = extractEmailHeadline(emailData.subject);
+    const summary = truncateEmailBody(emailData.body);
+
+    // ── Build tabs (max 2 for email) ──
+    const tabs: DrawerTab[] = [];
+
+    tabs.push({
+        id: 'draft',
+        label: 'Draft',
+        content: () => (
+            <EmailDraftPanel body={emailData.body} recipient={emailData.recipient} />
+        ),
+    });
+
+    if (emailData.followUps && emailData.followUps.length > 0) {
+        tabs.push({
+            id: 'follow-ups',
+            label: 'Follow-Ups',
+            content: () => <FollowUpsList items={emailData.followUps!} />,
+        });
+    }
+
+    const element = (
+        <DecisionCard
+            label="THE DRAFT"
+            headline={headline}
+            value={value}
+            verdict={{ tone: 'positive' as VerdictTone, label: 'Ready' }}
+            summary={summary}
+            primaryAction={{ label: 'OPEN IN OUTLOOK', onClick: handlers.onOpenOutlook }}
+            secondaryAction={{ label: 'COPY', onClick: handlers.onCopy }}
+            onShare={handlers.onShare}
+            drawerLabel="DETAILS"
+            tabs={tabs}
+        />
+    );
+
+    return { status: 'success', element, tabCount: tabs.length, statCount: 0 };
+}
+
 export function hasDecisionCardData(blocks: RawBlock[]): boolean {
     return blocks.some(b => KNOWN_KINDS.has(b.kind));
 }
