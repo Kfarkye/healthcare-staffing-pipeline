@@ -114,7 +114,7 @@ import {
 
 import { DecisionCard } from './DecisionCard';
 import { composeRecruitingCard, hasDecisionCardData, isVerdict } from './composeDecisionCard';
-import type { RawBlock } from './composeDecisionCard';
+import type { RawBlock, VerdictInfo } from './composeDecisionCard';
 
 import { useCommandCenterChat } from '../features/command-center-chat/hooks/useCommandCenterChat';
 import { useFileUpload, type Attachment } from '../features/command-center-chat/hooks/useFileUpload';
@@ -2585,27 +2585,58 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                 }
             }
 
-            // ── Rich response blocks ──
+            // ── Rich response blocks → DecisionCard ──
             const { blocks, prose } = extractResponseBlocks(sanitizedContent);
-            if (blocks.length > 0) {
+
+            // Detect verdict from prose or full content
+            const verdictMatch = (prose || sanitizedContent).match(REGEX_VERDICT);
+            const verdictInfo: VerdictInfo | null =
+                verdictMatch && isVerdict(verdictMatch[1].toUpperCase())
+                    ? {
+                        verdict: verdictMatch[1].toUpperCase() as VerdictInfo['verdict'],
+                        details: (prose || sanitizedContent).replace(verdictMatch[0], '').trim() || undefined,
+                    }
+                    : null;
+
+            if (blocks.length > 0 && hasDecisionCardData(blocks as RawBlock[])) {
+                const result = composeRecruitingCard(blocks as RawBlock[], verdictInfo, {
+                    onSubmit: () => { /* TODO: wire to submit workflow */ },
+                    onPass: () => { /* TODO: wire to pass workflow */ },
+                    onShare: () => { /* TODO: wire to share workflow */ },
+                });
+
+                if (result.status === 'success') {
+                    const proseWithoutVerdict = verdictMatch
+                        ? prose.replace(verdictMatch[0], '').trim()
+                        : prose;
+                    return (
+                        <>
+                            {proseWithoutVerdict && (
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+                                    {proseWithoutVerdict}
+                                </ReactMarkdown>
+                            )}
+                            {result.element}
+                        </>
+                    );
+                }
+                // Fall through to default markdown on empty/error
+            }
+
+            // Verdict-only (no structured blocks)
+            if (verdictInfo && blocks.length === 0) {
                 return (
-                    <>
-                        {prose && (
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-                                {prose}
-                            </ReactMarkdown>
-                        )}
-                        {blocks.map((block, i) => {
-                            switch (block.kind) {
-                                case 'candidate_card': return <CandidateCard key={i} data={block.data} />;
-                                case 'pipeline_table': return <PipelineTableCard key={i} data={block.data} />;
-                                case 'licensure_card': return <LicensureCard key={i} data={block.data} />;
-                                case 'pay_package_card': return <PayPackageCard key={i} data={block.data} />;
-                                case 'citation_set': return <CitationFooter key={i} citations={Array.isArray(block.data) ? block.data : []} />;
-                                default: return null;
-                            }
-                        })}
-                    </>
+                    <DecisionCard
+                        label="THE MATCH"
+                        headline={verdictInfo.verdict}
+                        verdict={{
+                            tone: verdictInfo.verdict === 'STRONG MATCH' ? 'positive'
+                                : verdictInfo.verdict === 'REVIEW NEEDED' ? 'neutral' : 'negative',
+                            label: verdictInfo.verdict === 'STRONG MATCH' ? 'Proceed'
+                                : verdictInfo.verdict === 'REVIEW NEEDED' ? 'Review' : 'Pass',
+                        }}
+                        summary={verdictInfo.details}
+                    />
                 );
             }
 
@@ -2624,17 +2655,6 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                         {email.nextSteps && <NextStepsPanel steps={email.nextSteps} />}
                         {email.intel && <IntelPanel intel={email.intel} />}
                     </>
-                );
-            }
-
-            // ── Legacy: verdict card ──
-            const verdictMatch = sanitizedContent.match(REGEX_VERDICT);
-            if (verdictMatch) {
-                return (
-                    <CandidateVerdict
-                        verdict={verdictMatch[1].toUpperCase() as any}
-                        details={sanitizedContent.replace(verdictMatch[0], '').trim()}
-                    />
                 );
             }
 
