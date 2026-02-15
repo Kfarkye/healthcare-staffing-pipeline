@@ -455,7 +455,7 @@ function extractFirstSubstantiveLine(body: string, maxLen = 120): string {
         : substantive;
 }
 
-/** Follow-ups tab content — tappable next-step actions (panel style). */
+/** Follow-ups tab content — tappable next-step actions. */
 const FollowUpsList: React.FC<{ items: EmailFollowUp[] }> = ({ items }) => (
     <div className="space-y-1.5">
         {items.map((item, idx) => (
@@ -463,14 +463,14 @@ const FollowUpsList: React.FC<{ items: EmailFollowUp[] }> = ({ items }) => (
                 key={item.label}
                 onClick={item.onClick}
                 className={[
-                    'w-full text-left px-4 py-2.5 rounded-[10px]',
+                    'w-full text-left px-4 py-2.5 rounded-[12px]',
+                    'bg-white/[0.02] ring-1 ring-white/[0.04]',
+                    'hover:bg-white/[0.05] hover:ring-white/[0.08]',
                     'transition-all duration-150 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
-                    idx === 0
-                        ? 'bg-white/[0.04] ring-1 ring-white/[0.08] text-zinc-300 hover:bg-white/[0.07] hover:ring-white/[0.12] hover:text-white'
-                        : 'bg-white/[0.02] ring-1 ring-white/[0.04] text-zinc-500 hover:bg-white/[0.05] hover:ring-white/[0.08] hover:text-zinc-300',
+                    idx === 0 ? 'text-zinc-300 hover:text-white' : 'text-zinc-500 hover:text-zinc-300',
                 ].join(' ')}
             >
-                <span className="text-[12px] leading-none font-medium">{item.label}</span>
+                <span className="text-[11px] leading-none font-medium tracking-[0.02em]">{item.label}</span>
             </button>
         ))}
     </div>
@@ -480,16 +480,16 @@ const FollowUpsList: React.FC<{ items: EmailFollowUp[] }> = ({ items }) => (
 const EmailDraftPanel: React.FC<{ subject: string; to?: string; body: string }> = ({ subject, to, body }) => (
     <div className="space-y-3">
         <div className="flex items-start gap-2.5">
-            <span className="text-[9px] font-semibold tracking-[0.1em] uppercase text-zinc-600 mt-px shrink-0">Subject</span>
-            <span className="text-[12px] text-zinc-300 font-medium leading-snug">{subject}</span>
+            <span className="text-[9px] font-medium tracking-[0.04em] uppercase text-zinc-600 mt-px shrink-0">Subject</span>
+            <span className="text-[13px] text-zinc-300 font-medium leading-snug">{subject}</span>
         </div>
         {to && (
             <div className="flex items-center gap-2.5">
-                <span className="text-[9px] font-semibold tracking-[0.1em] uppercase text-zinc-600">To</span>
-                <span className="text-[12px] text-zinc-400 font-mono truncate">{to}</span>
+                <span className="text-[9px] font-medium tracking-[0.04em] uppercase text-zinc-600">To</span>
+                <span className="text-[11px] text-zinc-400 font-mono truncate">{to}</span>
             </div>
         )}
-        <div className="text-[13px] text-zinc-300 leading-[1.75] whitespace-pre-wrap break-words">
+        <div className="text-[13px] text-zinc-400 leading-[1.7] whitespace-pre-wrap break-words">
             {body}
         </div>
     </div>
