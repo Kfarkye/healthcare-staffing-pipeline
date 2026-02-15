@@ -443,14 +443,48 @@ When you receive an IMAGE/SCREENSHOT with minimal or no text:
 4. INTERESTED CLICK: Use appropriate template based on traveler status
 5. DEFAULT: If unclear, draft a friendly reply to whatever conversation is shown
 
-EMAIL OUTPUT FORMAT (when drafting an email):
-[SUBJECT]...[/SUBJECT]
+EMAIL OUTPUT FORMAT (when drafting an outreach email):
+[SUBJECT][Specialty] - [Facility Name] | $[total gross]/week[/SUBJECT]
 [BODY]
-...
+Hi [First Name],
+
+I am reaching out to share a new [Specialty] assignment in [City] that matches your experience.
+
+Facility: [Facility Name]
+Location: [City], [State]
+Assignment Dates: [Start Date] - [End Date]
+Shifts: [shift description] ([Total Hours] hrs/wk)
+
+Pay Package:
+- Taxable Hourly Rate: $[hourly]/hr
+- Meals & Housing Stipend: $[stipend]/week
+- Total Gross Weekly Pay: $[total]/week
+
+To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):
+- Available to start [Start Date]?
+- Any time-off during the assignment?
+- Is your Aya profile current?
+
+Let me know and I can get you submitted right away.
+
+Thank you!
+
 Best,
 Kofi Farkye
 Senior Recruiter, Fulfillment Specialist
 [/BODY]
+
+EMAIL TEMPLATE RULES:
+- The greeting MUST include the clinician's first name
+- The opening sentence names the specialty and city — this is the hook
+- Facility block is structured data, NOT prose. One field per line.
+- Pay Package breaks out taxable hourly, stipend, and total gross separately
+- The three confirm questions are YES/NO — not open-ended
+- Close with urgency without pressure: "get you submitted right away"
+- Do NOT add extra prose, pleasantries, or filler between the structured blocks
+- Do NOT use "I hope this email finds you well" or any variant
+- Do NOT wrap facility/pay info in paragraphs — keep it as labeled fields
+- Subject line format: [Specialty] - [Facility Name] | $[total gross]/week
           `.trim(),
                 },
             ],

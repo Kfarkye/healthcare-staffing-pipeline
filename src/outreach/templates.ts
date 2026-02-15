@@ -61,29 +61,27 @@ export const OUTREACH_EMAIL_TEMPLATES: EmailTemplate[] = [
     id: 'initial_outreach',
     name: '📧 EMAIL: Initial Outreach – Full Details',
     generateContent: (d) => ({
-      subject: `${d.specialty} Assignment – ${d.facility} | ${currency(d.grossWeeklyPay)}/week`,
+      subject: `${d.specialty} - ${d.facility} | ${currency(d.grossWeeklyPay)}/week`,
       body: `Hi ${d.name.split(' ')[0] || ''},
 
-Thanks for your interest in the ${d.specialty} position at ${d.facility}. Here's the full breakdown — this looks like an excellent match for your background:
+I am reaching out to share a new ${d.specialty} assignment in ${d.city} that matches your experience.
 
 Facility: ${d.facility}
 Location: ${d.city}, ${d.state}
-Assignment Dates: ${shortDate(d.startDate)} – ${shortDate(d.endDate)}
-Shifts & Hours: ${d.shiftType} (${d.weeklyHours} hours/week)
+Assignment Dates: ${shortDate(d.startDate)} - ${shortDate(d.endDate)}
+Shifts: ${d.shiftType} (${d.weeklyHours} hrs/wk)
 
 Pay Package:
-Taxable Hourly Rate: ${currency(d.taxableRate)}/hr
-Meals & Housing Stipend: ${currency(d.weeklyStipend)}/week
-Total Gross Weekly Pay: ${currency(d.grossWeeklyPay)}
+- Taxable Hourly Rate: ${currency(d.taxableRate)}/hr
+- Meals & Housing Stipend: ${currency(d.weeklyStipend)}/week
+- Total Gross Weekly Pay: ${currency(d.grossWeeklyPay)}/week
 
-This role is moving quickly — I can get you submitted today if everything looks good.
+To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):
+- Available to start ${shortDate(d.startDate)}?
+- Any time-off during the assignment?
+- Is your Aya profile current?
 
-To move forward, just confirm:
-- Are you available to start ${shortDate(d.startDate)}?
-- Do you have any time-off requests during the contract?
-- Is your Aya profile current (work history, certs, skills checklist)?
-
-Please let me know if you have any questions.
+Let me know and I can get you submitted right away.
 
 Thank you!`,
     }),
@@ -196,7 +194,7 @@ Best,
     id: 'working_traveler_interest',
     name: '📧 EMAIL: Working Traveler – Interested Click',
     generateContent: (d) => ({
-      subject: `${d.specialty} – ${d.facility} | ${currency(d.grossWeeklyPay)}/week`,
+      subject: `${d.specialty} - ${d.facility} | ${currency(d.grossWeeklyPay)}/week`,
       body: `Hi ${d.name.split(' ')[0] || ''},
 
 I saw you clicked interested on this one — here are the details:
@@ -217,7 +215,7 @@ Thank you!`,
     id: 'reengaged_traveler_interest',
     name: '📧 EMAIL: Re-Engaged Traveler – Interested Click',
     generateContent: (d) => ({
-      subject: `${d.specialty} – ${d.facility} | ${currency(d.grossWeeklyPay)}/week`,
+      subject: `${d.specialty} - ${d.facility} | ${currency(d.grossWeeklyPay)}/week`,
       body: `Hi ${d.name.split(' ')[0] || ''},
 
 I hope you're doing well! I saw you clicked interested on this one — here are the details:

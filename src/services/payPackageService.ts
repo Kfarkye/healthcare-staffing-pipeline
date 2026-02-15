@@ -284,25 +284,26 @@ export const payPackageService = {
 
     return `Hi ${firstName},
 
-I have an excellent ${click.specialty} opportunity at ${click.facility_name} that matches your profile perfectly.
+I am reaching out to share a new ${click.specialty} assignment in ${click.job_city} that matches your experience.
 
-📍 Location: ${click.job_city}, ${click.job_state}
-📅 Start Date: ${click.start_date || 'ASAP'}
-⏰ Schedule: ${click.shift_type || '3x12'} (${pkg.hours_per_week} hours/week)
+Facility: ${click.facility_name}
+Location: ${click.job_city}, ${click.job_state}
+Start Date: ${click.start_date || 'ASAP'}
+Shifts: ${click.shift_type || '3x12'} (${pkg.hours_per_week} hrs/wk)
 
-💰 PAY PACKAGE:
-Taxable Hourly: $${pkg.taxable_hourly_rate.toFixed(2)}/hr
-Weekly Meals: $${pkg.meals_weekly.toFixed(2)}
-Weekly Housing: $${pkg.housing_weekly.toFixed(2)}
-Total Weekly: $${pkg.gross_weekly_pay.toFixed(2)}
+Pay Package:
+- Taxable Hourly Rate: $${pkg.taxable_hourly_rate.toFixed(2)}/hr
+- Meals & Housing Stipend: $${pkg.total_stipend.toFixed(2)}/week
+- Total Gross Weekly Pay: $${pkg.gross_weekly_pay.toFixed(2)}/week
 
-This position is moving quickly - I can submit you today if you're available.
+To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):
+- Available to start ${click.start_date || 'ASAP'}?
+- Any time-off during the assignment?
+- Is your Aya profile current?
 
-Best,
-Kofi Farkye
-Senior Recruiter
-858-529-7267 Ext: 17017
-Kofi.Farkye@ayahealthcare.com`;
+Let me know and I can get you submitted right away.
+
+Thank you!`;
   },
 
   /**
@@ -323,30 +324,28 @@ Kofi.Farkye@ayahealthcare.com`;
     const shiftDescription = this.getShiftDescription(click.shift_type, pkg.hours_per_week);
 
     return {
-      subject: `${click.specialty} - ${click.job_city}, ${click.job_state} - Job #${click.job_id}`,
+      subject: `${click.specialty} - ${click.facility_name} | $${pkg.gross_weekly_pay.toFixed(2)}/week`,
 
       body: `Hi ${firstName},
 
-Thanks for your interest in the ${click.specialty} position at ${click.facility_name}. Here's the full breakdown — this looks like an excellent match for your background:
+I am reaching out to share a new ${click.specialty} assignment in ${click.job_city} that matches your experience.
 
 Facility: ${click.facility_name}
 Location: ${click.job_city}, ${click.job_state}
-Assignment Dates: ${startDate} – ${endDate}
-Shifts & Hours: ${shiftDescription} (${pkg.hours_per_week} hours/week)
+Assignment Dates: ${startDate} - ${endDate}
+Shifts: ${shiftDescription} (${pkg.hours_per_week} hrs/wk)
 
 Pay Package:
-Taxable Hourly Rate: $${pkg.taxable_hourly_rate.toFixed(2)}/hr
-Meals & Housing Stipend: $${pkg.total_stipend.toFixed(2)}/week
-Total Gross Weekly Pay: $${pkg.gross_weekly_pay.toFixed(2)}
+- Taxable Hourly Rate: $${pkg.taxable_hourly_rate.toFixed(2)}/hr
+- Meals & Housing Stipend: $${pkg.total_stipend.toFixed(2)}/week
+- Total Gross Weekly Pay: $${pkg.gross_weekly_pay.toFixed(2)}/week
 
-This role is moving quickly — I can get you submitted today if everything looks good.
+To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):
+- Available to start ${startDate}?
+- Any time-off during the assignment?
+- Is your Aya profile current?
 
-To move forward, just confirm:
-- Are you available to start ${startDate}?
-- Do you have any time-off requests during the contract?
-- Is your Aya profile current (work history, certs, skills checklist)?
-
-Please let me know if you have any questions.
+Let me know and I can get you submitted right away.
 
 Thank you!
 

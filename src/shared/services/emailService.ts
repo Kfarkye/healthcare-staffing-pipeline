@@ -18,14 +18,14 @@ export class EmailService {
     
     static generateClickEmail(click: Click, payPackage: PayPackage | null): { subject: string; body: string } {
         const firstName = click.candidate_name.split(' ')[0];
-        
+
         if (payPackage) {
             return {
-                subject: `${click.specialty} Assignment - Job #${click.job_id}`,
+                subject: `${click.specialty} - ${payPackage.facility_name} | $${(payPackage.gross_weekly_pay || 0).toLocaleString()}/week`,
                 body: this.getFullDetailsTemplate(firstName, click, payPackage)
             };
         }
-        
+
         return {
             subject: `${click.specialty} Opportunity - Job #${click.job_id}`,
             body: this.getInitialOutreachTemplate(firstName, click)
@@ -34,10 +34,10 @@ export class EmailService {
     
     static generateProspectEmail(prospect: Prospect, payPackage: PayPackage | null): { subject: string; body: string } {
         const firstName = prospect.name.split(' ')[0];
-        
+
         if (payPackage && prospect.job_id) {
             return {
-                subject: `${prospect.specialty} Position - ${payPackage.facility_name}`,
+                subject: `${prospect.specialty} - ${payPackage.facility_name} | $${(payPackage.gross_weekly_pay || 0).toLocaleString()}/week`,
                 body: this.getFullDetailsTemplate(firstName, prospect, payPackage)
             };
         }
@@ -49,36 +49,32 @@ export class EmailService {
     }
     
     private static getFullDetailsTemplate(
-        firstName: string, 
-        record: Click | Prospect, 
+        firstName: string,
+        record: Click | Prospect,
         pkg: PayPackage
     ): string {
         return `Hi ${firstName},
 
-Thanks for your interest in the ${record.specialty} position at ${pkg.facility_name}. Here's the full breakdown — this looks like an excellent match for your background:
+I am reaching out to share a new ${record.specialty} assignment in ${pkg.city} that matches your experience.
 
 Facility: ${pkg.facility_name}
 Location: ${pkg.city}, ${pkg.state}
-Assignment Dates: ${this.formatDate(pkg.start_date)} – ${this.formatDate(pkg.end_date)}
-Shifts & Hours: ${pkg.shift_type} (${pkg.hours_per_week}/week)
+Assignment Dates: ${this.formatDate(pkg.start_date)} - ${this.formatDate(pkg.end_date)}
+Shifts: ${pkg.shift_type} (${pkg.hours_per_week} hrs/wk)
 
 Pay Package:
-$${this.formatCurrency(pkg.completion_bonus)} Completion Bonus
-Taxable Hourly Rate: $${pkg.taxable_hourly_rate?.toFixed(2)}
-Meals & Housing Stipend: $${this.formatCurrency(pkg.stipend)}
-Total Gross Weekly Pay: $${this.formatCurrency(pkg.gross_weekly_pay)}
+- Taxable Hourly Rate: $${pkg.taxable_hourly_rate?.toFixed(2)}/hr
+- Meals & Housing Stipend: $${this.formatCurrency(pkg.stipend)}/week
+- Total Gross Weekly Pay: $${this.formatCurrency(pkg.gross_weekly_pay)}/week
 
-This role is moving quickly — I can get you submitted today if everything looks good.
+To move forward, just confirm (and if you have any updated certs or licenses, just send them my way—I will handle the upload):
+- Available to start ${this.formatDate(pkg.start_date)}?
+- Any time-off during the assignment?
+- Is your Aya profile current?
 
-To move forward, just confirm the following:
+Let me know and I can get you submitted right away.
 
-Are you available to start on or around ${this.formatDate(pkg.start_date)}?
-Do you have any time-off requests during the contract?
-Is your Aya profile current (work history, certs, skills checklist)?
-
-Let me know and I'll take it from there.
-
-Best,
+Thank you!
 
 Kofi Farkye
 Senior Recruiter, Fulfillment Specialist
@@ -89,22 +85,17 @@ CC: Tiffany Chavez – Tiffany.Chavez@ayahealthcare.com`;
     private static getInitialOutreachTemplate(firstName: string, click: Click): string {
         return `Hi ${firstName},
 
-I hope this message finds you well!
+I am reaching out to share a ${click.specialty} opportunity in ${click.job_state} that matches your experience.
 
-I came across your profile and wanted to reach out about a ${click.specialty} opportunity that might be a great fit for you.
+Specialty: ${click.specialty}
+Location: ${click.job_state}
+Job ID: ${click.job_id}
 
-Job Details:
-• Specialty: ${click.specialty}
-• Location: ${click.job_state}
-• Job ID: ${click.job_id}
+This position is moving quickly — I can share the full pay package and get you submitted right away.
 
-I'd love to discuss the full pay package and details with you. This position is moving quickly, and I think your background would be perfect for it.
+Let me know if you are interested and I will send over all the details.
 
-Would you have a few minutes for a quick call to discuss? I can share all the specifics including the competitive pay rate, benefits, and start date.
-
-Looking forward to hearing from you!
-
-Best,
+Thank you!
 
 Kofi Farkye
 Senior Recruiter, Fulfillment Specialist
