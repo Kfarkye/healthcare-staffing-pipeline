@@ -120,6 +120,7 @@ import { useCommandCenterChat } from '../features/command-center-chat/hooks/useC
 import { useFileUpload, type Attachment } from '../features/command-center-chat/hooks/useFileUpload';
 import { usePinnedScroll } from '../features/command-center-chat/hooks/usePinnedScroll';
 import { useLayout } from '../context/LayoutContext';
+import { DataService } from '../shared/services/dataService';
 
 
 // ============================================================================
@@ -1959,6 +1960,18 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
                 window.open(`mailto:${safeTo}?subject=${safeSubject}${safeCc}`, '_blank');
             } else {
                 window.open(mailtoLink, '_blank');
+            }
+
+            // Auto-create prospect on outreach — fire and forget
+            if (safeTo) {
+                const nameMatch = bodyOnly.match(/^(?:Hi|Hey|Hello|Dear)\s+([A-Z][a-z]+)/m);
+                const intel = extractIntel(cleanSubject, bodyOnly);
+                DataService.ensureProspectFromOutreach({
+                    email: safeTo,
+                    name: nameMatch?.[1] || undefined,
+                    specialty: intel.specialty || undefined,
+                    location: intel.location || undefined,
+                });
             }
         }, [draftInfo.parsed, showToast]);
 

@@ -129,6 +129,72 @@ export class DataService {
         });
     }
     
+    // ========== AUTO-PROSPECT FROM OUTREACH ==========
+
+    /**
+     * Ensure a prospect record exists when outreach is initiated.
+     * If a prospect with this email already exists, updates last_contacted_at.
+     * If not, creates one with status 'Contacted'.
+     * Fire-and-forget — callers don't need to await.
+     */
+    static async ensureProspectFromOutreach(data: {
+        email: string;
+        name?: string;
+        specialty?: string;
+        facility?: string;
+        location?: string;
+    }): Promise<Prospect | null> {
+        const email = data.email?.trim().toLowerCase();
+        if (!email) return null;
+
+        try {
+            // Check if prospect already exists
+            const { data: existing } = await supabase
+                .from('prospects')
+                .select('*')
+                .ilike('email', email)
+                .maybeSingle();
+
+            if (existing) {
+                // Update contact timestamp
+                const { data: updated } = await supabase
+                    .from('prospects')
+                    .update({
+                        last_contacted_at: new Date().toISOString(),
+                        ...(existing.status === 'New' ? { status: 'Contacted' } : {}),
+                    })
+                    .eq('id', existing.id)
+                    .select()
+                    .single();
+                return (updated as Prospect) ?? (existing as Prospect);
+            }
+
+            // Create new prospect from outreach data
+            const { data: created, error } = await supabase
+                .from('prospects')
+                .insert({
+                    name: data.name || email.split('@')[0],
+                    email,
+                    phone: null,
+                    specialty: data.specialty || null,
+                    profession: null,
+                    status: 'Contacted',
+                    facility: data.facility || null,
+                    notes: `Auto-created from outreach on ${new Date().toLocaleDateString()}`,
+                    source: 'command-center',
+                    last_contacted_at: new Date().toISOString(),
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            return created as Prospect;
+        } catch (err) {
+            console.error('[DataService] ensureProspectFromOutreach failed:', err);
+            return null;
+        }
+    }
+
     static async getCandidateHistory(email: string) {
         // Get all clicks for this candidate
         const { data: clicks } = await supabase
