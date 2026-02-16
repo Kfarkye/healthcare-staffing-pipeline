@@ -101,22 +101,28 @@ Deno.serve(async (req) => {
       throw new Error('GEMINI_API_KEY is not configured or is empty in Supabase secrets');
     }
 
-    const prompt = `You are a high-precision data extraction agent for a medical staffing agency. 
+    const prompt = `You are a high-precision data extraction agent for a medical staffing agency.
 Your task is to extract candidate and job details from screenshots of the "Nova Healthcare" platform.
 
 ### SCANNING STRATEGY:
-1. **Candidate Profile Section**: 
+1. **Candidate Profile Section**:
    - Look for Name, Email, Phone, and the Candidate ID (found in Top Bar, Profile header, or URL).
    - **Home Address**: Extract the Candidate's Home State (e.g., "Chicago, IL" -> home_state: "IL").
    - **Qualifications**: Look for Certifications (CCRN, BLS, etc.), years of experience, and preferred unit types.
 2. **Job Details Section**: Look for Facility Name, City/State (this is the JOB state), Specialty, Profession, and Job ID (usually 7 digits).
 3. **Pay Package Section (Margin Calculator)**: This is usually a table with:
-   - "Taxable Hourly" -> taxableRate
-   - "Weekly Meals" -> mealsStipend
-   - "Weekly Lodging" -> housingStipend
-   - "Gross Weekly" -> grossWeeklyPay
+   - "Taxable Hourly" / "Base Pay Rate" -> taxableRate
+   - "Weekly Meals" / "Weekly Meals Stipend" -> mealsStipend
+   - "Weekly Lodging" / "Weekly Housing Stipend" -> housingStipend
+   - "Gross Weekly" / "Total Gross Weekly Pay" -> grossWeeklyPay
    - "Weekly Hours" -> (e.g., 36, 40)
    - "Actual Margin" -> actual_margin (extract the highlighted percentage value near the top).
+   - "OT Pay Rate" / "Taxable Overtime Hourly Rate" -> otPayRate
+4. **Margin Calculator Summary & Contract Details**:
+   - Account Manager (labeled "Acct Manager") -> accountManager
+   - Weeks Length -> contractWeeks
+   - Contract Commission -> contractCommission
+   - Margin ID (found in the URL bar or footer, usually 7 digits) -> marginId
 
 ### EXTRACTION RULES:
 - Use null if a value is not found.
@@ -126,6 +132,8 @@ Your task is to extract candidate and job details from screenshots of the "Nova 
 - **state**: Extract the 2-letter state code for the JOB location.
 - **years_experience**: Extract as a number of years if possible (e.g., "8 yrs" -> 8).
 - **actual_margin**: Extract as a number (e.g., "11.2%" -> 11.2).
+- **contractCommission**: Extract as a number (e.g., "$439.08" -> 439.08).
+- **marginId**: Extract the margin ID number from the URL or footer (e.g., "7911872").
 
 Return EXACTLY this JSON structure:
 {
@@ -154,6 +162,11 @@ Return EXACTLY this JSON structure:
   "grossWeeklyPay": number or null,
   "actual_margin": number or null,
   "jobId": "string or null",
+  "accountManager": "string or null",
+  "contractWeeks": number or null,
+  "contractCommission": number or null,
+  "otPayRate": number or null,
+  "marginId": "string or null",
   "notes": "string or null"
 }`;
 

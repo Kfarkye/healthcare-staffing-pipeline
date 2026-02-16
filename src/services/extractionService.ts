@@ -27,6 +27,27 @@ export interface ExtractedProspectData {
   shift_preference?: string | null;
   actual_margin?: number | null;
   notes: string | null;
+
+  // Margin calculator fields
+  facility?: string | null;
+  city?: string | null;
+  jobId?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  weeklyHours?: number | null;
+  taxableRate?: number | null;
+  mealsStipend?: number | null;
+  housingStipend?: number | null;
+  weeklyStipend?: number | null;
+  grossWeeklyPay?: number | null;
+  shiftType?: string | null;
+
+  // Extended margin fields
+  accountManager?: string | null;
+  contractWeeks?: number | null;
+  contractCommission?: number | null;
+  otPayRate?: number | null;
+  marginId?: string | null;
 }
 
 export interface ExtractedOfferData {
@@ -234,6 +255,11 @@ class ExtractionServiceClass {
       ? Number(raw.years_experience)
       : null;
 
+    const safeNum = (v: any): number | null =>
+      typeof v === 'number' && Number.isFinite(v) ? v : null;
+    const safeStr = (v: any): string | null =>
+      typeof v === 'string' && v.trim() ? v.trim() : null;
+
     const cleaned: ExtractedProspectData = {
       candidate_id: candidateId,
       nova_url,
@@ -248,8 +274,29 @@ class ExtractionServiceClass {
       certifications: raw.certifications?.trim() || null,
       preferred_units: raw.preferred_units?.trim() || null,
       shift_preference: raw.shift_preference?.trim() || null,
-      actual_margin: typeof raw.actual_margin === 'number' ? raw.actual_margin : null,
+      actual_margin: safeNum(raw.actual_margin),
       notes: raw.notes?.trim() || null,
+
+      // Margin calculator core
+      facility: safeStr(raw.facility),
+      city: safeStr(raw.city),
+      jobId: safeStr(raw.jobId),
+      startDate: safeStr(raw.startDate),
+      endDate: safeStr(raw.endDate),
+      weeklyHours: safeNum(raw.weeklyHours),
+      taxableRate: safeNum(raw.taxableRate),
+      mealsStipend: safeNum(raw.mealsStipend),
+      housingStipend: safeNum(raw.housingStipend),
+      weeklyStipend: safeNum(raw.weeklyStipend),
+      grossWeeklyPay: safeNum(raw.grossWeeklyPay),
+      shiftType: safeStr(raw.shiftType),
+
+      // Extended margin fields
+      accountManager: safeStr(raw.accountManager),
+      contractWeeks: safeNum(raw.contractWeeks),
+      contractCommission: safeNum(raw.contractCommission),
+      otPayRate: safeNum(raw.otPayRate),
+      marginId: safeStr(raw.marginId),
     };
 
     console.log('[ExtractionService] Normalized data:', cleaned);
