@@ -8,7 +8,6 @@
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
-  BarChart3,
   CheckCircle,
   Clock,
   Columns3,
@@ -290,20 +289,6 @@ const ProspectCard = React.memo(function ProspectCard({
           <MapPin size={13} className="text-slate-400" />
           <span>{prospect.home_state || 'Location TBD'}</span>
         </div>
-        {(prospect.template_extracted_data as any)?.marginId && (
-          <a
-            href={`https://nova.ayahealthcare.com/#/recruiting/margins/${(prospect.template_extracted_data as any).marginId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-full hover:bg-emerald-100 transition-colors w-fit"
-          >
-            <BarChart3 size={11} />
-            Margin {(prospect.template_extracted_data as any).actual_margin != null
-              ? `${(prospect.template_extracted_data as any).actual_margin}%`
-              : `#${(prospect.template_extracted_data as any).marginId}`}
-          </a>
-        )}
       </div>
 
       <div className="flex items-center justify-between border-t border-slate-100 pt-4">
