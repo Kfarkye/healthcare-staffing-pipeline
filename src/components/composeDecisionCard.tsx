@@ -538,8 +538,8 @@ export function composeEmailCard(
 
     if (emailData.followUps && emailData.followUps.length > 0) {
         tabs.push({
-            id: 'follow-ups',
-            label: 'Follow-Ups',
+            id: 'refine',
+            label: 'Refine',
             content: () => <FollowUpsList items={emailData.followUps!} />,
         });
     }
