@@ -1893,12 +1893,13 @@ interface MessageBubbleProps {
     isStreaming?: boolean;
     toolInvocations?: ToolInvocation[];
     onModify?: (modifier: string) => void;
+    onFocusInput?: () => void;
     isLatest?: boolean;
     modeContext?: string;
 }
 
 const MessageBubble: FC<MessageBubbleProps> = memo(
-    ({ role, content, isStreaming, toolInvocations, onModify, isLatest, modeContext = '' }) => {
+    ({ role, content, isStreaming, toolInvocations, onModify, onFocusInput, isLatest, modeContext = '' }) => {
         const isUser = role === 'user';
         const hasUserAttachments = useMemo(() => {
             if (!isUser || !content) return false;
@@ -1984,14 +1985,25 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
         const emailFollowUps: EmailFollowUp[] = useMemo(() => {
             if (!draftInfo.hasDraft || !isLatest || !onModify) return [];
             const actions = selectContextualActions(draftInfo.body, modeContext);
-            return actions.map(action => ({
+            const items: EmailFollowUp[] = actions.map(action => ({
                 label: action.label,
                 onClick: () => {
                     triggerHaptic();
                     onModify(action.query);
                 },
             }));
-        }, [draftInfo.hasDraft, draftInfo.body, isLatest, onModify, modeContext]);
+            // "Custom edit" — always last, focuses the input so the user types their own instruction
+            if (onFocusInput) {
+                items.push({
+                    label: 'Custom edit',
+                    onClick: () => {
+                        triggerHaptic();
+                        onFocusInput();
+                    },
+                });
+            }
+            return items;
+        }, [draftInfo.hasDraft, draftInfo.body, isLatest, onModify, onFocusInput, modeContext]);
 
         // Markdown component overrides
         const components: Components = useMemo(() => ({
@@ -2926,6 +2938,11 @@ const InnerWeissach: FC<{
         ? messages[messages.length - 1]
         : null;
 
+    // Focus the input — used by "Custom edit" follow-up
+    const handleFocusInput = useCallback(() => {
+        inputRef.current?.focus();
+    }, []);
+
     // Send handler with 413 payload guard
     const handleSend = useCallback(async (query?: string) => {
         const text = query ?? inputValue.trim();
@@ -3175,6 +3192,7 @@ const InnerWeissach: FC<{
                                             isStreaming={false}
                                             toolInvocations={msg.toolInvocations}
                                             onModify={handleSend}
+                                            onFocusInput={handleFocusInput}
                                             isLatest={idx === stableHistory.length - 1 && !streamingMessage}
                                             modeContext={modeContext}
                                         />
@@ -3187,6 +3205,7 @@ const InnerWeissach: FC<{
                                             isStreaming={true}
                                             toolInvocations={streamingMessage.toolInvocations as ToolInvocation[]}
                                             onModify={handleSend}
+                                            onFocusInput={handleFocusInput}
                                             isLatest={true}
                                             modeContext={modeContext}
                                         />
