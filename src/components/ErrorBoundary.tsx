@@ -5,16 +5,20 @@ import Link from 'next/link';
 import { AlertTriangle, Home, RefreshCw } from 'lucide-react';
 
 interface ErrorBoundaryProps {
-  error: Error & { digest?: string };
-  reset: () => void;
+  error?: Error & { digest?: string };
+  reset?: () => void;
 }
 
-export default function ErrorBoundary({ error, reset }: ErrorBoundaryProps): JSX.Element {
+export default function ErrorBoundary({ error, reset }: ErrorBoundaryProps = {}): JSX.Element {
   const errorMessage = error?.message || 'An unexpected error occurred';
   const errorDetails = error?.stack || '';
 
   const handleRefresh = () => {
-    reset();
+    if (reset) {
+      reset();
+    } else {
+      window.location.reload();
+    }
   };
 
   return (
