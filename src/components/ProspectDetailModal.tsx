@@ -1,8 +1,9 @@
 // src/components/ProspectDetailModal.tsx
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { X, Phone, Mail, MapPin, Calendar, CircleCheck as CheckCircle, Circle, ExternalLink, CreditCard as Edit2, UserCheck, UserX, Clock, FileText, CircleAlert as AlertCircle, ChevronRight, Loader as Loader2 } from 'lucide-react';
+import { X, Phone, Mail, MapPin, Calendar, CircleCheck as CheckCircle, Circle, ExternalLink, CreditCard as Edit2, UserCheck, UserX, Clock, FileText, CircleAlert as AlertCircle, ChevronRight, Loader as Loader2, DollarSign, Users, BarChart3 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { generateMarginUrl } from '../services/extractionService';
 import EditProspectModal from './prospects/EditProspectModal';
 import EmailTemplateModal from './prospects/EmailTemplateModal';
 import type { Prospect, CandidateNote } from '../shared/types/database';
@@ -63,6 +64,9 @@ const formatPhoneNumber = (phone: string | null) => {
   }
   return phone;
 };
+
+const formatCurrency = (amount: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 
 const getStatusColor = (status: string) => {
   const colors: Record<string, string> = {
@@ -148,6 +152,17 @@ export default function ProspectDetailModal({
       isActive = false;
     };
   }, [prospect?.id]);
+
+  // Extract margin intel from template_extracted_data
+  const marginData = prospect.template_extracted_data as Record<string, any> | null;
+  const marginId = marginData?.marginId as string | null;
+  const accountManager = marginData?.accountManager as string | null;
+  const contractWeeks = marginData?.contractWeeks as number | null;
+  const contractCommission = marginData?.contractCommission as number | null;
+  const otPayRate = marginData?.otPayRate as number | null;
+  const actualMargin = marginData?.actual_margin as number | null;
+  const grossWeeklyPay = marginData?.grossWeeklyPay as number | null;
+  const hasMarginData = !!(marginId || accountManager || contractWeeks || contractCommission || otPayRate || actualMargin);
 
   // Requirements calculation
   const requirements: Requirement[] = [
@@ -288,6 +303,16 @@ export default function ProspectDetailModal({
                       <ExternalLink size={12} />
                     </button>
                   )}
+
+                  {marginId && (
+                    <button
+                      onClick={() => openExternalLink(generateMarginUrl(marginId))}
+                      className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
+                    >
+                      Margin Calc
+                      <ExternalLink size={12} />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -346,6 +371,83 @@ export default function ProspectDetailModal({
                   </div>
                 </div>
               </section>
+
+              {/* Margin Intel */}
+              {hasMarginData && (
+                <section>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                      <BarChart3 size={14} className="text-emerald-500" />
+                      Margin Intel
+                    </h3>
+                    {marginId && (
+                      <button
+                        onClick={() => openExternalLink(generateMarginUrl(marginId))}
+                        className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
+                      >
+                        Open in Nova
+                        <ExternalLink size={10} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {accountManager && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <Users size={14} className="text-gray-400 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs text-gray-500">Acct Manager</p>
+                          <p className="text-sm font-medium text-gray-900 truncate">{accountManager}</p>
+                        </div>
+                      </div>
+                    )}
+                    {actualMargin != null && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <BarChart3 size={14} className="text-gray-400 flex-shrink-0" />
+                        <div>
+                          <p className="text-xs text-gray-500">Actual Margin</p>
+                          <p className="text-sm font-medium text-gray-900">{actualMargin}%</p>
+                        </div>
+                      </div>
+                    )}
+                    {grossWeeklyPay != null && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <DollarSign size={14} className="text-gray-400 flex-shrink-0" />
+                        <div>
+                          <p className="text-xs text-gray-500">Gross Weekly</p>
+                          <p className="text-sm font-medium text-gray-900">{formatCurrency(grossWeeklyPay)}</p>
+                        </div>
+                      </div>
+                    )}
+                    {contractWeeks != null && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <Calendar size={14} className="text-gray-400 flex-shrink-0" />
+                        <div>
+                          <p className="text-xs text-gray-500">Contract Length</p>
+                          <p className="text-sm font-medium text-gray-900">{contractWeeks} weeks</p>
+                        </div>
+                      </div>
+                    )}
+                    {contractCommission != null && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <DollarSign size={14} className="text-gray-400 flex-shrink-0" />
+                        <div>
+                          <p className="text-xs text-gray-500">Commission</p>
+                          <p className="text-sm font-medium text-gray-900">{formatCurrency(contractCommission)}</p>
+                        </div>
+                      </div>
+                    )}
+                    {otPayRate != null && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <DollarSign size={14} className="text-gray-400 flex-shrink-0" />
+                        <div>
+                          <p className="text-xs text-gray-500">OT Rate</p>
+                          <p className="text-sm font-medium text-gray-900">{formatCurrency(otPayRate)}/hr</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
 
               {/* Requirements Progress */}
               <section>

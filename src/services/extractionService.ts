@@ -90,6 +90,9 @@ const ALLOWED_IMAGE_TYPES = [
 export const generateNovaUrl = (candidateId: number): string =>
   `https://nova.ayahealthcare.com/#/recruiting/candidates/${candidateId}/new-profile/about`;
 
+export const generateMarginUrl = (marginId: string): string =>
+  `https://nova.ayahealthcare.com/#/recruiting/margins/${marginId}`;
+
 const validateFile = (file: File): void => {
   if (!file) throw new Error('No file provided');
   if (file.size === 0) throw new Error('File is empty');
