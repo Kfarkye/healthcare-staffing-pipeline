@@ -122,6 +122,13 @@ export interface PayPackageData {
     shift?: string;
     start_date?: string;
     end_date?: string;
+    // Margin calculator fields
+    margin_url?: string;
+    actual_margin?: number;
+    account_manager?: string;
+    contract_weeks?: number;
+    contract_commission?: number;
+    ot_pay_rate?: number;
 }
 
 export interface LicensureData {
@@ -332,6 +339,19 @@ export const PayPackagePanel: FC<{ data: PayPackageData }> = memo(({ data }) => 
                     )}
                 </div>
             )}
+
+            {(data.actual_margin != null || data.account_manager || data.contract_weeks != null || data.ot_pay_rate != null || data.contract_commission != null) && (
+                <div className="space-y-1 pt-2 border-t border-white/[0.04]">
+                    <SectionLabel icon={ICON.zap} className="mb-1.5">Margin Intel</SectionLabel>
+                    {data.actual_margin != null && <Row label="Actual Margin" mono>{data.actual_margin}%</Row>}
+                    {data.account_manager && <Row label="Acct Manager">{data.account_manager}</Row>}
+                    {data.contract_weeks != null && <Row label="Contract" mono>{data.contract_weeks} wks</Row>}
+                    {data.ot_pay_rate != null && <Row label="OT Rate" mono>${data.ot_pay_rate}/hr</Row>}
+                    {data.contract_commission != null && <Row label="Commission" mono>${data.contract_commission.toLocaleString()}</Row>}
+                </div>
+            )}
+
+            {data.margin_url && <ActionLink href={data.margin_url} icon={ICON.ext} color="emerald">View Margin Calculator</ActionLink>}
         </div>
     );
 });

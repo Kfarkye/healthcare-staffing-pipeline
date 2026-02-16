@@ -492,6 +492,13 @@ export interface PayPackageCardData {
     shift?: string | null;
     start_date?: string | null;
     end_date?: string | null;
+    // Margin calculator fields
+    margin_url?: string | null;
+    actual_margin?: number | null;
+    account_manager?: string | null;
+    contract_weeks?: number | null;
+    contract_commission?: number | null;
+    ot_pay_rate?: number | null;
 }
 
 export interface CitationData {

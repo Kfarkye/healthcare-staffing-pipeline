@@ -101,18 +101,24 @@ function validatePay(data: unknown): PayPackageData | null {
     if (!isObj(data)) { warn('pay_package_card', 'not an object'); return null; }
     if (data.gross_weekly == null && !isStr(data.facility)) { warn('pay_package_card', 'no content'); return null; }
     return {
-        facility:       isStr(data.facility) ? data.facility : undefined,
-        location:       isStr(data.location) ? data.location : undefined,
-        specialty:      isStr(data.specialty) ? data.specialty : undefined,
-        gross_weekly:   typeof data.gross_weekly === 'number' || isStr(data.gross_weekly) ? data.gross_weekly as number | string : undefined,
-        taxable_hourly: typeof data.taxable_hourly === 'number' ? data.taxable_hourly : undefined,
-        stipend_weekly: typeof data.stipend_weekly === 'number' ? data.stipend_weekly : undefined,
-        housing_weekly: typeof data.housing_weekly === 'number' ? data.housing_weekly : undefined,
-        meals_weekly:   typeof data.meals_weekly === 'number' ? data.meals_weekly : undefined,
-        hours_per_week: typeof data.hours_per_week === 'number' ? data.hours_per_week : undefined,
-        shift:          isStr(data.shift) ? data.shift : undefined,
-        start_date:     isStr(data.start_date) ? data.start_date : undefined,
-        end_date:       isStr(data.end_date) ? data.end_date : undefined,
+        facility:            isStr(data.facility) ? data.facility : undefined,
+        location:            isStr(data.location) ? data.location : undefined,
+        specialty:           isStr(data.specialty) ? data.specialty : undefined,
+        gross_weekly:        typeof data.gross_weekly === 'number' || isStr(data.gross_weekly) ? data.gross_weekly as number | string : undefined,
+        taxable_hourly:      typeof data.taxable_hourly === 'number' ? data.taxable_hourly : undefined,
+        stipend_weekly:      typeof data.stipend_weekly === 'number' ? data.stipend_weekly : undefined,
+        housing_weekly:      typeof data.housing_weekly === 'number' ? data.housing_weekly : undefined,
+        meals_weekly:        typeof data.meals_weekly === 'number' ? data.meals_weekly : undefined,
+        hours_per_week:      typeof data.hours_per_week === 'number' ? data.hours_per_week : undefined,
+        shift:               isStr(data.shift) ? data.shift : undefined,
+        start_date:          isStr(data.start_date) ? data.start_date : undefined,
+        end_date:            isStr(data.end_date) ? data.end_date : undefined,
+        margin_url:          isStr(data.margin_url) ? data.margin_url : undefined,
+        actual_margin:       typeof data.actual_margin === 'number' ? data.actual_margin : undefined,
+        account_manager:     isStr(data.account_manager) ? data.account_manager : undefined,
+        contract_weeks:      typeof data.contract_weeks === 'number' ? data.contract_weeks : undefined,
+        contract_commission: typeof data.contract_commission === 'number' ? data.contract_commission : undefined,
+        ot_pay_rate:         typeof data.ot_pay_rate === 'number' ? data.ot_pay_rate : undefined,
     };
 }
 
@@ -206,6 +212,12 @@ function extractStats(
             signal,
             onClick: handlers?.onCredentialClick,
         });
+    }
+
+    // Margin — profitability signal
+    if (pay?.actual_margin != null) {
+        const signal: Signal = pay.actual_margin >= 15 ? 'go' : pay.actual_margin >= 8 ? 'hold' : 'stop';
+        stats.push({ label: 'Margin', value: `${pay.actual_margin}%`, signal });
     }
 
     // Facility — where the assignment is
