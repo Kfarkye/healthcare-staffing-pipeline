@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import type { TabId, ReadySubTab } from '../types/submittals';
 
 interface URLState {
@@ -9,7 +9,9 @@ interface URLState {
 }
 
 export function useURLState(defaults: URLState) {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
 
   const [state, setState] = useState<URLState>(() => ({
     activeTab: (searchParams.get('tab') as TabId) || defaults.activeTab,
@@ -18,7 +20,7 @@ export function useURLState(defaults: URLState) {
   }));
 
   const updateURL = useCallback((newState: Partial<URLState>) => {
-    const params = new URLSearchParams(searchParams);
+    const params = new URLSearchParams(searchParams.toString());
 
     if (newState.activeTab !== undefined) {
       params.set('tab', newState.activeTab);
@@ -44,8 +46,9 @@ export function useURLState(defaults: URLState) {
       }
     }
 
-    setSearchParams(params, { replace: true });
-  }, [searchParams, setSearchParams, state.activeTab]);
+    const queryString = params.toString();
+    router.replace(`${pathname}${queryString ? `?${queryString}` : ''}`, { scroll: false });
+  }, [searchParams, router, pathname, state.activeTab]);
 
   const setActiveTab = useCallback((tab: TabId) => {
     setState(prev => ({ ...prev, activeTab: tab }));

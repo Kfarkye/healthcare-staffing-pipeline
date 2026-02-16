@@ -161,8 +161,7 @@ const encodeParam = (s: string): string =>
   encodeURIComponent(s ?? '');
 
 const buildOutlookLink = (to: string, cc: string | undefined, subject: string, body: string): string =>
-  `https://outlook.office.com/mail/deeplink/compose?to=${encodeParam(to)}${cc ? `&cc=${encodeParam(cc)}` : ''
-  }&subject=${encodeParam(subject)}&body=${encodeParam(body)}`;
+  `https://outlook.office.com/mail/deeplink/compose?to=${encodeParam(to)}${cc ? `&cc=${encodeParam(cc)}` : ''}&subject=${encodeParam(subject)}&body=${encodeParam(body)}`;
 
 const parseDateString = (dateStr: string): Date | null => {
   if (!dateStr || isPlaceholder(dateStr)) return null;

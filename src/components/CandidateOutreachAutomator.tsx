@@ -165,8 +165,7 @@ const formatters = {
 const emailUtils = {
   buildOutlookDeepLink: (to: string, subject: string, body: string, cc?: string): string => {
     const encode = (s: string) => encodeURIComponent(s ?? '');
-    return `https://outlook.office.com/mail/deeplink/compose?to=${encode(to)}${cc ? `&cc=${encode(cc)}` : ''
-      }&subject=${encode(subject)}&body=${encode(body)}`;
+    return `https://outlook.office.com/mail/deeplink/compose?to=${encode(to)}${cc ? `&cc=${encode(cc)}` : ''}&subject=${encode(subject)}&body=${encode(body)}`;
   },
 
   exportToCSV: (emails: GeneratedEmail[]): void => {

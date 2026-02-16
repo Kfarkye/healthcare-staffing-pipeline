@@ -8,14 +8,14 @@ import {
   Search, RefreshCw, BarChart2,
   Star, Mail, Clock,
   CheckCircle2, AlertCircle, X,
-  Phone, TrendingUp, List, Columns3
+  Phone, TrendingUp, List, Columns3, ExternalLink
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
 import { useClinicianDashboard, TabId, ClinicianRow, ViewName } from '../hooks/useClinicianDashboard';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useSortedCandidates, getUrgencyLevel, getUrgencyIndicator } from '../hooks/useSortedCandidates';
-import { cn } from '../lib/utils';
+import { cn, formatNovaLink } from '../lib/utils';
 import { toProspectLike, ProspectLike, getCardKey } from '../types/submittals';
 import { DashboardShell } from './shared/DashboardShell';
 import { StatCard } from './shared/StatCard';
@@ -81,6 +81,9 @@ const PIPELINE_COLUMNS = [
 // ============================================================================
 // UTILITIES
 // ============================================================================
+
+const getNovaUrl = (row: ClinicianRow): string =>
+  row.nova_url || formatNovaLink(row.candidate_id ? Number(row.candidate_id) : null);
 
 const rowToAssignment = (row: ClinicianRow): ActiveAssignment => {
   let daysToEnd = 0;
@@ -181,9 +184,22 @@ const Top15Card: React.FC<{
 
       <div className="flex items-start justify-between gap-4 mb-5">
         <div className="flex-1 min-w-0">
-          <h3 className={`${DESIGN.text.heading} text-xl mb-2 truncate`}>
-            {row.full_name || 'Unknown'}
-          </h3>
+          {getNovaUrl(row) ? (
+            <a
+              href={getNovaUrl(row)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className={`${DESIGN.text.heading} text-xl mb-2 truncate block hover:text-blue-600 hover:underline transition-colors`}
+            >
+              {row.full_name || 'Unknown'}
+              <ExternalLink size={14} className="inline ml-1.5 opacity-0 group-hover:opacity-50" />
+            </a>
+          ) : (
+            <h3 className={`${DESIGN.text.heading} text-xl mb-2 truncate`}>
+              {row.full_name || 'Unknown'}
+            </h3>
+          )}
           <p className={`${DESIGN.text.body} truncate`}>
             {row.primary_specialty || row.engagement_specialty || '—'}
           </p>
@@ -281,7 +297,19 @@ const SubmittalCard: React.FC<{
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1 min-w-0">
-          <h3 className="text-[13px] font-bold text-slate-900 truncate mb-0.5">{row.full_name || 'Unknown'}</h3>
+          {getNovaUrl(row) ? (
+            <a
+              href={getNovaUrl(row)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-[13px] font-bold text-slate-900 truncate mb-0.5 block hover:text-blue-600 hover:underline transition-colors"
+            >
+              {row.full_name || 'Unknown'}
+            </a>
+          ) : (
+            <h3 className="text-[13px] font-bold text-slate-900 truncate mb-0.5">{row.full_name || 'Unknown'}</h3>
+          )}
           <p className="text-[11px] text-slate-500 truncate">{row.primary_specialty || '—'}</p>
         </div>
         {isPriority && <Star size={14} className="text-amber-500 fill-amber-500 shrink-0" strokeWidth={2.5} />}
@@ -600,7 +628,20 @@ export default function SubmittalsDashboard() {
                       <tr key={getCardKey(r, i)} onClick={() => handleSelectRow(r)} className="hover:bg-slate-50 transition-colors group cursor-pointer">
                         <td className="px-6 py-5 w-12">{r.is_weekly_priority && <Star size={14} className="fill-amber-400 text-amber-400" />}</td>
                         <td className="px-6 py-5">
-                          <p className="text-[14px] font-bold text-slate-900 tracking-tight">{r.full_name}</p>
+                          {getNovaUrl(r) ? (
+                            <a
+                              href={getNovaUrl(r)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-[14px] font-bold text-slate-900 tracking-tight hover:text-blue-600 hover:underline transition-colors inline-flex items-center gap-1"
+                            >
+                              {r.full_name}
+                              <ExternalLink size={12} className="opacity-0 group-hover:opacity-50" />
+                            </a>
+                          ) : (
+                            <p className="text-[14px] font-bold text-slate-900 tracking-tight">{r.full_name}</p>
+                          )}
                           <p className="text-[12px] text-slate-500">{r.primary_specialty}</p>
                         </td>
                         <td className="px-6 py-5 text-[12px] font-medium text-slate-600">{r.home_state || '—'}</td>

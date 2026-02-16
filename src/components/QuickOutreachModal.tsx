@@ -220,8 +220,7 @@ const QuickOutreachModal: React.FC<QuickOutreachModalProps> = ({ isOpen, onClose
     // Outlook integration helper
     const buildOutlookLink = (to: string, cc: string | undefined, subject: string, body: string): string => {
         const encode = (s: string) => encodeURIComponent(s || '');
-        return `https://outlook.office.com/mail/deeplink/compose?to=${encode(to)}${cc ? `&cc=${encode(cc)}` : ''
-            }&subject=${encode(subject)}&body=${encode(body)}`;
+        return `https://outlook.office.com/mail/deeplink/compose?to=${encode(to)}${cc ? `&cc=${encode(cc)}` : ''}&subject=${encode(subject)}&body=${encode(body)}`;
     };
 
     // Open in email client

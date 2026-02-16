@@ -147,7 +147,9 @@ const getTaskIcon = (taskType: Task['task_type']) => {
 
 const TaskCard: React.FC<{ task: Task; onComplete: () => void; }> = ({ task, onComplete }) => {
     const { Icon, color } = getTaskIcon(task.task_type);
-    const novaUrl = `https://nova.ayahealthcare.com${task.link}`;
+    const novaUrl = task.link.startsWith('/#/') || task.link.startsWith('#/')
+        ? `https://nova.ayahealthcare.com${task.link}`
+        : `https://nova.ayahealthcare.com/#${task.link}`;
 
     return (
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow p-4">

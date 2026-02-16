@@ -628,7 +628,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
                         <div className="flex items-center justify-between mt-1">
                           {key === 'jobId' && value ? (
                             <a
-                              href={`https://nova.ayahealthcare.com/jobs/${value}`}
+                              href={`https://nova.ayahealthcare.com/#/recruiting/jobs/${value}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-sm font-mono text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
@@ -638,7 +638,7 @@ export default function ProspectOutreachGenerator(): JSX.Element {
                             </a>
                           ) : key === 'candidateId' && value ? (
                             <a
-                              href={`https://nova.ayahealthcare.com/recruiting/profile/${value}`}
+                              href={`https://nova.ayahealthcare.com/#/recruiting/candidates/${value}/new-profile/about`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-sm font-mono text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
