@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { ExtractionService, ExtractedOfferData } from '../services/extractionService';
 import { useBatchStore, BatchItem } from '../store/batchStore';
+import { getCatalogEntry } from '../lib/template-catalog';
 
 // ============================================================================
 // TYPES
@@ -15,6 +16,27 @@ interface EmailTemplate {
   id: string;
   name: string;
   generateContent: (data: ExtractedOfferData) => { subject: string; body: string };
+}
+
+// ============================================================================
+// CATALOG-BACKED TEMPLATE HELPER
+// ============================================================================
+
+/**
+ * Build an EmailTemplate entry with the display name derived from the shared catalog.
+ * Adds emoji prefix based on message type. Falls back to provided name if catalog miss.
+ */
+function catalogTemplate(
+  id: string,
+  generateContent: EmailTemplate['generateContent'],
+): EmailTemplate {
+  const entry = getCatalogEntry(id);
+  if (!entry) {
+    console.warn(`[OutreachTemplateManager] Template "${id}" not in catalog — using fallback name`);
+    return { id, name: id, generateContent };
+  }
+  const prefix = entry.messageType === 'sms' ? '💬 TEXT' : '📧 EMAIL';
+  return { id, name: `${prefix}: ${entry.name}`, generateContent };
 }
 
 // ============================================================================
@@ -37,10 +59,7 @@ const formatDate = (dateString: string | null) => {
 
 const EMAIL_TEMPLATES: EmailTemplate[] = [
   // RUSH MEDICAL CENTER TEMPLATE
-  {
-    id: 'rush_ma_full_details',
-    name: '📧 EMAIL: Rush Medical Center MA - Full Details with References',
-    generateContent: (data: ExtractedOfferData) => {
+  catalogTemplate('rush_ma_full_details', (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
 
       let hoursDisplay = '';
@@ -89,14 +108,10 @@ If you have any questions, I'm happy to hop on a call to discuss details.
 
 Thank you!`
       };
-    }
-  },
+    }),
 
   // GENERAL OUTREACH TEMPLATES
-  {
-    id: 'initial_outreach',
-    name: '📧 EMAIL: Initial Outreach - Full Details',
-    generateContent: (data: ExtractedOfferData) => {
+  catalogTemplate('initial_outreach', (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
       return {
         subject: `${data.specialty} Assignment – ${data.facility} | ${formatCurrency(data.grossWeeklyPay)}/week`,
@@ -125,12 +140,8 @@ Please let me know if you have any questions.
 
 Thank you!`
       };
-    }
-  },
-  {
-    id: 'reengagement',
-    name: '📧 EMAIL: Re-engagement - Past Candidate',
-    generateContent: (data: ExtractedOfferData) => {
+    }),
+  catalogTemplate('reengagement', (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
 
       return {
@@ -153,12 +164,8 @@ When's a good time to chat this week?
 Best,
 [Your name]`
       };
-    }
-  },
-  {
-    id: 'extension_offer',
-    name: '📧 EMAIL: Extension Opportunity',
-    generateContent: (data: ExtractedOfferData) => {
+    }),
+  catalogTemplate('extension_offer', (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
       const endDate = new Date(data.endDate || '');
       endDate.setDate(endDate.getDate() + 91);
@@ -182,12 +189,8 @@ Let me know if you're interested and we can potentially negotiate an increase.
 Thanks!
 [Your name]`
       };
-    }
-  },
-  {
-    id: 'competitive_offer',
-    name: '📧 EMAIL: Competitive Counter Offer',
-    generateContent: (data: ExtractedOfferData) => {
+    }),
+  catalogTemplate('competitive_offer', (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
       const enhancedPay = data.grossWeeklyPay * 1.05;
 
@@ -213,12 +216,8 @@ Can we talk for 5 minutes? I think you'll be pleasantly surprised.
 
 [Your name]`
       };
-    }
-  },
-  {
-    id: 'referral_request',
-    name: '📧 EMAIL: Referral Request',
-    generateContent: (data: ExtractedOfferData) => {
+    }),
+  catalogTemplate('referral_request', (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
 
       return {
@@ -240,13 +239,10 @@ Thanks!
 [Your name]`
       };
     }
-  },
+  ),
 
   // TEXT MESSAGE TEMPLATES
-  {
-    id: 'text_quick_pitch',
-    name: '💬 TEXT: Quick Pitch',
-    generateContent: (data: ExtractedOfferData) => {
+  catalogTemplate('text_quick_pitch', (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
       const formatDate = (ds: string | null) => ds ? new Date(ds + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'TBD';
       const formatEndDate = (ds: string | null) => ds ? new Date(ds + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'TBD';
@@ -268,24 +264,16 @@ Total Gross Weekly Pay for ${data.weeklyHours || 36} Hours Worked: ${formatCurre
 
 Please let me know if you would like to be submitted or if you have any questions.`
       };
-    }
-  },
-  {
-    id: 'text_followup',
-    name: '💬 TEXT: Follow-up Check',
-    generateContent: (data: ExtractedOfferData) => {
+    }),
+  catalogTemplate('text_followup', (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
 
       return {
         subject: 'Text Message',
         body: `Hi ${firstName} - Just circling back on the ${data.specialty} position at ${data.facility} (${formatCurrency(data.grossWeeklyPay)}/wk). Still interested? Let me know either way so I can update my notes. Thanks!`
       };
-    }
-  },
-  {
-    id: 'text_urgent',
-    name: '💬 TEXT: Urgent - Fast Decision',
-    generateContent: (data: ExtractedOfferData) => {
+    }),
+  catalogTemplate('text_urgent', (data: ExtractedOfferData) => {
       const formatDate = (dateString: string | null) => {
         if (!dateString) return 'ASAP';
         return new Date(dateString).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
@@ -297,44 +285,31 @@ Please let me know if you would like to be submitted or if you have any question
         subject: 'Text Message',
         body: `${firstName} - URGENT: ${data.facility} needs ${data.specialty} by ${formatDate(data.startDate)}. ${formatCurrency(data.grossWeeklyPay)}/wk. They're deciding TODAY. Can you talk now? Call me at [phone] or reply YES.`
       };
-    }
-  },
-  {
-    id: 'text_last_chance',
-    name: '💬 TEXT: Last Chance',
-    generateContent: (data: ExtractedOfferData) => {
+    }),
+  catalogTemplate('text_last_chance', (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
 
       return {
         subject: 'Text Message',
         body: `${firstName} - Final call on ${data.facility} (${formatCurrency(data.grossWeeklyPay)}/wk). They're deciding by EOD. Reply YES if interested, NO if not. Thanks!`
       };
-    }
-  },
-  {
-    id: 'text_submitted',
-    name: '💬 TEXT: Submission Confirmation',
-    generateContent: (data: ExtractedOfferData) => {
+    }),
+  catalogTemplate('text_submitted', (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
 
       return {
         subject: 'Text Message',
         body: `${firstName} - Great news! You're submitted to ${data.facility}. They typically respond within 24-48 hours. I'll text you as soon as I hear back. Fingers crossed!`
       };
-    }
-  },
-  {
-    id: 'text_offer_received',
-    name: '💬 TEXT: Offer Received',
-    generateContent: (data: ExtractedOfferData) => {
+    }),
+  catalogTemplate('text_offer_received', (data: ExtractedOfferData) => {
       const firstName = data.name.split(' ')[0];
 
       return {
         subject: 'Text Message',
         body: `${firstName} - OFFER IN! ${data.facility} wants you! ${formatCurrency(data.grossWeeklyPay)}/week confirmed. Call me ASAP to review details: [phone]`
       };
-    }
-  }
+    }),
 ];
 
 // ============================================================================

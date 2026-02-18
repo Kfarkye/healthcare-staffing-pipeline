@@ -1,5 +1,8 @@
 // /outreach/templates.ts
 // Pristine, structured, organized. Shared by EmailTemplateModal and OutreachTemplateManager.
+// Template metadata (name, category, etc.) comes from the shared catalog (SSOT).
+
+import { getCatalogEntry } from '../lib/template-catalog';
 
 // Re-including the necessary interface/type definition (schema)
 export interface ExtractedOfferData {
@@ -53,14 +56,29 @@ const formatCurrencyRate = (rate?: number | null): string => {
 const getFirstName = (fullName: string): string => fullName.split(' ')[0] || '';
 const getFacilityName = (name: string): string => name.replace(' at ', ' ').trim();
 
+/**
+ * Build an EmailTemplate entry with the display name derived from the shared catalog.
+ * Adds emoji prefix based on message type. Falls back to provided fallbackName if catalog miss.
+ */
+function catalogTemplate(
+    id: string,
+    generateContent: EmailTemplate['generateContent'],
+    fallbackName?: string,
+): EmailTemplate {
+    const entry = getCatalogEntry(id);
+    if (!entry) {
+        console.warn(`[outreach/templates] Template "${id}" not in catalog — using fallback name`);
+        return { id, name: fallbackName || id, generateContent };
+    }
+    const prefix = entry.messageType === 'sms' ? '💬 TEXT' : '📧 EMAIL';
+    return { id, name: `${prefix}: ${entry.name}`, generateContent };
+}
+
 // ----------------------
 // Outreach (candidate-facing)
 // ----------------------
 export const OUTREACH_EMAIL_TEMPLATES: EmailTemplate[] = [
-  {
-    id: 'initial_outreach',
-    name: '📧 EMAIL: Initial Outreach – Full Details',
-    generateContent: (d) => ({
+  catalogTemplate('initial_outreach', (d) => ({
       subject: `${d.specialty} Assignment – ${d.facility} | ${currency(d.grossWeeklyPay)}/week`,
       body: `Hi ${d.name.split(' ')[0] || ''},
 
@@ -87,11 +105,8 @@ Please let me know if you have any questions.
 
 Thank you!`,
     }),
-  },
-  {
-    id: 'hourly_rate_outreach',
-    name: '📧 EMAIL: Hourly Rate Offer',
-    generateContent: (d) => {
+  ),
+  catalogTemplate('hourly_rate_outreach', (d) => {
       const firstName = getFirstName(d.name);
       const hourlyRate = formatCurrencyRate(d.taxableRate + (d.weeklyStipend / (d.weeklyHours || 40)));
       const facilityName = getFacilityName(d.facility);
@@ -122,11 +137,8 @@ Please let me know if you have any questions.
 Thank you!`,
       };
     },
-  },
-  {
-    id: 'rush_ma_full_details',
-    name: '📧 EMAIL: Rush MA – Full Details + References',
-    generateContent: (d) => {
+  ),
+  catalogTemplate('rush_ma_full_details', (d) => {
       const hours =
         d.weeklyHours === 40 ? '5x8s (40 hours/week)' :
           d.weeklyHours === 36 ? '3x12s (36 hours/week)' :
@@ -160,11 +172,8 @@ I'll also need two supervisory references from the last two years (charge nurse/
 Thank you!`,
       };
     },
-  },
-  {
-    id: 'reengagement',
-    name: '📧 EMAIL: Re-engagement – Full Details Pitch',
-    generateContent: (d) => ({
+  ),
+  catalogTemplate('reengagement', (d) => ({
       subject: `${d.facility} Assignment in ${d.city}, ${d.state} - ${currency(d.grossWeeklyPay)}/week`,
       body: `Hi ${d.name.split(' ')[0] || ''},
 
@@ -191,11 +200,8 @@ Let me know if you have any questions!
 Best,
 [Your name]`,
     }),
-  },
-  {
-    id: 'working_traveler_interest',
-    name: '📧 EMAIL: Working Traveler – Interested Click',
-    generateContent: (d) => ({
+  ),
+  catalogTemplate('working_traveler_interest', (d) => ({
       subject: `${d.specialty} – ${d.facility} | ${currency(d.grossWeeklyPay)}/week`,
       body: `Hi ${d.name.split(' ')[0] || ''},
 
@@ -212,11 +218,8 @@ Let me know if you have any time-off needs and I'll get you submitted!
 
 Thank you!`,
     }),
-  },
-  {
-    id: 'reengaged_traveler_interest',
-    name: '📧 EMAIL: Re-Engaged Traveler – Interested Click',
-    generateContent: (d) => ({
+  ),
+  catalogTemplate('reengaged_traveler_interest', (d) => ({
       subject: `${d.specialty} – ${d.facility} | ${currency(d.grossWeeklyPay)}/week`,
       body: `Hi ${d.name.split(' ')[0] || ''},
 
@@ -233,11 +236,8 @@ Let me know if you have any time-off needs and I'll get you submitted. Happy to 
 
 Thank you!`,
     }),
-  },
-  {
-    id: 'competitive_offer',
-    name: '📧 EMAIL: Competitive Counter Offer',
-    generateContent: (d) => {
+  ),
+  catalogTemplate('competitive_offer', (d) => {
       const enhancedPay = d.grossWeeklyPay * 1.05;
 
       return {
@@ -263,11 +263,8 @@ Can we talk for 5 minutes? I think you'll be pleasantly surprised.
 [Your name]`,
       };
     },
-  },
-  {
-    id: 'referral_request',
-    name: '📧 EMAIL: Referral Request',
-    generateContent: (d) => ({
+  ),
+  catalogTemplate('referral_request', (d) => ({
       subject: `${d.name.split(' ')[0] || ''}, know any ${d.specialty}s looking?`,
       body: `Hi ${d.name.split(' ')[0] || ''},
 
@@ -285,11 +282,8 @@ Even if this specific role isn't a fit, I have others. Any names come to mind?
 Thanks!
 [Your name]`,
     }),
-  },
-  {
-    id: 'text_quick_pitch',
-    name: '💬 TEXT: Quick Pitch',
-    generateContent: (d) => {
+  ),
+  catalogTemplate('text_quick_pitch', (d) => {
       const formatDate = (ds: string | null) => ds ? new Date(ds + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'TBD';
       const formatEndDate = (ds: string | null) => ds ? new Date(ds + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'TBD';
 
@@ -311,19 +305,13 @@ Total Gross Weekly Pay for ${d.weeklyHours || 36} Hours Worked: ${currency(d.gro
 Please let me know if you would like to be submitted or if you have any questions.`,
       };
     },
-  },
-  {
-    id: 'text_followup',
-    name: '💬 TEXT: Follow-up Check',
-    generateContent: (d) => ({
+  ),
+  catalogTemplate('text_followup', (d) => ({
       subject: 'Text Message',
       body: `Hi ${d.name.split(' ')[0] || ''} - Just circling back on the ${d.specialty} position at ${d.facility} (${currency(d.grossWeeklyPay)}/wk). Still interested? Let me know either way so I can update my notes. Thanks!`,
     }),
-  },
-  {
-    id: 'text_urgent',
-    name: '💬 TEXT: Urgent – Fast Decision',
-    generateContent: (d) => {
+  ),
+  catalogTemplate('text_urgent', (d) => {
       const formatDate = (dateString: string | null) => {
         if (!dateString) return 'ASAP';
         return new Date(dateString).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
@@ -334,35 +322,23 @@ Please let me know if you would like to be submitted or if you have any question
         body: `${d.name.split(' ')[0] || ''} - URGENT: ${d.facility} needs ${d.specialty} by ${formatDate(d.startDate)}. ${currency(d.grossWeeklyPay)}/wk. They're deciding TODAY. Can you talk now? Call me at [phone] or reply YES.`,
       };
     },
-  },
-  {
-    id: 'text_last_chance',
-    name: '💬 TEXT: Last Chance',
-    generateContent: (d) => ({
+  ),
+  catalogTemplate('text_last_chance', (d) => ({
       subject: 'Text Message',
       body: `${d.name.split(' ')[0] || ''} - Final call on ${d.facility} (${currency(d.grossWeeklyPay)}/wk). They're deciding by EOD. Reply YES if interested, NO if not. Thanks!`,
     }),
-  },
-  {
-    id: 'text_submitted',
-    name: '💬 TEXT: Submission Confirmation',
-    generateContent: (d) => ({
+  ),
+  catalogTemplate('text_submitted', (d) => ({
       subject: 'Text Message',
       body: `${d.name.split(' ')[0] || ''} - Great news! You're submitted to ${d.facility}. They typically respond within 24-48 hours. I'll text you as soon as I hear back. Fingers crossed!`,
     }),
-  },
-  {
-    id: 'text_offer_received',
-    name: '💬 TEXT: Offer Received',
-    generateContent: (d) => ({
+  ),
+  catalogTemplate('text_offer_received', (d) => ({
       subject: 'Text Message',
       body: `${d.name.split(' ')[0] || ''} - OFFER IN! ${d.facility} wants you! ${currency(d.grossWeeklyPay)}/week confirmed. Call me ASAP to review details: [phone]`,
     }),
-  },
-  {
-    id: 'text_submission_general',
-    name: '💬 TEXT: Assignment Submission (General)',
-    generateContent: (d) => {
+  ),
+  catalogTemplate('text_submission_general', (d) => {
       const firstName = getFirstName(d.name);
       const facilityName = getFacilityName(d.facility);
       const mealsStipend = d.weeklyStipend ? (d.weeklyStipend * 0.4).toFixed(0) : '—';
@@ -387,11 +363,8 @@ Let me know if you have any questions or if you're not interested in this one.
 Thank you!`,
       };
     },
-  },
-  {
-    id: 'submission_with_references',
-    name: '📧 EMAIL: Assignment Submission + Reference Instructions',
-    generateContent: (d) => {
+  ),
+  catalogTemplate('submission_with_references', (d) => {
       const firstName = getFirstName(d.name);
       const facilityName = getFacilityName(d.facility);
       const mealsStipend = d.weeklyStipend ? currency(d.weeklyStipend * 0.4) : '—';
@@ -427,11 +400,8 @@ I will also recommend more assignments to you as they come in.
 Please let me know if you have any questions.`,
       };
     },
-  },
-  {
-    id: 'pay_package_snippet',
-    name: '📋 SNIPPET: Pay Package & Facility Info',
-    generateContent: (d) => {
+  ),
+  catalogTemplate('pay_package_snippet', (d) => {
       const facilityName = getFacilityName(d.facility);
       const mealsStipend = d.weeklyStipend ? currency(d.weeklyStipend * 0.4) : '—';
       const housingStipend = d.weeklyStipend ? currency(d.weeklyStipend * 0.6) : '—';
@@ -453,17 +423,14 @@ Total Weekly Stipends (Meals + Housing): ${totalStipends}
 Total Gross Weekly Pay for ${d.weeklyHours} Hours Worked: ${currency(d.grossWeeklyPay)}`,
       };
     },
-  },
+  ),
 ];
 
 // ----------------------
 // Ops (internal / operational emails)
 // ----------------------
 export const OPS_EMAIL_TEMPLATES: EmailTemplate[] = [
-  {
-    id: 'ops_reassignment',
-    name: '🛠 OPS: Reassignment Request',
-    generateContent: (d) => {
+  catalogTemplate('ops_reassignment', (d) => {
       const novaUrl = d.candidateId
         ? `https://nova.ayahealthcare.com/#/recruiting/candidates/${d.candidateId}/new-profile/about`
         : 'Not Available';
@@ -481,13 +448,10 @@ Nova Profile: ${novaUrl}
 Thank you!`,
       };
     },
-  },
+  ),
 
   // Docs + references (candidate-facing ops)
-  {
-    id: 'ops_documents_and_references',
-    name: '🛠 OPS: Documents & References',
-    generateContent: (d) => ({
+  catalogTemplate('ops_documents_and_references', (d) => ({
       subject: `Items Needed to Complete Your Application - ${d.specialty} Position`,
       body: `Hi ${d.name.split(' ')[0] || ''},
 
@@ -516,13 +480,10 @@ I've attached the reference form and benefits guide as well. Happy to help with 
 
 Thank you!`,
     }),
-  },
+  ),
 
   // Licensing info (internal)
-  {
-    id: 'ops_licensing_info',
-    name: '🛠 OPS: Licensing Info Request',
-    generateContent: (d) => ({
+  catalogTemplate('ops_licensing_info', (d) => ({
       subject: `Licensing - ${d.specialty} - ${d.state}`,
       body: `Hi Team,
 
@@ -530,13 +491,10 @@ Can I please have licensing information for ${d.specialty} in ${d.state}?
 
 Thank you!`,
     }),
-  },
+  ),
 
   // Margin Approval (internal)
-  {
-    id: 'margin_approval',
-    name: '💰 OPS: Margin Approval Request',
-    generateContent: (d) => {
+  catalogTemplate('margin_approval', (d) => {
       const margin = d.actualMargin != null ? String(d.actualMargin) : '[XX]';
       const signature = `Best,\nKofi Farkye\nSenior Recruiter, Fulfillment Specialist\nP: 858-529-7267 Ext: 17017`;
 
@@ -554,17 +512,14 @@ Thank you!`,
         ].join('\n'),
       };
     },
-  },
+  ),
 ];
 
 // ----------------------
 // Response (candidate response emails)
 // ----------------------
 export const RESPONSE_EMAIL_TEMPLATES: EmailTemplate[] = [
-  {
-    id: 'response_ltc_and_references',
-    name: '✉️ RESPONSE: LTC & Reference Request',
-    generateContent: (d) => {
+  catalogTemplate('response_ltc_and_references', (d) => {
       const getFirstName = (fullName: string) => (fullName?.trim()?.split(' ')[0] ?? '').replace(/[^A-Za-z'-]/g, '') || 'there';
 
       return {
@@ -598,7 +553,7 @@ I've attached the reference form and benefits guide as well. Happy to help with 
 Thank you!`,
       };
     },
-  },
+  ),
 ];
 
 // ----------------------

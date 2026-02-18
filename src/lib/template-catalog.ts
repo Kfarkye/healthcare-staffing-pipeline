@@ -155,6 +155,15 @@ export const TEMPLATE_CATALOG: TemplateCatalogEntry[] = [
         requiredFields: ['candidateName', 'facility', 'specialty'],
     },
     {
+        id: 'extension_offer',
+        name: 'Extension Opportunity',
+        category: CatalogCategory.OUTREACH,
+        messageType: CatalogMessageType.EMAIL,
+        intent: TemplateCatalogIntent.DRAFT_OUTREACH,
+        internalOnly: false,
+        requiredFields: ['candidateName', 'facility'],
+    },
+    {
         id: 'competitive_offer',
         name: 'Competitive Counter Offer',
         category: CatalogCategory.OUTREACH,
@@ -198,6 +207,17 @@ export const TEMPLATE_CATALOG: TemplateCatalogEntry[] = [
         intent: TemplateCatalogIntent.OFFER_DETAILS,
         internalOnly: false,
         requiredFields: ['facility', 'candidateName', 'weeklyTotal'],
+    },
+
+    // ── Snippet ─────────────────────────────────────────────────────────────
+    {
+        id: 'pay_package_snippet',
+        name: 'Pay Package Snippet',
+        category: CatalogCategory.SNIPPET,
+        messageType: CatalogMessageType.OTHER,
+        intent: TemplateCatalogIntent.OFFER_DETAILS,
+        internalOnly: false,
+        requiredFields: ['facility'],
     },
 
     // ── Text Messages (SMS) ────────────────────────────────────────────────

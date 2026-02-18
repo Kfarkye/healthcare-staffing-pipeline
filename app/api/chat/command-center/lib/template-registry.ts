@@ -1,11 +1,11 @@
 /**
  * ════════════════════════════════════════════════════════════════════════════════
- * TEMPLATE REGISTRY — Unified Template Source of Truth
+ * TEMPLATE REGISTRY — Server-Side Build Layer
  * ════════════════════════════════════════════════════════════════════════════════
  *
- * Single registry for ALL templates across the system.
- * Backend builders (email-builder.ts) and frontend templates (outreach/templates.ts)
- * are unified here with consistent metadata and build functions.
+ * Pairs shared catalog metadata (SSOT from src/lib/template-catalog.ts) with
+ * server-side build functions. Metadata (name, category, messageType, internalOnly,
+ * requiredFields) is pulled from the catalog — only build logic lives here.
  *
  * Usage:
  *   import { getTemplate, buildFromTemplate, getTemplatesByCategory } from './template-registry';
@@ -15,7 +15,7 @@
  *   const outreachTemplates = getTemplatesByCategory(TemplateCategory.OUTREACH);
  *
  * @module lib/template-registry
- * @version 1.0.0
+ * @version 2.0.0
  */
 
 import type {
@@ -28,8 +28,11 @@ import type {
     TemplateDefinition,
 } from '../types/index';
 
-import { TemplateType, TemplateCategory, MessageType } from '../types/index';
+import { TemplateType, MessageType } from '../types/index';
 import { CONFIG } from './config';
+
+// Shared catalog (SSOT for template metadata)
+import { getCatalogEntry } from '@/lib/template-catalog';
 
 // Backend builders
 import {
@@ -54,12 +57,44 @@ import {
 } from '@/outreach/templates';
 
 // ════════════════════════════════════════════════════════════════════════════════
-// Data Adapters
+// Catalog → Registry Factory
 // ════════════════════════════════════════════════════════════════════════════════
 
 /**
- * Safely parse a numeric value from mixed input (strings with $, %, commas, etc.)
+ * Build a TemplateDefinition by pulling metadata from the shared catalog.
+ * Only the build function and optional description are provided here.
+ * Throws at module-load time if the ID is missing from the catalog —
+ * this catches sync drift immediately.
  */
+function fromCatalog(
+    id: TemplateTypeValue,
+    build: (data: Record<string, any>) => TemplateOutput,
+    description?: string,
+): TemplateDefinition {
+    const catalog = getCatalogEntry(id);
+    if (!catalog) {
+        throw new Error(
+            `[template-registry] Template "${id}" not found in catalog. ` +
+            `Add it to src/lib/template-catalog.ts first.`,
+        );
+    }
+    return {
+        id,
+        name: catalog.name,
+        category: catalog.category as TemplateCategoryValue,
+        messageType: catalog.messageType as MessageTypeValue,
+        internalOnly: catalog.internalOnly,
+        requiredFields: catalog.requiredFields,
+        ...(description ? { description } : {}),
+        build,
+    };
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// Data Adapters
+// ════════════════════════════════════════════════════════════════════════════════
+
+/** Safely parse a numeric value from mixed input (strings with $, %, commas, etc.) */
 function toNumber(val: any): number {
     if (val == null) return 0;
     const cleaned = String(val).replace(/[^0-9.-]/g, '');
@@ -158,16 +193,16 @@ function findFrontendTemplate(frontendId: string): EmailTemplate | undefined {
 /** Resolve a frontend template to a build function, with SMS detection */
 function resolveFrontendBuild(
     id: TemplateTypeValue,
-    frontendId: string,
     isSms: boolean,
 ): (data: Record<string, any>) => TemplateOutput {
-    const template = findFrontendTemplate(frontendId);
+    // id doubles as frontend template id (same string values)
+    const template = findFrontendTemplate(id);
     if (!template) {
         return () => ({
             to: '',
             cc: [],
             subject: '',
-            body: `[Template "${frontendId}" not found]`,
+            body: `[Template "${id}" not found]`,
             missing: [],
             isComplete: false,
             templateType: id,
@@ -182,316 +217,46 @@ function resolveFrontendBuild(
 
 export const TEMPLATE_REGISTRY: TemplateDefinition[] = [
     // ── Backend Pipeline Templates ──────────────────────────────────────────
-    {
-        id: TemplateType.PAY_PACKAGE,
-        name: 'Pay Package Email',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['facility', 'location', 'startDate', 'weeklyTotal'],
-        description: 'Standard pay package outreach with full breakdown',
-        build: (data) => buildPayPackageEmail(data as any),
-    },
-    {
-        id: TemplateType.WORKING_TRAVELER,
-        name: 'Working Traveler Email',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['facility', 'weeklyTotal'],
-        description: 'Quick breakdown for active travelers',
-        build: (data) => buildWorkingTravelerEmail(data as any),
-    },
-    {
-        id: TemplateType.REENGAGED_TRAVELER,
-        name: 'Re-Engaged Traveler Email',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['facility', 'weeklyTotal'],
-        description: 'Reconnection email for previously engaged travelers',
-        build: (data) => buildReengagedTravelerEmail(data as any),
-    },
-    {
-        id: TemplateType.DOC_REQUEST,
-        name: 'Document Request',
-        category: TemplateCategory.OPS,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName'],
-        description: 'Request missing documents for submission',
-        build: (data) => buildDocRequestEmail(data as any),
-    },
-    {
-        id: TemplateType.REFERENCE_REQUEST,
-        name: 'Reference Request',
-        category: TemplateCategory.OPS,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName'],
-        description: 'Confirm and request candidate references',
-        build: (data) => buildReferenceRequestEmail(data as any),
-    },
-    {
-        id: TemplateType.LICENSING,
-        name: 'Licensing Request',
-        category: TemplateCategory.OPS,
-        messageType: MessageType.EMAIL,
-        internalOnly: true,
-        requiredFields: ['specialty', 'state'],
-        description: 'Internal licensing info request to team',
-        build: (data) => buildLicensingRequestEmail(data as any),
-    },
-    {
-        id: TemplateType.REASSIGNMENT,
-        name: 'Reassignment Request',
-        category: TemplateCategory.OPS,
-        messageType: MessageType.EMAIL,
-        internalOnly: true,
-        requiredFields: ['candidateName', 'novaId'],
-        description: 'Internal candidate reassignment request',
-        build: (data) => buildReassignmentRequestEmail(data as any),
-    },
-    {
-        id: TemplateType.MARGIN_APPROVAL,
-        name: 'Margin Approval Request',
-        category: TemplateCategory.OPS,
-        messageType: MessageType.EMAIL,
-        internalOnly: true,
-        requiredFields: ['candidateName', 'marginPercentage', 'reason', 'placementType', 'premiumNeeded', 'sentToComp', 'approverEmail'],
-        description: 'Internal margin approval workflow',
-        build: (data) => buildMarginApprovalEmail(data as any),
-    },
-    {
-        id: TemplateType.OFFER_DETAILS,
-        name: 'Offer Details Email',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['facility', 'candidateName', 'weeklyTotal'],
-        description: 'Formal offer details with next steps',
-        build: (data) => buildOfferDetailsEmail(data as any),
-    },
+    fromCatalog(TemplateType.PAY_PACKAGE,             (data) => buildPayPackageEmail(data as any),          'Standard pay package outreach with full breakdown'),
+    fromCatalog(TemplateType.WORKING_TRAVELER,        (data) => buildWorkingTravelerEmail(data as any),     'Quick breakdown for active travelers'),
+    fromCatalog(TemplateType.REENGAGED_TRAVELER,      (data) => buildReengagedTravelerEmail(data as any),   'Reconnection email for previously engaged travelers'),
+    fromCatalog(TemplateType.DOC_REQUEST,             (data) => buildDocRequestEmail(data as any),          'Request missing documents for submission'),
+    fromCatalog(TemplateType.REFERENCE_REQUEST,       (data) => buildReferenceRequestEmail(data as any),    'Confirm and request candidate references'),
+    fromCatalog(TemplateType.LICENSING,               (data) => buildLicensingRequestEmail(data as any),    'Internal licensing info request to team'),
+    fromCatalog(TemplateType.REASSIGNMENT,            (data) => buildReassignmentRequestEmail(data as any), 'Internal candidate reassignment request'),
+    fromCatalog(TemplateType.MARGIN_APPROVAL,         (data) => buildMarginApprovalEmail(data as any),      'Internal margin approval workflow'),
+    fromCatalog(TemplateType.OFFER_DETAILS,           (data) => buildOfferDetailsEmail(data as any),        'Formal offer details with next steps'),
 
     // ── Outreach Email Templates (frontend) ─────────────────────────────────
-    {
-        id: TemplateType.INITIAL_OUTREACH,
-        name: 'Initial Outreach – Full Details',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility', 'specialty'],
-        description: 'Full details outreach for new candidates',
-        build: resolveFrontendBuild(TemplateType.INITIAL_OUTREACH, 'initial_outreach', false),
-    },
-    {
-        id: TemplateType.HOURLY_RATE_OUTREACH,
-        name: 'Hourly Rate Offer',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility', 'specialty'],
-        description: 'Outreach emphasizing hourly rate',
-        build: resolveFrontendBuild(TemplateType.HOURLY_RATE_OUTREACH, 'hourly_rate_outreach', false),
-    },
-    {
-        id: TemplateType.RUSH_MA_FULL_DETAILS,
-        name: 'Rush MA – Full Details + References',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility'],
-        description: 'Rush University Medical Assistant with references',
-        build: resolveFrontendBuild(TemplateType.RUSH_MA_FULL_DETAILS, 'rush_ma_full_details', false),
-    },
-    {
-        id: TemplateType.REENGAGEMENT,
-        name: 'Re-engagement – Full Details Pitch',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility', 'specialty'],
-        description: 'Re-engagement with full assignment details',
-        build: resolveFrontendBuild(TemplateType.REENGAGEMENT, 'reengagement', false),
-    },
-    {
-        id: TemplateType.WORKING_TRAVELER_INTEREST,
-        name: 'Working Traveler – Interested Click',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility'],
-        description: 'Follow-up for working travelers who clicked interested',
-        build: resolveFrontendBuild(TemplateType.WORKING_TRAVELER_INTEREST, 'working_traveler_interest', false),
-    },
-    {
-        id: TemplateType.REENGAGED_TRAVELER_INTEREST,
-        name: 'Re-Engaged Traveler – Interested Click',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility'],
-        description: 'Follow-up for re-engaged travelers who clicked interested',
-        build: resolveFrontendBuild(TemplateType.REENGAGED_TRAVELER_INTEREST, 'reengaged_traveler_interest', false),
-    },
-    {
-        id: TemplateType.COMPETITIVE_OFFER,
-        name: 'Competitive Counter Offer',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility'],
-        description: 'Counter offer when candidate is considering other agencies',
-        build: resolveFrontendBuild(TemplateType.COMPETITIVE_OFFER, 'competitive_offer', false),
-    },
-    {
-        id: TemplateType.REFERRAL_REQUEST,
-        name: 'Referral Request',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'specialty'],
-        description: 'Ask candidate for referrals',
-        build: resolveFrontendBuild(TemplateType.REFERRAL_REQUEST, 'referral_request', false),
-    },
-    {
-        id: TemplateType.SUBMISSION_WITH_REFERENCES,
-        name: 'Assignment Submission + References',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility', 'specialty'],
-        description: 'Submission confirmation with reference instructions',
-        build: resolveFrontendBuild(TemplateType.SUBMISSION_WITH_REFERENCES, 'submission_with_references', false),
-    },
+    fromCatalog(TemplateType.INITIAL_OUTREACH,             resolveFrontendBuild(TemplateType.INITIAL_OUTREACH, false),             'Full details outreach for new candidates'),
+    fromCatalog(TemplateType.HOURLY_RATE_OUTREACH,         resolveFrontendBuild(TemplateType.HOURLY_RATE_OUTREACH, false),         'Outreach emphasizing hourly rate'),
+    fromCatalog(TemplateType.RUSH_MA_FULL_DETAILS,         resolveFrontendBuild(TemplateType.RUSH_MA_FULL_DETAILS, false),         'Rush University Medical Assistant with references'),
+    fromCatalog(TemplateType.REENGAGEMENT,                 resolveFrontendBuild(TemplateType.REENGAGEMENT, false),                 'Re-engagement with full assignment details'),
+    fromCatalog(TemplateType.WORKING_TRAVELER_INTEREST,    resolveFrontendBuild(TemplateType.WORKING_TRAVELER_INTEREST, false),    'Follow-up for working travelers who clicked interested'),
+    fromCatalog(TemplateType.REENGAGED_TRAVELER_INTEREST,  resolveFrontendBuild(TemplateType.REENGAGED_TRAVELER_INTEREST, false),  'Follow-up for re-engaged travelers who clicked interested'),
+    fromCatalog(TemplateType.COMPETITIVE_OFFER,            resolveFrontendBuild(TemplateType.COMPETITIVE_OFFER, false),            'Counter offer when candidate is considering other agencies'),
+    fromCatalog(TemplateType.REFERRAL_REQUEST,             resolveFrontendBuild(TemplateType.REFERRAL_REQUEST, false),             'Ask candidate for referrals'),
+    fromCatalog(TemplateType.SUBMISSION_WITH_REFERENCES,   resolveFrontendBuild(TemplateType.SUBMISSION_WITH_REFERENCES, false),   'Submission confirmation with reference instructions'),
 
     // ── Snippet Templates ───────────────────────────────────────────────────
-    {
-        id: TemplateType.PAY_PACKAGE_SNIPPET,
-        name: 'Pay Package & Facility Info Snippet',
-        category: TemplateCategory.SNIPPET,
-        messageType: MessageType.OTHER,
-        internalOnly: false,
-        requiredFields: ['facility'],
-        description: 'Copy-paste snippet with pay and facility details',
-        build: resolveFrontendBuild(TemplateType.PAY_PACKAGE_SNIPPET, 'pay_package_snippet', false),
-    },
+    fromCatalog(TemplateType.PAY_PACKAGE_SNIPPET, resolveFrontendBuild(TemplateType.PAY_PACKAGE_SNIPPET, false), 'Copy-paste snippet with pay and facility details'),
 
     // ── SMS Templates ───────────────────────────────────────────────────────
-    {
-        id: TemplateType.TEXT_QUICK_PITCH,
-        name: 'Quick Pitch Text',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.SMS,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility'],
-        description: 'Quick SMS pitch with full pay details',
-        build: resolveFrontendBuild(TemplateType.TEXT_QUICK_PITCH, 'text_quick_pitch', true),
-    },
-    {
-        id: TemplateType.TEXT_FOLLOWUP,
-        name: 'Follow-up Text',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.SMS,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility'],
-        description: 'Quick follow-up check via text',
-        build: resolveFrontendBuild(TemplateType.TEXT_FOLLOWUP, 'text_followup', true),
-    },
-    {
-        id: TemplateType.TEXT_URGENT,
-        name: 'Urgent – Fast Decision Text',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.SMS,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility'],
-        description: 'Urgent text for time-sensitive roles',
-        build: resolveFrontendBuild(TemplateType.TEXT_URGENT, 'text_urgent', true),
-    },
-    {
-        id: TemplateType.TEXT_LAST_CHANCE,
-        name: 'Last Chance Text',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.SMS,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility'],
-        description: 'Final follow-up text before closing',
-        build: resolveFrontendBuild(TemplateType.TEXT_LAST_CHANCE, 'text_last_chance', true),
-    },
-    {
-        id: TemplateType.TEXT_SUBMITTED,
-        name: 'Submission Confirmation Text',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.SMS,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility'],
-        description: 'Text confirming submission to facility',
-        build: resolveFrontendBuild(TemplateType.TEXT_SUBMITTED, 'text_submitted', true),
-    },
-    {
-        id: TemplateType.TEXT_OFFER_RECEIVED,
-        name: 'Offer Received Text',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.SMS,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility'],
-        description: 'Text notifying candidate of offer',
-        build: resolveFrontendBuild(TemplateType.TEXT_OFFER_RECEIVED, 'text_offer_received', true),
-    },
-    {
-        id: TemplateType.TEXT_SUBMISSION_GENERAL,
-        name: 'Assignment Submission Text',
-        category: TemplateCategory.OUTREACH,
-        messageType: MessageType.SMS,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'facility'],
-        description: 'General submission confirmation via text',
-        build: resolveFrontendBuild(TemplateType.TEXT_SUBMISSION_GENERAL, 'text_submission_general', true),
-    },
+    fromCatalog(TemplateType.TEXT_QUICK_PITCH,         resolveFrontendBuild(TemplateType.TEXT_QUICK_PITCH, true),         'Quick SMS pitch with full pay details'),
+    fromCatalog(TemplateType.TEXT_FOLLOWUP,            resolveFrontendBuild(TemplateType.TEXT_FOLLOWUP, true),            'Quick follow-up check via text'),
+    fromCatalog(TemplateType.TEXT_URGENT,              resolveFrontendBuild(TemplateType.TEXT_URGENT, true),              'Urgent text for time-sensitive roles'),
+    fromCatalog(TemplateType.TEXT_LAST_CHANCE,         resolveFrontendBuild(TemplateType.TEXT_LAST_CHANCE, true),         'Final follow-up text before closing'),
+    fromCatalog(TemplateType.TEXT_SUBMITTED,           resolveFrontendBuild(TemplateType.TEXT_SUBMITTED, true),           'Text confirming submission to facility'),
+    fromCatalog(TemplateType.TEXT_OFFER_RECEIVED,      resolveFrontendBuild(TemplateType.TEXT_OFFER_RECEIVED, true),      'Text notifying candidate of offer'),
+    fromCatalog(TemplateType.TEXT_SUBMISSION_GENERAL,   resolveFrontendBuild(TemplateType.TEXT_SUBMISSION_GENERAL, true),  'General submission confirmation via text'),
 
     // ── Ops Templates (frontend variants) ───────────────────────────────────
-    {
-        id: TemplateType.OPS_REASSIGNMENT,
-        name: 'Reassignment Request (Ops)',
-        category: TemplateCategory.OPS,
-        messageType: MessageType.EMAIL,
-        internalOnly: true,
-        requiredFields: ['candidateName'],
-        description: 'Ops-format reassignment request',
-        build: resolveFrontendBuild(TemplateType.OPS_REASSIGNMENT, 'ops_reassignment', false),
-    },
-    {
-        id: TemplateType.OPS_DOCUMENTS_AND_REFERENCES,
-        name: 'Documents & References',
-        category: TemplateCategory.OPS,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName', 'specialty'],
-        description: 'Request docs and references with benefits info',
-        build: resolveFrontendBuild(TemplateType.OPS_DOCUMENTS_AND_REFERENCES, 'ops_documents_and_references', false),
-    },
-    {
-        id: TemplateType.OPS_LICENSING_INFO,
-        name: 'Licensing Info Request (Ops)',
-        category: TemplateCategory.OPS,
-        messageType: MessageType.EMAIL,
-        internalOnly: true,
-        requiredFields: ['specialty', 'state'],
-        description: 'Ops-format licensing information request',
-        build: resolveFrontendBuild(TemplateType.OPS_LICENSING_INFO, 'ops_licensing_info', false),
-    },
+    fromCatalog(TemplateType.OPS_REASSIGNMENT,              resolveFrontendBuild(TemplateType.OPS_REASSIGNMENT, false),              'Ops-format reassignment request'),
+    fromCatalog(TemplateType.OPS_DOCUMENTS_AND_REFERENCES,  resolveFrontendBuild(TemplateType.OPS_DOCUMENTS_AND_REFERENCES, false),  'Request docs and references with benefits info'),
+    fromCatalog(TemplateType.OPS_LICENSING_INFO,            resolveFrontendBuild(TemplateType.OPS_LICENSING_INFO, false),             'Ops-format licensing information request'),
 
     // ── Response Templates ──────────────────────────────────────────────────
-    {
-        id: TemplateType.RESPONSE_LTC_AND_REFERENCES,
-        name: 'LTC & Reference Request Response',
-        category: TemplateCategory.RESPONSE,
-        messageType: MessageType.EMAIL,
-        internalOnly: false,
-        requiredFields: ['candidateName'],
-        description: 'Response template for LTC and reference follow-up',
-        build: resolveFrontendBuild(TemplateType.RESPONSE_LTC_AND_REFERENCES, 'response_ltc_and_references', false),
-    },
+    fromCatalog(TemplateType.RESPONSE_LTC_AND_REFERENCES, resolveFrontendBuild(TemplateType.RESPONSE_LTC_AND_REFERENCES, false), 'Response template for LTC and reference follow-up'),
 ];
 
 // ════════════════════════════════════════════════════════════════════════════════
