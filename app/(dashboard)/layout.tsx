@@ -1,14 +1,11 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, Suspense } from 'react';
 import { usePathname } from 'next/navigation';
 import { Sidebar } from '../../src/components/Sidebar';
 import { WeissachV2 } from '../../src/components/CommandCenterV2';
 import { useLayout } from '../../src/context/LayoutContext';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// Force all dashboard routes to be dynamic - skip static generation
-export const dynamic = 'force-dynamic';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
     const { workspaceMode } = useLayout();
@@ -55,7 +52,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 </AnimatePresence>
             </motion.main>
 
-            <WeissachV2 />
+            <Suspense>
+                <WeissachV2 />
+            </Suspense>
         </div>
     );
 }
