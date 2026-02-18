@@ -66,6 +66,10 @@ export interface SendMessageOptions {
     mode?: 'default' | 'cold_outreach' | 'batch_reassign' | 'reply_mode';
     /** When true, mode is locked and Tier 0 routing overrides. */
     modeLocked?: boolean;
+    /** Explicit template type from template picker (bypasses classification). */
+    templateType?: string;
+    /** Explicit message type from template picker (email, sms, etc.). */
+    messageType?: 'auto' | 'email' | 'sms' | 'slack' | 'other';
     /** Link-only attachments (e.g., when base64 is skipped for payload safety). */
     attachmentLinks?: Array<{ url: string; mimeType: string; fileName?: string }>;
     /** Called once the request is accepted (after in-flight guard passes). */
@@ -482,6 +486,8 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                 const systemContext = sendOptions?.systemContext?.trim() || '';
                 const mode = sendOptions?.mode;
                 const modeLocked = sendOptions?.modeLocked;
+                const templateType = sendOptions?.templateType;
+                const messageType = sendOptions?.messageType;
 
                 const response = await fetch('/api/chat/command-center', {
                     method: 'POST',
@@ -493,6 +499,8 @@ export function useCommandCenterChat(options: UseCommandCenterChatOptions = {}):
                         systemContext,
                         mode,
                         modeLocked,
+                        templateType,
+                        messageType,
                         messages: requestMessages,
                         context: stableContext,
                     }),

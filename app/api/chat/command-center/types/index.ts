@@ -361,6 +361,8 @@ export interface HandlerInput {
     modeContext: string;
     userContext: Record<string, any>;
     messageType?: MessageTypeValue;
+    /** Explicit template type from template picker (bypasses classification). */
+    templateType?: TemplateTypeValue;
 }
 
 /**

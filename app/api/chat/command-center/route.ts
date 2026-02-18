@@ -30,6 +30,7 @@ import type {
     Logger,
     ChatModeType,
     MessageTypeValue,
+    TemplateTypeValue,
 } from './types/index';
 import { Intent, ChatMode, MessageType, TemplateType } from './types/index';
 import { classify } from './lib/router';
@@ -63,6 +64,7 @@ const RequestSchema = z.object({
     mode: z.enum(['default', 'cold_outreach', 'batch_reassign', 'reply_mode']).optional(),
     modeLocked: z.boolean().optional(),
     messageType: z.enum(['auto', 'email', 'sms', 'slack', 'other']).optional(),
+    templateType: z.string().optional(),
 });
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -314,7 +316,7 @@ export async function POST(request: Request) {
         return createErrorResponse('Invalid request schema', traceId, 400);
     }
 
-    const { messages, context, systemContext, mode, modeLocked, messageType } = parseResult.data;
+    const { messages, context, systemContext, mode, modeLocked, messageType, templateType } = parseResult.data;
 
     // ══════════════════════════════════════════════════════════════════════════
     // 3. Initialize Clients
@@ -397,6 +399,23 @@ export async function POST(request: Request) {
         };
     }
 
+    // If an explicit templateType was provided (from template picker),
+    // override classification to route to the email handler.
+    if (templateType) {
+        logger.info('template_type_override', {
+            explicitTemplate: templateType,
+            originalIntent: classification.intent,
+        });
+        classification = {
+            ...classification,
+            intent: Intent.DRAFT_EMAIL,
+            templateType: templateType as TemplateTypeValue,
+            fastPath: true,
+            confidence: 1.0,
+            reason: `Explicit template: ${templateType}`,
+        };
+    }
+
     logger.info('intent_classified', {
         intent: classification.intent,
         templateType: classification.templateType,
@@ -425,6 +444,7 @@ export async function POST(request: Request) {
         modeContext: systemContext || '',
         userContext: context || {},
         messageType: resolvedMessageType,
+        templateType: templateType as TemplateTypeValue | undefined,
     };
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -437,12 +457,12 @@ export async function POST(request: Request) {
 
         // Email intents → Email Handler
         if (intentConfig.handler === 'email') {
-            logger.info('routing_to_email_handler', { intent: classification.intent });
+            logger.info('routing_to_email_handler', { intent: classification.intent, explicitTemplate: templateType });
 
             const result = await handleEmailIntent(
                 handlerInput,
                 handlerContext,
-                classification.templateType,
+                (templateType as TemplateTypeValue) || classification.templateType,
                 classification.intent
             );
 
