@@ -36,6 +36,7 @@ import { Intent, ChatMode, MessageType, TemplateType } from './types/index';
 import { classify } from './lib/router';
 import { getIntentConfig, HTTP_CONFIG } from './lib/config';
 import { createCommandCenterTools } from './lib/tools';
+import { createPipelineTools } from './lib/pipeline-tools';
 import { handleEmailIntent } from './handlers/email';
 import { handleChatIntent } from './handlers/chat';
 import { getCatalogEntry } from '@/lib/template-catalog';
@@ -479,7 +480,9 @@ export async function POST(request: Request) {
 
     try {
         const intentConfig = getIntentConfig(classification.intent);
-        const tools = intentConfig.requiresTools ? createCommandCenterTools(supabase, logger) : undefined;
+        const tools = intentConfig.requiresTools
+            ? { ...createCommandCenterTools(supabase, logger), ...createPipelineTools(supabase, logger) }
+            : undefined;
 
         // Email intents → Email Handler
         if (intentConfig.handler === 'email') {
