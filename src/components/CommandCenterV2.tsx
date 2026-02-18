@@ -119,6 +119,7 @@ import type { RawBlock, VerdictInfo } from './composeDecisionCard';
 import { useCommandCenterChat } from '../features/command-center-chat/hooks/useCommandCenterChat';
 import { useFileUpload, type Attachment } from '../features/command-center-chat/hooks/useFileUpload';
 import { usePinnedScroll } from '../features/command-center-chat/hooks/usePinnedScroll';
+import { useDeepLink, type DeepLinkResult } from '../features/command-center-chat/hooks/useDeepLink';
 import { useLayout } from '../context/LayoutContext';
 import {
     TEMPLATE_CATALOG,
@@ -2865,7 +2866,8 @@ class ChatErrorBoundary extends Component<
 const InnerWeissach: FC<{
     isOpen: boolean;
     setIsOpen: (v: boolean) => void;
-}> = ({ isOpen, setIsOpen }) => {
+    deepLink: DeepLinkResult;
+}> = ({ isOpen, setIsOpen, deepLink }) => {
     const [isMinimized, setIsMinimized] = useState(false);
     const { workspaceMode, setWorkspaceMode } = useLayout();
     const [inputValue, setInputValue] = useState('');
@@ -2890,6 +2892,23 @@ const InnerWeissach: FC<{
             return () => cancelAnimationFrame(raf);
         }
     }, [isOpen, isMinimized]);
+
+    // Deep link: auto-select template, pre-fill input, consume URL params
+    const deepLinkAppliedRef = useRef(false);
+    useEffect(() => {
+        if (deepLinkAppliedRef.current || !deepLink.hasParams) return;
+        deepLinkAppliedRef.current = true;
+
+        if (deepLink.template) {
+            setSelectedTemplate(deepLink.template);
+        }
+        if (deepLink.inputHint) {
+            setInputValue(deepLink.inputHint);
+        }
+        // Clear the deep link params from URL
+        deepLink.consume();
+    }, [deepLink]);
+
     // Mobile detection
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -2946,10 +2965,24 @@ const InnerWeissach: FC<{
 
     const isKeyboardOpen = isMobile && keyboardOffset > 0;
 
-    // Chat hook
+    // Chat hook — inject deep link context so server has pre-filled data
+    const deepLinkContext = useMemo(() => {
+        if (!deepLink.hasParams) return undefined;
+        const ctx: Record<string, string> = {};
+        const c = deepLink.context;
+        if (c.candidateName) ctx.candidateName = c.candidateName;
+        if (c.candidateEmail) ctx.candidateEmail = c.candidateEmail;
+        if (c.facility) ctx.facility = c.facility;
+        if (c.specialty) ctx.specialty = c.specialty;
+        if (c.location) ctx.location = c.location;
+        if (c.novaId) ctx.novaId = c.novaId;
+        return Object.keys(ctx).length > 0 ? ctx : undefined;
+    }, [deepLink.hasParams, deepLink.context]);
+
     const {
         messages, isLoading, isStreaming, error, sendMessage, clearChat, stop,
     } = useCommandCenterChat({
+        context: deepLinkContext,
         onToolCall: useCallback((toolName: string, args: any) => {
             if (toolName === 'set_ui_state') {
                 window.dispatchEvent(new CustomEvent('set_dashboard_ui_state', { detail: args }));
@@ -3421,11 +3454,12 @@ const InnerWeissach: FC<{
 export { humanizeFilename, UserAttachment };
 
 export const WeissachV2: FC = () => {
-    const [isOpen, setIsOpen] = useState(false);
+    const deepLink = useDeepLink();
+    const [isOpen, setIsOpen] = useState(() => deepLink.shouldOpen);
     return (
         <ChatErrorBoundary>
             <ToastProvider>
-                <InnerWeissach isOpen={isOpen} setIsOpen={setIsOpen} />
+                <InnerWeissach isOpen={isOpen} setIsOpen={setIsOpen} deepLink={deepLink} />
             </ToastProvider>
         </ChatErrorBoundary>
     );
