@@ -328,10 +328,14 @@ export async function handleEmailIntent(
         } else {
             email = buildEmail(templateType, data, effectiveMessageType);
         }
-        logger.info('email_built', {
+        logger.info('template_built', {
             templateType: email.templateType,
+            messageType: email.messageType,
             isComplete: email.isComplete,
-            missing: email.missing
+            missingCount: email.missing.length,
+            missing: email.missing,
+            source: registryOutput ? 'registry' : 'core_builder',
+            explicitPick: !!input.templateType,
         });
 
         const needsMessageType = !INTERNAL_TEMPLATES.has(templateType) && effectiveMessageType === MessageType.AUTO;

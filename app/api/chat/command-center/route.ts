@@ -38,6 +38,7 @@ import { getIntentConfig, HTTP_CONFIG } from './lib/config';
 import { createCommandCenterTools } from './lib/tools';
 import { handleEmailIntent } from './handlers/email';
 import { handleChatIntent } from './handlers/chat';
+import { getCatalogEntry } from '@/lib/template-catalog';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // Runtime Configuration
@@ -400,20 +401,32 @@ export async function POST(request: Request) {
     }
 
     // If an explicit templateType was provided (from template picker),
-    // override classification to route to the email handler.
+    // resolve the correct intent from the catalog — don't hard-route to DRAFT_EMAIL.
     if (templateType) {
-        logger.info('template_type_override', {
-            explicitTemplate: templateType,
-            originalIntent: classification.intent,
-        });
-        classification = {
-            ...classification,
-            intent: Intent.DRAFT_EMAIL,
-            templateType: templateType as TemplateTypeValue,
-            fastPath: true,
-            confidence: 1.0,
-            reason: `Explicit template: ${templateType}`,
-        };
+        const catalogEntry = getCatalogEntry(templateType);
+        if (catalogEntry) {
+            const resolvedIntent = catalogEntry.intent as typeof classification.intent;
+            logger.info('template_type_override', {
+                explicitTemplate: templateType,
+                resolvedIntent,
+                originalIntent: classification.intent,
+                messageType: catalogEntry.messageType,
+                internalOnly: catalogEntry.internalOnly,
+            });
+            classification = {
+                ...classification,
+                intent: resolvedIntent,
+                templateType: templateType as TemplateTypeValue,
+                fastPath: true,
+                confidence: 1.0,
+                reason: `Explicit template: ${templateType} → ${resolvedIntent}`,
+            };
+        } else {
+            logger.warn('template_type_not_in_catalog', {
+                explicitTemplate: templateType,
+                fallback: 'classification_unchanged',
+            });
+        }
     }
 
     logger.info('intent_classified', {

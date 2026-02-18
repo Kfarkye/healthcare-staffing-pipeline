@@ -120,6 +120,12 @@ import { useCommandCenterChat } from '../features/command-center-chat/hooks/useC
 import { useFileUpload, type Attachment } from '../features/command-center-chat/hooks/useFileUpload';
 import { usePinnedScroll } from '../features/command-center-chat/hooks/usePinnedScroll';
 import { useLayout } from '../context/LayoutContext';
+import {
+    TEMPLATE_CATALOG,
+    PICKER_CATEGORIES,
+    type TemplateCatalogEntry,
+    CatalogMessageType,
+} from '../lib/template-catalog';
 
 
 // ============================================================================
@@ -966,55 +972,21 @@ const ModeChips: FC<{ value: string; onChange: (v: string) => void }> = memo(
 ModeChips.displayName = 'ModeChips';
 
 // ---------------------------------------------------------------------------
-// Template Picker — unified template selection
+// Template Picker — catalog-driven, internalOnly gated
 // ---------------------------------------------------------------------------
 
-interface TemplatePickerItem {
-    id: string;
-    name: string;
-    category: 'Outreach' | 'Text' | 'Ops' | 'Response';
-}
-
-const TEMPLATE_PICKER_ITEMS: TemplatePickerItem[] = [
-    // Outreach Email
-    { id: 'pay_package', name: 'Pay Package', category: 'Outreach' },
-    { id: 'initial_outreach', name: 'Initial Outreach – Full Details', category: 'Outreach' },
-    { id: 'hourly_rate_outreach', name: 'Hourly Rate Offer', category: 'Outreach' },
-    { id: 'working_traveler', name: 'Working Traveler', category: 'Outreach' },
-    { id: 'working_traveler_interest', name: 'Working Traveler – Interested', category: 'Outreach' },
-    { id: 'reengaged_traveler', name: 'Re-Engaged Traveler', category: 'Outreach' },
-    { id: 'reengaged_traveler_interest', name: 'Re-Engaged – Interested', category: 'Outreach' },
-    { id: 'reengagement', name: 'Re-engagement Pitch', category: 'Outreach' },
-    { id: 'competitive_offer', name: 'Competitive Counter Offer', category: 'Outreach' },
-    { id: 'referral_request', name: 'Referral Request', category: 'Outreach' },
-    { id: 'submission_with_references', name: 'Submission + References', category: 'Outreach' },
-    { id: 'rush_ma_full_details', name: 'Rush MA – Full Details', category: 'Outreach' },
-    { id: 'offer_details', name: 'Offer Details', category: 'Outreach' },
-    // Text Messages
-    { id: 'text_quick_pitch', name: 'Quick Pitch', category: 'Text' },
-    { id: 'text_followup', name: 'Follow-up Check', category: 'Text' },
-    { id: 'text_urgent', name: 'Urgent – Fast Decision', category: 'Text' },
-    { id: 'text_last_chance', name: 'Last Chance', category: 'Text' },
-    { id: 'text_submitted', name: 'Submission Confirmation', category: 'Text' },
-    { id: 'text_offer_received', name: 'Offer Received', category: 'Text' },
-    { id: 'text_submission_general', name: 'Submission General', category: 'Text' },
-    // Ops
-    { id: 'doc_request', name: 'Document Request', category: 'Ops' },
-    { id: 'reference_request', name: 'Reference Request', category: 'Ops' },
-    { id: 'ops_documents_and_references', name: 'Docs & References', category: 'Ops' },
-    { id: 'licensing', name: 'Licensing Request', category: 'Ops' },
-    { id: 'reassignment', name: 'Reassignment Request', category: 'Ops' },
-    { id: 'margin_approval', name: 'Margin Approval', category: 'Ops' },
-    // Response
-    { id: 'response_ltc_and_references', name: 'LTC & References', category: 'Response' },
-];
-
-const TEMPLATE_CATEGORIES = ['Outreach', 'Text', 'Ops', 'Response'] as const;
 const CATEGORY_ICONS: Record<string, ReactNode> = {
-    Outreach: <Mail size={11} strokeWidth={1.5} />,
-    Text: <MessageSquare size={11} strokeWidth={1.5} />,
-    Ops: <Shield size={11} strokeWidth={1.5} />,
-    Response: <ChevronRight size={11} strokeWidth={1.5} />,
+    outreach: <Mail size={11} strokeWidth={1.5} />,
+    sms: <MessageSquare size={11} strokeWidth={1.5} />,
+    ops: <Shield size={11} strokeWidth={1.5} />,
+    response: <ChevronRight size={11} strokeWidth={1.5} />,
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+    outreach: 'Outreach',
+    sms: 'Text',
+    ops: 'Ops',
+    response: 'Response',
 };
 
 const TemplatePicker: FC<{
@@ -1022,10 +994,13 @@ const TemplatePicker: FC<{
     onToggle: () => void;
     onSelect: (templateId: string, templateName: string) => void;
 }> = memo(({ isOpen, onToggle, onSelect }) => {
+    // Group catalog entries by picker category, filtering out internalOnly
     const grouped = useMemo(() => {
-        const groups: Record<string, TemplatePickerItem[]> = {};
-        for (const item of TEMPLATE_PICKER_ITEMS) {
-            (groups[item.category] ??= []).push(item);
+        const groups: Record<string, TemplateCatalogEntry[]> = {};
+        for (const entry of TEMPLATE_CATALOG) {
+            if (entry.internalOnly) continue;
+            const groupKey = entry.messageType === CatalogMessageType.SMS ? 'sms' : entry.category;
+            (groups[groupKey] ??= []).push(entry);
         }
         return groups;
     }, []);
@@ -1040,15 +1015,15 @@ const TemplatePicker: FC<{
                     transition={{ ...SYSTEM.anim.fluid, duration: 0.2 }}
                     className="mb-2 max-h-[280px] overflow-y-auto rounded-2xl bg-[#0A0A0B] ring-1 ring-white/[0.08] shadow-[0_8px_40px_-8px_rgba(0,0,0,0.6)] scrollbar-hide"
                 >
-                    {TEMPLATE_CATEGORIES.map(cat => {
-                        const items = grouped[cat];
+                    {PICKER_CATEGORIES.map(({ key, label }) => {
+                        const items = grouped[key];
                         if (!items?.length) return null;
                         return (
-                            <div key={cat}>
+                            <div key={key}>
                                 <div className="sticky top-0 z-10 px-4 py-2 bg-[#0A0A0B]/95 backdrop-blur-sm border-b border-white/[0.04]">
                                     <div className="flex items-center gap-2 text-zinc-500">
-                                        {CATEGORY_ICONS[cat]}
-                                        <span className="text-[9px] font-semibold tracking-[0.08em] uppercase">{cat}</span>
+                                        {CATEGORY_ICONS[key]}
+                                        <span className="text-[9px] font-semibold tracking-[0.08em] uppercase">{label}</span>
                                     </div>
                                 </div>
                                 <div className="px-2 py-1">
