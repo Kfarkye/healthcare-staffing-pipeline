@@ -104,7 +104,7 @@ import {
     X, Minimize2, Maximize2, ArrowUp, Copy, Check, Square, Paperclip,
     FileText, Users, Activity, ChevronRight, ChevronDown,
     Zap, Loader2, Image as ImageIcon, ExternalLink, Mail, Camera,
-    Shield, DollarSign, Phone, MapPin, MessageSquare,
+    Shield, DollarSign, Phone, MapPin, MessageSquare, LayoutList,
 } from 'lucide-react';
 
 import {
@@ -966,6 +966,113 @@ const ModeChips: FC<{ value: string; onChange: (v: string) => void }> = memo(
 ModeChips.displayName = 'ModeChips';
 
 // ---------------------------------------------------------------------------
+// Template Picker — unified template selection
+// ---------------------------------------------------------------------------
+
+interface TemplatePickerItem {
+    id: string;
+    name: string;
+    category: 'Outreach' | 'Text' | 'Ops' | 'Response';
+}
+
+const TEMPLATE_PICKER_ITEMS: TemplatePickerItem[] = [
+    // Outreach Email
+    { id: 'pay_package', name: 'Pay Package', category: 'Outreach' },
+    { id: 'initial_outreach', name: 'Initial Outreach – Full Details', category: 'Outreach' },
+    { id: 'hourly_rate_outreach', name: 'Hourly Rate Offer', category: 'Outreach' },
+    { id: 'working_traveler', name: 'Working Traveler', category: 'Outreach' },
+    { id: 'working_traveler_interest', name: 'Working Traveler – Interested', category: 'Outreach' },
+    { id: 'reengaged_traveler', name: 'Re-Engaged Traveler', category: 'Outreach' },
+    { id: 'reengaged_traveler_interest', name: 'Re-Engaged – Interested', category: 'Outreach' },
+    { id: 'reengagement', name: 'Re-engagement Pitch', category: 'Outreach' },
+    { id: 'competitive_offer', name: 'Competitive Counter Offer', category: 'Outreach' },
+    { id: 'referral_request', name: 'Referral Request', category: 'Outreach' },
+    { id: 'submission_with_references', name: 'Submission + References', category: 'Outreach' },
+    { id: 'rush_ma_full_details', name: 'Rush MA – Full Details', category: 'Outreach' },
+    { id: 'offer_details', name: 'Offer Details', category: 'Outreach' },
+    // Text Messages
+    { id: 'text_quick_pitch', name: 'Quick Pitch', category: 'Text' },
+    { id: 'text_followup', name: 'Follow-up Check', category: 'Text' },
+    { id: 'text_urgent', name: 'Urgent – Fast Decision', category: 'Text' },
+    { id: 'text_last_chance', name: 'Last Chance', category: 'Text' },
+    { id: 'text_submitted', name: 'Submission Confirmation', category: 'Text' },
+    { id: 'text_offer_received', name: 'Offer Received', category: 'Text' },
+    { id: 'text_submission_general', name: 'Submission General', category: 'Text' },
+    // Ops
+    { id: 'doc_request', name: 'Document Request', category: 'Ops' },
+    { id: 'reference_request', name: 'Reference Request', category: 'Ops' },
+    { id: 'ops_documents_and_references', name: 'Docs & References', category: 'Ops' },
+    { id: 'licensing', name: 'Licensing Request', category: 'Ops' },
+    { id: 'reassignment', name: 'Reassignment Request', category: 'Ops' },
+    { id: 'margin_approval', name: 'Margin Approval', category: 'Ops' },
+    // Response
+    { id: 'response_ltc_and_references', name: 'LTC & References', category: 'Response' },
+];
+
+const TEMPLATE_CATEGORIES = ['Outreach', 'Text', 'Ops', 'Response'] as const;
+const CATEGORY_ICONS: Record<string, ReactNode> = {
+    Outreach: <Mail size={11} strokeWidth={1.5} />,
+    Text: <MessageSquare size={11} strokeWidth={1.5} />,
+    Ops: <Shield size={11} strokeWidth={1.5} />,
+    Response: <ChevronRight size={11} strokeWidth={1.5} />,
+};
+
+const TemplatePicker: FC<{
+    isOpen: boolean;
+    onToggle: () => void;
+    onSelect: (templateId: string, templateName: string) => void;
+}> = memo(({ isOpen, onToggle, onSelect }) => {
+    const grouped = useMemo(() => {
+        const groups: Record<string, TemplatePickerItem[]> = {};
+        for (const item of TEMPLATE_PICKER_ITEMS) {
+            (groups[item.category] ??= []).push(item);
+        }
+        return groups;
+    }, []);
+
+    return (
+        <AnimatePresence>
+            {isOpen && (
+                <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    transition={{ ...SYSTEM.anim.fluid, duration: 0.2 }}
+                    className="mb-2 max-h-[280px] overflow-y-auto rounded-2xl bg-[#0A0A0B] ring-1 ring-white/[0.08] shadow-[0_8px_40px_-8px_rgba(0,0,0,0.6)] scrollbar-hide"
+                >
+                    {TEMPLATE_CATEGORIES.map(cat => {
+                        const items = grouped[cat];
+                        if (!items?.length) return null;
+                        return (
+                            <div key={cat}>
+                                <div className="sticky top-0 z-10 px-4 py-2 bg-[#0A0A0B]/95 backdrop-blur-sm border-b border-white/[0.04]">
+                                    <div className="flex items-center gap-2 text-zinc-500">
+                                        {CATEGORY_ICONS[cat]}
+                                        <span className="text-[9px] font-semibold tracking-[0.08em] uppercase">{cat}</span>
+                                    </div>
+                                </div>
+                                <div className="px-2 py-1">
+                                    {items.map(item => (
+                                        <button
+                                            key={item.id}
+                                            onClick={() => { onSelect(item.id, item.name); triggerHaptic(); }}
+                                            className="w-full text-left px-3 py-2 rounded-lg text-[12px] text-zinc-400 hover:text-white hover:bg-white/[0.05] transition-all duration-150"
+                                        >
+                                            {item.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </motion.div>
+            )}
+        </AnimatePresence>
+    );
+});
+TemplatePicker.displayName = 'TemplatePicker';
+
+// ---------------------------------------------------------------------------
 // Post-Draft Contextual Actions
 //
 // Philosophy: read the draft, know the workflow, surface only the
@@ -1383,6 +1490,7 @@ const EmailCard: FC<{
     const [copied, setCopied] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const { showToast } = useToast();
+    const isSms = !subject || subject === '(No Subject)';
 
     const cleanSubject = useMemo(() => stripMarkdownForEmail(subject), [subject]);
     const cleanBody = useMemo(() => stripMarkdownForEmail(body), [body]);
@@ -1403,9 +1511,9 @@ const EmailCard: FC<{
         ? Math.max(0, previewText.split('\n').length - 12)
         : 0;
 
-    /** Copy full draft (subject + body) */
+    /** Copy full draft (subject + body for email, body-only for SMS) */
     const handleCopyAll = useCallback(async () => {
-        const fullDraft = `Subject: ${cleanSubject}\n\n${bodyOnly}`;
+        const fullDraft = isSms ? bodyOnly : `Subject: ${cleanSubject}\n\n${bodyOnly}`;
         const success = await systemCopyToClipboard(fullDraft);
         if (success) {
             setCopied(true);
@@ -1450,12 +1558,19 @@ const EmailCard: FC<{
             transition={{ ...SYSTEM.anim.fluid, duration: 0.4 }}
             className="rounded-[20px] overflow-hidden bg-[#080809] ring-1 ring-white/[0.06] hover:ring-white/[0.1] shadow-[0_8px_40px_-12px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,255,255,0.03)_inset] transition-[box-shadow] duration-300"
         >
-            {/* ── Subject ── */}
-            <div className="px-6 pt-5 pb-3">
-                <p className="text-[13.5px] font-semibold text-white select-all line-clamp-2 leading-[1.4] tracking-[-0.01em]">
-                    {cleanSubject}
-                </p>
-            </div>
+            {/* ── Subject (hidden for SMS) ── */}
+            {isSms ? (
+                <div className="px-6 pt-4 pb-1 flex items-center gap-2">
+                    <MessageSquare size={13} className="text-emerald-400/70" strokeWidth={1.8} />
+                    <span className="text-[10px] font-semibold tracking-[0.06em] uppercase text-emerald-400/60">Text Message</span>
+                </div>
+            ) : (
+                <div className="px-6 pt-5 pb-3">
+                    <p className="text-[13.5px] font-semibold text-white select-all line-clamp-2 leading-[1.4] tracking-[-0.01em]">
+                        {cleanSubject}
+                    </p>
+                </div>
+            )}
 
             {/* ── Body ── */}
             <div className="px-6 pb-5 relative">
@@ -1495,28 +1610,47 @@ const EmailCard: FC<{
 
             {/* ── Action Bar ── */}
             <div className="px-4 py-3 border-t border-white/[0.04] flex items-center gap-2">
-                <motion.button
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleOpenOutlook}
-                    className="flex-1 flex items-center justify-center gap-2.5 h-10 rounded-[12px] bg-indigo-500/12 ring-1 ring-indigo-500/20 text-indigo-300 hover:bg-indigo-500/20 hover:ring-indigo-500/30 hover:text-indigo-200 transition-all duration-300 text-[11px] font-semibold tracking-[0.02em] outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
-                >
-                    <Mail size={13} strokeWidth={1.8} /> Open in Outlook
-                </motion.button>
-                <motion.button
-                    whileHover={{ scale: 1.04 }}
-                    whileTap={{ scale: 0.92 }}
-                    onClick={handleCopyAll}
-                    className={cn(
-                        'h-10 w-10 rounded-[12px] flex items-center justify-center transition-all duration-300 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
-                        copied
-                            ? 'bg-emerald-500/12 ring-1 ring-emerald-500/25 text-emerald-400'
-                            : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] ring-1 ring-transparent hover:ring-white/[0.06]',
-                    )}
-                    aria-label="Copy draft"
-                >
-                    {copied ? <Check size={14} strokeWidth={2.5} /> : <Copy size={14} />}
-                </motion.button>
+                {isSms ? (
+                    <motion.button
+                        whileHover={{ scale: 1.01 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={handleCopyAll}
+                        className={cn(
+                            'flex-1 flex items-center justify-center gap-2.5 h-10 rounded-[12px] transition-all duration-300 text-[11px] font-semibold tracking-[0.02em] outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50',
+                            copied
+                                ? 'bg-emerald-500/12 ring-1 ring-emerald-500/25 text-emerald-400'
+                                : 'bg-emerald-500/12 ring-1 ring-emerald-500/20 text-emerald-300 hover:bg-emerald-500/20 hover:ring-emerald-500/30 hover:text-emerald-200',
+                        )}
+                    >
+                        {copied ? <Check size={13} strokeWidth={2.5} /> : <Copy size={13} />}
+                        {copied ? 'Copied' : 'Copy Text'}
+                    </motion.button>
+                ) : (
+                    <>
+                        <motion.button
+                            whileHover={{ scale: 1.01 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={handleOpenOutlook}
+                            className="flex-1 flex items-center justify-center gap-2.5 h-10 rounded-[12px] bg-indigo-500/12 ring-1 ring-indigo-500/20 text-indigo-300 hover:bg-indigo-500/20 hover:ring-indigo-500/30 hover:text-indigo-200 transition-all duration-300 text-[11px] font-semibold tracking-[0.02em] outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
+                        >
+                            <Mail size={13} strokeWidth={1.8} /> Open in Outlook
+                        </motion.button>
+                        <motion.button
+                            whileHover={{ scale: 1.04 }}
+                            whileTap={{ scale: 0.92 }}
+                            onClick={handleCopyAll}
+                            className={cn(
+                                'h-10 w-10 rounded-[12px] flex items-center justify-center transition-all duration-300 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50',
+                                copied
+                                    ? 'bg-emerald-500/12 ring-1 ring-emerald-500/25 text-emerald-400'
+                                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.05] ring-1 ring-transparent hover:ring-white/[0.06]',
+                            )}
+                            aria-label="Copy draft"
+                        >
+                            {copied ? <Check size={14} strokeWidth={2.5} /> : <Copy size={14} />}
+                        </motion.button>
+                    </>
+                )}
             </div>
         </motion.div>
     );
@@ -1876,6 +2010,19 @@ function parseEmailFromContent(content: string): ParsedEmail | null {
                 subject: split.subject || '(No Subject)',
                 body: normalizedBody,
                 intel: extractIntel(split.subject || '', normalizedBody),
+            };
+        }
+    }
+
+    // ── Format 4: Body-only draft (SMS/text message) ──
+    // If content was wrapped in <draft> tags but has no Subject/To headers,
+    // treat it as an SMS text card.
+    if (draftMatch) {
+        const smsBody = processed.trim();
+        if (smsBody && smsBody.length > 10) {
+            return {
+                subject: '',
+                body: normalizeEmailBodyLayout(smsBody),
             };
         }
     }
@@ -2388,6 +2535,9 @@ interface InputDeckProps {
     isCaptureSupported: boolean;
     fileInputRef: React.RefObject<HTMLInputElement>;
     onFilesSelected: (files: FileList | null) => void;
+    selectedTemplate: { id: string; name: string } | null;
+    onTemplateSelect: (id: string, name: string) => void;
+    onTemplateClear: () => void;
 }
 
 const InputDeck: FC<InputDeckProps> = memo(({
@@ -2395,9 +2545,11 @@ const InputDeck: FC<InputDeckProps> = memo(({
     attachments, onRemoveAttachment, isDragActive, isUploading,
     dragHandlers, handlePaste, triggerFileSelect, captureScreenshot,
     isCaptureSupported, fileInputRef, onFilesSelected,
+    selectedTemplate, onTemplateSelect, onTemplateClear,
 }) => {
     useAutoResizeTextArea(inputRef, value);
     const [lightboxImage, setLightboxImage] = useState<{ url: string; name: string } | null>(null);
+    const [isPickerOpen, setIsPickerOpen] = useState(false);
 
     const handleKeyDown = (e: ReactKeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -2488,6 +2640,41 @@ const InputDeck: FC<InputDeckProps> = memo(({
                     }}
                 />
 
+                {/* Template Picker Panel */}
+                <TemplatePicker
+                    isOpen={isPickerOpen}
+                    onToggle={() => setIsPickerOpen(!isPickerOpen)}
+                    onSelect={(id, name) => {
+                        onTemplateSelect(id, name);
+                        setIsPickerOpen(false);
+                    }}
+                />
+
+                {/* Selected Template Chip */}
+                <AnimatePresence>
+                    {selectedTemplate && (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="px-3 pt-2"
+                        >
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-500/[0.08] ring-1 ring-indigo-500/20">
+                                <LayoutList size={11} className="text-indigo-400/70 shrink-0" />
+                                <span className="text-[11px] font-medium text-indigo-300/80 truncate">
+                                    {selectedTemplate.name}
+                                </span>
+                                <button
+                                    onClick={onTemplateClear}
+                                    className="ml-auto p-0.5 rounded text-zinc-500 hover:text-white transition-colors shrink-0"
+                                >
+                                    <X size={11} />
+                                </button>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 {/* Attachment Preview Strip */}
                 <AnimatePresence>
                     {attachments.length > 0 && (
@@ -2571,6 +2758,20 @@ const InputDeck: FC<InputDeckProps> = memo(({
                             <Camera size={18} strokeWidth={1.5} />
                         </button>
                     )}
+                    <button
+                        onClick={() => setIsPickerOpen(!isPickerOpen)}
+                        disabled={isProcessing}
+                        className={cn(
+                            'p-3.5 min-h-[48px] min-w-[48px] rounded-[18px] transition-colors disabled:opacity-50',
+                            isPickerOpen || selectedTemplate
+                                ? 'text-indigo-400 bg-indigo-500/10'
+                                : 'text-zinc-500 hover:text-white hover:bg-white/5',
+                        )}
+                        aria-label="Templates"
+                        title="Choose template"
+                    >
+                        <LayoutList size={18} strokeWidth={1.5} />
+                    </button>
                     <textarea
                         ref={inputRef}
                         value={value}
@@ -2694,6 +2895,7 @@ const InnerWeissach: FC<{
     const { workspaceMode, setWorkspaceMode } = useLayout();
     const [inputValue, setInputValue] = useState('');
     const [modeContext, setModeContext] = useState('');
+    const [selectedTemplate, setSelectedTemplate] = useState<{ id: string; name: string } | null>(null);
     const [isMobile, setIsMobile] = useState(false);
     const [keyboardOffset, setKeyboardOffset] = useState(0);
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -2884,16 +3086,18 @@ const InnerWeissach: FC<{
             systemContext: modeContext,
             mode: routerMode,
             modeLocked,
+            templateType: selectedTemplate?.id,
             attachmentLinks: linkAttachments,
             onAccepted: () => {
                 setInputValue('');
+                setSelectedTemplate(null);
                 clearAttachments();
                 scrollToBottomNow();
                 triggerHaptic();
                 requestAnimationFrame(() => inputRef.current?.focus());
             },
         });
-    }, [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments, showToast, totalPayloadSize, modeContext, scrollToBottomNow]);
+    }, [inputValue, attachments, isLoading, isUploading, sendMessage, clearAttachments, showToast, totalPayloadSize, modeContext, selectedTemplate, scrollToBottomNow]);
 
     // Container sizing
     const containerStyle = useMemo(() => {
@@ -3200,6 +3404,9 @@ const InnerWeissach: FC<{
                             isCaptureSupported={isCaptureSupported}
                             fileInputRef={fileInputRef}
                             onFilesSelected={(files) => files && addFiles(files)}
+                            selectedTemplate={selectedTemplate}
+                            onTemplateSelect={(id, name) => setSelectedTemplate({ id, name })}
+                            onTemplateClear={() => setSelectedTemplate(null)}
                         />
 
                         {/* Error Bar */}
