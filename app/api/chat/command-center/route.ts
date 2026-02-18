@@ -405,6 +405,19 @@ export async function POST(request: Request) {
     if (templateType) {
         const catalogEntry = getCatalogEntry(templateType);
         if (catalogEntry) {
+            // Block internal-only templates from unauthenticated/external callers.
+            // Currently there's no auth layer, so log and reject as a safety boundary.
+            if (catalogEntry.internalOnly) {
+                logger.warn('internal_template_blocked', {
+                    templateType,
+                    internalOnly: true,
+                });
+                return createTextResponse(
+                    `Template "${templateType}" is restricted to internal workflows.`,
+                    traceId,
+                );
+            }
+
             const resolvedIntent = catalogEntry.intent as typeof classification.intent;
             logger.info('template_type_override', {
                 explicitTemplate: templateType,

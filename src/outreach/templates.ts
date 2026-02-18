@@ -496,7 +496,6 @@ Thank you!`,
   // Margin Approval (internal)
   catalogTemplate('margin_approval', (d) => {
       const margin = d.actualMargin != null ? String(d.actualMargin) : '[XX]';
-      const signature = `Best,\nKofi Farkye\nSenior Recruiter, Fulfillment Specialist\nP: 858-529-7267 Ext: 17017`;
 
       return {
         to: 'Colton.Valdez@ayahealthcare.com',
@@ -508,7 +507,7 @@ Thank you!`,
           `Is premium approval needed? N`,
           `Was this sent to Comp Info (Y/N)? N`,
           '',
-          signature
+          'Thank you!',
         ].join('\n'),
       };
     },

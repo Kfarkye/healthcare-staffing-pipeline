@@ -348,7 +348,9 @@ export const DecisionCard: FC<DecisionCardProps> = memo(function DecisionCard({
 
     // Guard: activeTab must be valid
     const validTab = tabs?.some(t => t.id === activeTab) ? activeTab : tabs?.[0]?.id ?? '';
-    if (validTab !== activeTab) setActiveTab(validTab);
+    useEffect(() => {
+        if (validTab !== activeTab) setActiveTab(validTab);
+    }, [validTab, activeTab]);
 
     // ── Tab indicator ──
     const barRef = useRef<HTMLDivElement>(null);

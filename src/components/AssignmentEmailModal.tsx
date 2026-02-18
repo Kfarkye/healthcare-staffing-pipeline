@@ -112,7 +112,7 @@ interface ExtractedDataWithConfidence extends ExtensionRequestData {
 // ============================================================================
 
 const TIFFANY_EMAIL = 'Tiffany.Chavez@ayahealthcare.com';
-const DEFAULT_SIGNATURE = `Best,\nKofi Farkye\nSenior Recruiter, Fulfillment Specialist\nP: 858-529-7267 Ext: 17017`;
+const DEFAULT_SIGNATURE = `Thank you!`;
 
 const TEMPLATE_TABS: { key: TemplateType; label: string; icon: any }[] = [
   { key: 'outreach', label: 'Outreach', icon: Mail },

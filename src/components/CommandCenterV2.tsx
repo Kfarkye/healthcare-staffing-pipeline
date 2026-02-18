@@ -2023,6 +2023,7 @@ interface MessageBubbleProps {
 const MessageBubble: FC<MessageBubbleProps> = memo(
     ({ role, content, isStreaming, toolInvocations, onModify, isLatest, modeContext = '' }) => {
         const isUser = role === 'user';
+        const { showToast } = useToast();
         const hasUserAttachments = useMemo(() => {
             if (!isUser || !content) return false;
             REGEX_ATTACHMENT.lastIndex = 0;
@@ -2243,9 +2244,9 @@ const MessageBubble: FC<MessageBubbleProps> = memo(
 
             if (blocks.length > 0 && hasDecisionCardData(blocks as RawBlock[])) {
                 const result = composeRecruitingCard(blocks as RawBlock[], verdictInfo, {
-                    onSubmit: () => { /* TODO: wire to submit workflow */ },
-                    onPass: () => { /* TODO: wire to pass workflow */ },
-                    onShare: () => { /* TODO: wire to share workflow */ },
+                    onSubmit: () => { showToast('Submit workflow coming soon.'); },
+                    onPass: () => { showToast('Pass workflow coming soon.'); },
+                    onShare: () => { showToast('Share workflow coming soon.'); },
                 });
 
                 if (result.status === 'success') {
@@ -2983,10 +2984,7 @@ const InnerWeissach: FC<{
         messages, isLoading, isStreaming, error, sendMessage, clearChat, stop,
     } = useCommandCenterChat({
         context: deepLinkContext,
-        onToolCall: useCallback((toolName: string, args: any) => {
-            if (toolName === 'set_ui_state') {
-                window.dispatchEvent(new CustomEvent('set_dashboard_ui_state', { detail: args }));
-            }
+        onToolCall: useCallback((toolName: string, _args: any) => {
             if (['add_prospect', 'update_negotiation', 'create_follow_up'].includes(toolName)) {
                 window.dispatchEvent(new CustomEvent('refresh_dashboard'));
             }
