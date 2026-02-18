@@ -30,6 +30,7 @@ import type {
     Logger,
     ChatModeType,
     MessageTypeValue,
+    TemplateTypeValue,
 } from './types/index';
 import { Intent, ChatMode, MessageType, TemplateType } from './types/index';
 import { classify } from './lib/router';
@@ -37,6 +38,7 @@ import { getIntentConfig, HTTP_CONFIG } from './lib/config';
 import { createCommandCenterTools } from './lib/tools';
 import { handleEmailIntent } from './handlers/email';
 import { handleChatIntent } from './handlers/chat';
+import { getCatalogEntry } from '@/lib/template-catalog';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // Runtime Configuration
@@ -63,6 +65,7 @@ const RequestSchema = z.object({
     mode: z.enum(['default', 'cold_outreach', 'batch_reassign', 'reply_mode']).optional(),
     modeLocked: z.boolean().optional(),
     messageType: z.enum(['auto', 'email', 'sms', 'slack', 'other']).optional(),
+    templateType: z.string().optional(),
 });
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -314,7 +317,7 @@ export async function POST(request: Request) {
         return createErrorResponse('Invalid request schema', traceId, 400);
     }
 
-    const { messages, context, systemContext, mode, modeLocked, messageType } = parseResult.data;
+    const { messages, context, systemContext, mode, modeLocked, messageType, templateType } = parseResult.data;
 
     // ══════════════════════════════════════════════════════════════════════════
     // 3. Initialize Clients
@@ -397,6 +400,35 @@ export async function POST(request: Request) {
         };
     }
 
+    // If an explicit templateType was provided (from template picker),
+    // resolve the correct intent from the catalog — don't hard-route to DRAFT_EMAIL.
+    if (templateType) {
+        const catalogEntry = getCatalogEntry(templateType);
+        if (catalogEntry) {
+            const resolvedIntent = catalogEntry.intent as typeof classification.intent;
+            logger.info('template_type_override', {
+                explicitTemplate: templateType,
+                resolvedIntent,
+                originalIntent: classification.intent,
+                messageType: catalogEntry.messageType,
+                internalOnly: catalogEntry.internalOnly,
+            });
+            classification = {
+                ...classification,
+                intent: resolvedIntent,
+                templateType: templateType as TemplateTypeValue,
+                fastPath: true,
+                confidence: 1.0,
+                reason: `Explicit template: ${templateType} → ${resolvedIntent}`,
+            };
+        } else {
+            logger.warn('template_type_not_in_catalog', {
+                explicitTemplate: templateType,
+                fallback: 'classification_unchanged',
+            });
+        }
+    }
+
     logger.info('intent_classified', {
         intent: classification.intent,
         templateType: classification.templateType,
@@ -425,6 +457,7 @@ export async function POST(request: Request) {
         modeContext: systemContext || '',
         userContext: context || {},
         messageType: resolvedMessageType,
+        templateType: templateType as TemplateTypeValue | undefined,
     };
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -437,12 +470,12 @@ export async function POST(request: Request) {
 
         // Email intents → Email Handler
         if (intentConfig.handler === 'email') {
-            logger.info('routing_to_email_handler', { intent: classification.intent });
+            logger.info('routing_to_email_handler', { intent: classification.intent, explicitTemplate: templateType });
 
             const result = await handleEmailIntent(
                 handlerInput,
                 handlerContext,
-                classification.templateType,
+                (templateType as TemplateTypeValue) || classification.templateType,
                 classification.intent
             );
 

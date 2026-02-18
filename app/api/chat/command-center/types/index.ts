@@ -40,6 +40,7 @@ export const ChatMode = {
 export type ChatModeType = typeof ChatMode[keyof typeof ChatMode];
 
 export const TemplateType = {
+    // Core pipeline templates (backend builders)
     PAY_PACKAGE: 'pay_package',
     DOC_REQUEST: 'doc_request',
     REFERENCE_REQUEST: 'reference_request',
@@ -49,6 +50,31 @@ export const TemplateType = {
     REASSIGNMENT: 'reassignment',
     OFFER_DETAILS: 'offer_details',
     MARGIN_APPROVAL: 'margin_approval',
+    // Outreach email templates
+    INITIAL_OUTREACH: 'initial_outreach',
+    HOURLY_RATE_OUTREACH: 'hourly_rate_outreach',
+    RUSH_MA_FULL_DETAILS: 'rush_ma_full_details',
+    REENGAGEMENT: 'reengagement',
+    WORKING_TRAVELER_INTEREST: 'working_traveler_interest',
+    REENGAGED_TRAVELER_INTEREST: 'reengaged_traveler_interest',
+    COMPETITIVE_OFFER: 'competitive_offer',
+    REFERRAL_REQUEST: 'referral_request',
+    SUBMISSION_WITH_REFERENCES: 'submission_with_references',
+    PAY_PACKAGE_SNIPPET: 'pay_package_snippet',
+    // SMS templates
+    TEXT_QUICK_PITCH: 'text_quick_pitch',
+    TEXT_FOLLOWUP: 'text_followup',
+    TEXT_URGENT: 'text_urgent',
+    TEXT_LAST_CHANCE: 'text_last_chance',
+    TEXT_SUBMITTED: 'text_submitted',
+    TEXT_OFFER_RECEIVED: 'text_offer_received',
+    TEXT_SUBMISSION_GENERAL: 'text_submission_general',
+    // Ops templates (frontend variants)
+    OPS_REASSIGNMENT: 'ops_reassignment',
+    OPS_DOCUMENTS_AND_REFERENCES: 'ops_documents_and_references',
+    OPS_LICENSING_INFO: 'ops_licensing_info',
+    // Response templates
+    RESPONSE_LTC_AND_REFERENCES: 'response_ltc_and_references',
 } as const;
 
 export type TemplateTypeValue = typeof TemplateType[keyof typeof TemplateType];
@@ -62,6 +88,15 @@ export const MessageType = {
 } as const;
 
 export type MessageTypeValue = typeof MessageType[keyof typeof MessageType];
+
+export const TemplateCategory = {
+    OUTREACH: 'outreach',
+    OPS: 'ops',
+    RESPONSE: 'response',
+    SNIPPET: 'snippet',
+} as const;
+
+export type TemplateCategoryValue = typeof TemplateCategory[keyof typeof TemplateCategory];
 
 // ════════════════════════════════════════════════════════════════════════════════
 // SECTION 2: Extracted Data Types
@@ -176,6 +211,37 @@ export interface EmailOutput {
     isComplete: boolean;
     templateType: TemplateTypeValue;
     messageType?: MessageTypeValue;
+}
+
+/**
+ * SMS output from a template builder
+ */
+export interface SmsOutput {
+    to: string;
+    body: string;
+    missing: string[];
+    isComplete: boolean;
+    templateType: TemplateTypeValue;
+    messageType: 'sms';
+}
+
+/**
+ * Union type for all template output types
+ */
+export type TemplateOutput = EmailOutput | SmsOutput;
+
+/**
+ * Unified template definition for the registry
+ */
+export interface TemplateDefinition {
+    id: TemplateTypeValue;
+    name: string;
+    category: TemplateCategoryValue;
+    messageType: MessageTypeValue;
+    internalOnly: boolean;
+    requiredFields: string[];
+    description?: string;
+    build: (data: Record<string, any>) => TemplateOutput;
 }
 
 /**
@@ -295,6 +361,8 @@ export interface HandlerInput {
     modeContext: string;
     userContext: Record<string, any>;
     messageType?: MessageTypeValue;
+    /** Explicit template type from template picker (bypasses classification). */
+    templateType?: TemplateTypeValue;
 }
 
 /**

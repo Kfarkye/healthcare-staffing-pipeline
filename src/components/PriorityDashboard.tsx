@@ -935,6 +935,8 @@ export default function ProspectDashboard({
 
   const handleEmail = async (prospect: Prospect) => {
     setEmailLoading(true);
+    // Open window immediately in click context to avoid popup blocker
+    const emailWindow = window.open('', '_blank');
     try {
       let pkg = await dataService.fetchPayPackage(prospect.job_id);
 
@@ -972,9 +974,14 @@ export default function ProspectDashboard({
 
       const email = dataService.generateEmail(prospect, pkg);
       const url = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(prospect.candidate_email)}&subject=${encodeURIComponent(email.subject)}&body=${encodeURIComponent(email.body)}`;
-      window.open(url, '_blank');
+      if (emailWindow) {
+        emailWindow.location.href = url;
+      } else {
+        window.open(url, '_blank');
+      }
     } catch (error) {
       console.error('Email error:', error);
+      if (emailWindow) emailWindow.close();
       showToast('Error generating outreach email', 'error');
     } finally {
       setEmailLoading(false);

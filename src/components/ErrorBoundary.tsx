@@ -1,23 +1,24 @@
+'use client';
+
 import React from 'react';
-import { useRouteError, isRouteErrorResponse, Link } from 'react-router-dom';
+import Link from 'next/link';
 import { AlertTriangle, Home, RefreshCw } from 'lucide-react';
 
-export default function ErrorBoundary(): JSX.Element {
-  const error = useRouteError();
+interface ErrorBoundaryProps {
+  error?: Error & { digest?: string };
+  reset?: () => void;
+}
 
-  let errorMessage = 'An unexpected error occurred';
-  let errorDetails = '';
-
-  if (isRouteErrorResponse(error)) {
-    errorMessage = error.statusText || 'Page not found';
-    errorDetails = error.data?.message || '';
-  } else if (error instanceof Error) {
-    errorMessage = error.message;
-    errorDetails = error.stack || '';
-  }
+export default function ErrorBoundary({ error, reset }: ErrorBoundaryProps = {}): JSX.Element {
+  const errorMessage = error?.message || 'An unexpected error occurred';
+  const errorDetails = error?.stack || '';
 
   const handleRefresh = () => {
-    window.location.reload();
+    if (reset) {
+      reset();
+    } else {
+      window.location.reload();
+    }
   };
 
   return (
@@ -48,7 +49,7 @@ export default function ErrorBoundary(): JSX.Element {
 
         <div className="flex gap-3 justify-center">
           <Link
-            to="/prospects"
+            href="/prospects"
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md active:scale-95"
           >
             <Home size={16} />
@@ -60,7 +61,7 @@ export default function ErrorBoundary(): JSX.Element {
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-all duration-200 text-sm font-medium active:scale-95"
           >
             <RefreshCw size={16} />
-            Refresh
+            Retry
           </button>
         </div>
       </div>

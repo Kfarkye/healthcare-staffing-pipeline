@@ -45,6 +45,7 @@ import {
     formatEmailText,
     formatEmailStructured
 } from '../lib/email-builder';
+import { buildFromTemplate } from '../lib/template-registry';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // Template Type Resolution
@@ -54,16 +55,19 @@ function resolveTemplateType(
     input: HandlerInput,
     classifiedType: TemplateTypeValue | null
 ): TemplateTypeValue {
-    // 1. Check mode context mapping first
+    // 1. Explicit template type from template picker (highest priority)
+    if (input.templateType) return input.templateType;
+
+    // 2. Check mode context mapping
     if (input.modeContext) {
         const contextType = CONTEXT_TEMPLATE_MAP[input.modeContext];
         if (contextType) return contextType as TemplateTypeValue;
     }
 
-    // 2. Use classified type if provided
+    // 3. Use classified type if provided
     if (classifiedType) return classifiedType;
 
-    // 3. Detect from message content
+    // 4. Detect from message content
     return detectTemplateType(input.inputText, input.modeContext);
 }
 
@@ -302,11 +306,36 @@ export async function handleEmailIntent(
         });
 
         // 3. Build email (DETERMINISTIC - no LLM)
-        const email: EmailOutput = buildEmail(templateType, data, effectiveMessageType);
-        logger.info('email_built', {
+        // Try core builders first, fall through to registry for extended templates.
+        let email: EmailOutput;
+        const registryOutput = buildFromTemplate(templateType, data);
+        if (registryOutput && 'subject' in registryOutput) {
+            email = registryOutput as EmailOutput;
+            const resolvedMsgType = effectiveMessageType === MessageType.AUTO ? MessageType.EMAIL : effectiveMessageType;
+            email.messageType = resolvedMsgType;
+        } else if (registryOutput && registryOutput.messageType === 'sms') {
+            // SMS template — wrap as EmailOutput for consistent downstream handling
+            email = {
+                to: registryOutput.to,
+                cc: [],
+                subject: '',
+                body: registryOutput.body,
+                missing: registryOutput.missing,
+                isComplete: registryOutput.isComplete,
+                templateType: registryOutput.templateType,
+                messageType: MessageType.SMS,
+            };
+        } else {
+            email = buildEmail(templateType, data, effectiveMessageType);
+        }
+        logger.info('template_built', {
             templateType: email.templateType,
+            messageType: email.messageType,
             isComplete: email.isComplete,
-            missing: email.missing
+            missingCount: email.missing.length,
+            missing: email.missing,
+            source: registryOutput ? 'registry' : 'core_builder',
+            explicitPick: !!input.templateType,
         });
 
         const needsMessageType = !INTERNAL_TEMPLATES.has(templateType) && effectiveMessageType === MessageType.AUTO;

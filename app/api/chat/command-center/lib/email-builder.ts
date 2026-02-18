@@ -531,8 +531,11 @@ export function buildOfferDetailsEmail(data: OfferDetailsData): EmailOutput {
 // ════════════════════════════════════════════════════════════════════════════════
 // SECTION 3: Template Router
 // ════════════════════════════════════════════════════════════════════════════════
+// NOTE: For the full unified template registry (30+ templates including SMS,
+// frontend outreach, ops, and response templates), use template-registry.ts.
+// The builders below are the core pipeline templates used by the chat handlers.
 
-const TEMPLATE_BUILDERS: Record<TemplateTypeValue, (data: any) => EmailOutput> = {
+const TEMPLATE_BUILDERS: Partial<Record<TemplateTypeValue, (data: any) => EmailOutput>> = {
     [TemplateType.PAY_PACKAGE]: buildPayPackageEmail,
     [TemplateType.DOC_REQUEST]: buildDocRequestEmail,
     [TemplateType.REFERENCE_REQUEST]: buildReferenceRequestEmail,
