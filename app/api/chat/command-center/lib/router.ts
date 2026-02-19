@@ -80,6 +80,14 @@ const PATTERNS = {
     // Code detection
     codeFence: /```/,
     codeTokens: /\b(import|export|function|const|class)\b/,
+
+    // Pipeline / Weissach queries
+    pipelineCandidateLookup: /\b(tell\s+me\s+about|look\s*up|profile\s+(for|of)|who\s+is|what\s+(?:do\s+we\s+)?(?:know|have)\s+(?:about|on|for))\b/i,
+    pipelineSearch: /\b(who\s+do\s+(?:i|we)\s+have\s+(?:for|in|available)|find\s+(?:me\s+)?(?:a|an)?(?:\s+\w+)?\s*(?:nurse|rn|rrt|cst|tech|therapist|candidate)|(?:available|open)\s+(?:candidates?|nurses?|rrt|cst)|search\s+(?:candidates?|pipeline))\b/i,
+    pipelineStatus: /\b((?:what(?:'s|\s+is)\s+)?pending|active\s+(?:submittals?|pipeline|deals?)|ending\s+soon|expiring\s+(?:soon|contracts?)|pipeline\s+(?:status|overview|summary|brief))\b/i,
+    pipelineCompliance: /\b(compliance|compliant|expired?\s+(?:cert|certification|license)|check\s+(?:licenses?|certs?|certifications?|credentials?|compliance)|(?:is|are)\s+\w+(?:'s)?\s+(?:acls?|bls|cst|license)\s+(?:current|valid|expired|active))\b/i,
+    pipelineFacility: /\b(facility|hospital)\b.*\b(details?|info|history|jobs?|openings?)\b|\b(what\s+do\s+we\s+know\s+about)\b.*\b(hospital|medical\s+center|health)\b/i,
+    pipelineKnownNames: /\b(adrienne|bristow|kenneth|squazzo|julia|goelz|vonderrica|martin|maria\s+felipe)\b/i,
 };
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -91,6 +99,7 @@ const ClassificationSchema = z.object({
         Intent.DRAFT_OUTREACH,
         Intent.DRAFT_EMAIL,
         Intent.DATABASE_ACTION,
+        Intent.PIPELINE_QUERY,
         Intent.CAMPAIGN_WORKFLOW,
         Intent.GENERAL_CHAT,
         Intent.UNKNOWN,
@@ -236,6 +245,20 @@ function isCredentialVerifyRequest(text: string): boolean {
     const t = text.toLowerCase();
     if (PATTERNS.negation.test(t)) return false;
     return PATTERNS.credentialVerify.test(t);
+}
+
+function isPipelineQuery(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    // Known Weissach candidate names → always pipeline
+    if (PATTERNS.pipelineKnownNames.test(t)) return true;
+    // Explicit pipeline operations
+    if (PATTERNS.pipelineCandidateLookup.test(t)) return true;
+    if (PATTERNS.pipelineSearch.test(t)) return true;
+    if (PATTERNS.pipelineStatus.test(t)) return true;
+    if (PATTERNS.pipelineCompliance.test(t)) return true;
+    if (PATTERNS.pipelineFacility.test(t)) return true;
+    return false;
 }
 
 function getLastAssistantEmailScan(history: NormalizedMessage[], scanLimit: number = 6): { found: boolean; scanned: number } {
@@ -675,6 +698,24 @@ export async function classify(
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // TIER 2.5: Pipeline / Weissach Queries
+    // Clinical details, compliance, assignments, pipeline operations, facility lookups.
+    // Preferred over GENERAL_CHAT when clinical context is present.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    if (isPipelineQuery(text)) {
+        return {
+            ...createResult(Intent.PIPELINE_QUERY, null, 'Pipeline/Weissach query'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // TIER 3: Mode-Locked Routing
     // ══════════════════════════════════════════════════════════════════════════
 
@@ -983,7 +1024,7 @@ export async function classify(
                 model: googleClient(model, { structuredOutputs: true }),
                 schema: ClassificationSchema,
                 messages: [{ role: 'user', content: text }],
-                system: `Classify the user's intent. Options: DRAFT_OUTREACH (cold emails), DRAFT_EMAIL (specific requests), DATABASE_ACTION (lookups), CAMPAIGN_WORKFLOW (automation), GENERAL_CHAT (other).`,
+                system: `Classify the user's intent. Options: DRAFT_OUTREACH (cold emails), DRAFT_EMAIL (specific requests), DATABASE_ACTION (legacy prospect lookups/mutations), PIPELINE_QUERY (clinical candidate profiles, compliance checks, facility lookups, pipeline status, candidate searches by specialty/license/certification), CAMPAIGN_WORKFLOW (automation), GENERAL_CHAT (other). Prefer PIPELINE_QUERY when the query involves clinical details, compliance, assignments, submittals, or pipeline operations.`,
                 temperature: 0,
             });
             let response;
