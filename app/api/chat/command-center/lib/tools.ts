@@ -4,8 +4,8 @@
  *
  * Legacy tools query the "prospects" schema.
  * Weissach tools (prefixed weissach_*) query the Weissach pipeline schema
- * (w_candidates, w_facilities, w_jobs, w_licenses, w_certifications,
- *  w_submittals, w_assignments, w_pay_packages, w_contact_log, w_notes).
+ * (candidates, facilities, jobs, licenses, certifications,
+ *  submittals, assignments, pay_packages, contact_log, notes).
  */
 
 import { z } from 'zod';
@@ -537,7 +537,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
 
     // ══════════════════════════════════════════════════════════════════════════
     // WEISSACH PIPELINE TOOLS
-    // Query the rich w_* schema. All prefixed weissach_* for clarity.
+    // Query the Weissach pipeline tables. All tools prefixed weissach_*.
     // ══════════════════════════════════════════════════════════════════════════
 
     weissach_get_candidate: {
@@ -551,7 +551,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
         try {
           // 1. Find candidate
           let candidateQuery = supabase
-            .from('w_candidates')
+            .from('candidates')
             .select('*')
             .limit(1);
 
@@ -571,12 +571,12 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
 
           // 2. Parallel joins
           const [licensesRes, certsRes, assignmentsRes, submittalsRes, notesRes, contactRes] = await Promise.all([
-            supabase.from('w_licenses').select('*').eq('candidate_id', cid).order('expiration_date', { ascending: true }),
-            supabase.from('w_certifications').select('*').eq('candidate_id', cid).order('expiration_date', { ascending: true }),
-            supabase.from('w_assignments').select('*, w_facilities(name, city, state)').eq('candidate_id', cid).order('start_date', { ascending: false }),
-            supabase.from('w_submittals').select('*, w_jobs(title, specialty, shift, start_date), w_facilities(name, city, state)').eq('candidate_id', cid).in('status', ['submitted', 'under_review', 'interview_scheduled', 'offer_pending', 'offer_extended']).order('submitted_at', { ascending: false }),
-            supabase.from('w_notes').select('*').eq('candidate_id', cid).order('created_at', { ascending: false }).limit(20),
-            supabase.from('w_contact_log').select('*').eq('candidate_id', cid).order('created_at', { ascending: false }).limit(5),
+            supabase.from('licenses').select('*').eq('candidate_id', cid).order('expiration_date', { ascending: true }),
+            supabase.from('certifications').select('*').eq('candidate_id', cid).order('expiration_date', { ascending: true }),
+            supabase.from('assignments').select('*, facilities(name, city, state)').eq('candidate_id', cid).order('start_date', { ascending: false }),
+            supabase.from('submittals').select('*, jobs(title, specialty, shift, start_date), facilities(name, city, state)').eq('candidate_id', cid).in('status', ['submitted', 'under_review', 'interview_scheduled', 'offer_pending', 'offer_extended']).order('submitted_at', { ascending: false }),
+            supabase.from('notes').select('*').eq('candidate_id', cid).order('created_at', { ascending: false }).limit(20),
+            supabase.from('contact_log').select('*').eq('candidate_id', cid).order('created_at', { ascending: false }).limit(5),
           ]);
 
           // 3. Surface red flags at top level
@@ -626,11 +626,10 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
       execute: async (args: any) => {
         try {
           const filters: string[] = [];
-          const hasJoinFilter = !!(args.license_state || args.certification || args.has_compact);
 
           // Start with candidates
           let query = supabase
-            .from('w_candidates')
+            .from('candidates')
             .select('id, name, specialty, sub_specialty, years_experience, available_date, home_state, preferred_locations, status, recruiter');
 
           if (args.specialty) {
@@ -656,9 +655,9 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           const candidateIds = candidates.map((c: any) => c.id);
 
           const [licensesRes, certsRes, notesRes] = await Promise.all([
-            supabase.from('w_licenses').select('candidate_id, state, is_compact, status').in('candidate_id', candidateIds),
-            supabase.from('w_certifications').select('candidate_id, name, status').in('candidate_id', candidateIds).eq('status', 'active'),
-            supabase.from('w_notes').select('candidate_id, content').in('candidate_id', candidateIds).eq('note_type', 'red_flag'),
+            supabase.from('licenses').select('candidate_id, state, is_compact, status').in('candidate_id', candidateIds),
+            supabase.from('certifications').select('candidate_id, name, status').in('candidate_id', candidateIds).eq('status', 'active'),
+            supabase.from('notes').select('candidate_id, content').in('candidate_id', candidateIds).eq('note_type', 'red_flag'),
           ]);
 
           const licenseMap = new Map<string, any[]>();
@@ -739,7 +738,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
       }),
       execute: async (args: any) => {
         try {
-          let fQuery = supabase.from('w_facilities').select('*').limit(1);
+          let fQuery = supabase.from('facilities').select('*').limit(1);
 
           if (args.facility_id) {
             fQuery = fQuery.eq('id', args.facility_id);
@@ -756,9 +755,9 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           const fid = facility.id;
 
           const [jobsRes, assignmentsRes, notesRes] = await Promise.all([
-            supabase.from('w_jobs').select('*').eq('facility_id', fid).eq('status', 'open').order('start_date', { ascending: true }),
-            supabase.from('w_assignments').select('*, w_candidates(name, specialty)').eq('facility_id', fid).order('start_date', { ascending: false }),
-            supabase.from('w_notes').select('*').eq('facility_id', fid).order('created_at', { ascending: false }).limit(10),
+            supabase.from('jobs').select('*').eq('facility_id', fid).eq('status', 'open').order('start_date', { ascending: true }),
+            supabase.from('assignments').select('*, candidates(name, specialty)').eq('facility_id', fid).order('start_date', { ascending: false }),
+            supabase.from('notes').select('*').eq('facility_id', fid).order('created_at', { ascending: false }).limit(10),
           ]);
 
           const result = {
@@ -795,8 +794,8 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           const activeStatuses = ['submitted', 'under_review', 'interview_scheduled', 'offer_pending', 'offer_extended'];
 
           let submittalQuery = supabase
-            .from('w_submittals')
-            .select('*, w_candidates(name, specialty), w_jobs(title, start_date, shift), w_facilities(name, city, state)')
+            .from('submittals')
+            .select('*, candidates(name, specialty), jobs(title, start_date, shift), facilities(name, city, state)')
             .in('status', activeStatuses)
             .order('submitted_at', { ascending: false });
 
@@ -805,8 +804,8 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           const thirtyDaysStr = thirtyDaysOut.toISOString().split('T')[0];
 
           let assignmentQuery = supabase
-            .from('w_assignments')
-            .select('*, w_candidates(name, specialty), w_facilities(name, city, state)')
+            .from('assignments')
+            .select('*, candidates(name, specialty), facilities(name, city, state)')
             .eq('status', 'active')
             .lte('end_date', thirtyDaysStr)
             .order('end_date', { ascending: true });
@@ -814,8 +813,8 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           if (args.specialty) {
             const term = `%${String(args.specialty).trim()}%`;
             // Filter by candidate specialty via the join
-            submittalQuery = submittalQuery.ilike('w_candidates.specialty', term);
-            assignmentQuery = assignmentQuery.ilike('w_candidates.specialty', term);
+            submittalQuery = submittalQuery.ilike('candidates.specialty', term);
+            assignmentQuery = assignmentQuery.ilike('candidates.specialty', term);
           }
 
           const [submittalsRes, assignmentsRes] = await Promise.all([
@@ -861,7 +860,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
 
           // Verify candidate exists
           const { data: candidate, error: candErr } = await supabase
-            .from('w_candidates')
+            .from('candidates')
             .select('id, name, specialty')
             .eq('id', cid)
             .maybeSingle();
@@ -880,10 +879,10 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           const fourteenDaysStr = fourteenDaysAgo.toISOString();
 
           const [licensesRes, certsRes, flagsRes, contactRes] = await Promise.all([
-            supabase.from('w_licenses').select('*').eq('candidate_id', cid),
-            supabase.from('w_certifications').select('*').eq('candidate_id', cid),
-            supabase.from('w_notes').select('content, created_at').eq('candidate_id', cid).eq('note_type', 'red_flag').order('created_at', { ascending: false }),
-            supabase.from('w_contact_log').select('id').eq('candidate_id', cid).gte('created_at', fourteenDaysStr).limit(1),
+            supabase.from('licenses').select('*').eq('candidate_id', cid),
+            supabase.from('certifications').select('*').eq('candidate_id', cid),
+            supabase.from('notes').select('content, created_at').eq('candidate_id', cid).eq('note_type', 'red_flag').order('created_at', { ascending: false }),
+            supabase.from('contact_log').select('id').eq('candidate_id', cid).gte('created_at', fourteenDaysStr).limit(1),
           ]);
 
           const licenses = licensesRes.data || [];
@@ -962,7 +961,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           if (args.assignment_id) payload.assignment_id = args.assignment_id;
 
           const { data, error } = await supabase
-            .from('w_notes')
+            .from('notes')
             .insert([payload])
             .select('*')
             .single();
@@ -1000,7 +999,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           if (args.body_preview) payload.body_preview = String(args.body_preview).trim();
 
           const { data, error } = await supabase
-            .from('w_contact_log')
+            .from('contact_log')
             .insert([payload])
             .select('*')
             .single();

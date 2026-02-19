@@ -5,35 +5,38 @@
 
 -- ── Facilities ──────────────────────────────────────────────────────────────
 
-INSERT INTO w_facilities (id, name, system_name, city, state, trauma_level, bed_count, special_requirements, account_manager, min_bill_rate, max_bill_rate) VALUES
+INSERT INTO facilities (id, name, system_name, city, state, trauma_level, bed_count, special_requirements, account_manager, min_bill_rate, max_bill_rate) VALUES
 ('f1000000-0000-0000-0000-000000000001', 'Robert Wood Johnson University Hospital', 'RWJBarnabas Health', 'New Brunswick', 'NJ', 'Level 1', 965, 'NJ state license required, BLS/ACLS', 'Morgan Webber', 85, 120),
 ('f1000000-0000-0000-0000-000000000002', 'Piedmont Atlanta Hospital', 'Piedmont Healthcare', 'Atlanta', 'GA', 'Level 2', 600, 'GA license or compact, ACLS', 'Sarah Chen', 75, 105),
 ('f1000000-0000-0000-0000-000000000003', 'Valley Medical Center', 'Valley Health System', 'Renton', 'WA', 'Level 3', 303, 'WA license required', 'Jake Torres', 90, 130),
 ('f1000000-0000-0000-0000-000000000004', 'Memorial Hermann - Texas Medical Center', 'Memorial Hermann', 'Houston', 'TX', 'Level 1', 1060, 'TX license or compact, BLS', 'Morgan Webber', 80, 115),
-('f1000000-0000-0000-0000-000000000005', 'Johns Hopkins Hospital', 'Johns Hopkins Health', 'Baltimore', 'MD', 'Level 1', 1162, 'MD license, BLS/ACLS/PALS varies by unit', 'Sarah Chen', 95, 140);
+('f1000000-0000-0000-0000-000000000005', 'Johns Hopkins Hospital', 'Johns Hopkins Health', 'Baltimore', 'MD', 'Level 1', 1162, 'MD license, BLS/ACLS/PALS varies by unit', 'Sarah Chen', 95, 140)
+ON CONFLICT (id) DO NOTHING;
 
 -- ── Jobs ────────────────────────────────────────────────────────────────────
 
-INSERT INTO w_jobs (id, facility_id, title, specialty, bill_rate, margin_target, duration_weeks, shift, hours_per_week, start_date, status) VALUES
+INSERT INTO jobs (id, facility_id, title, specialty, bill_rate, margin_target, duration_weeks, shift, hours_per_week, start_date, status) VALUES
 ('j1000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000001', 'CST - Operating Room', 'CST', 95, 25, 13, 'Day 5x8', 40, '2026-03-10', 'open'),
 ('j1000000-0000-0000-0000-000000000002', 'f1000000-0000-0000-0000-000000000002', 'GI/Endo Technician', 'GI/Endo Tech', 88, 22, 13, 'Day 5x8', 40, '2026-03-17', 'open'),
 ('j1000000-0000-0000-0000-000000000003', 'f1000000-0000-0000-0000-000000000003', 'Registered Respiratory Therapist', 'RRT', 110, 28, 13, 'Night 3x12', 36, '2026-04-07', 'open'),
 ('j1000000-0000-0000-0000-000000000004', 'f1000000-0000-0000-0000-000000000004', 'RN ICU', 'RN ICU', 105, 26, 13, 'Night 3x12', 36, '2026-03-24', 'open'),
 ('j1000000-0000-0000-0000-000000000005', 'f1000000-0000-0000-0000-000000000005', 'RN Stepdown/PCU', 'RN Stepdown', 115, 30, 13, 'Day 3x12', 36, '2026-04-14', 'open'),
-('j1000000-0000-0000-0000-000000000006', 'f1000000-0000-0000-0000-000000000001', 'RN Stepdown', 'RN Stepdown', 100, 24, 13, 'Night 3x12', 36, '2026-04-01', 'open');
+('j1000000-0000-0000-0000-000000000006', 'f1000000-0000-0000-0000-000000000001', 'RN Stepdown', 'RN Stepdown', 100, 24, 13, 'Night 3x12', 36, '2026-04-01', 'open')
+ON CONFLICT (id) DO NOTHING;
 
 -- ── Candidates ──────────────────────────────────────────────────────────────
 
-INSERT INTO w_candidates (id, name, email, phone, specialty, sub_specialty, profession, years_experience, available_date, home_state, preferred_locations, pay_floor, housing_pref, communication_style, preferred_contact, nova_id, recruiter, status) VALUES
+INSERT INTO candidates (id, name, email, phone, specialty, sub_specialty, profession, years_experience, available_date, home_state, preferred_locations, pay_floor, housing_pref, communication_style, preferred_contact, nova_id, recruiter, status) VALUES
 ('c1000000-0000-0000-0000-000000000001', 'Adrienne Bristow', 'adrienne.bristow@email.com', '555-101-2001', 'CST', 'Cardiovascular', 'Certified Surgical Technologist', 8, '2026-03-01', 'NJ', ARRAY['NJ','NY','PA'], 1800, 'stipend', 'direct', 'phone', '1001001', 'Kofi Farkye', 'active'),
 ('c1000000-0000-0000-0000-000000000002', 'Kenneth Squazzo', 'kenneth.squazzo@email.com', '555-102-2002', 'GI/Endo Tech', 'Endoscopy', 'GI Technician', 12, '2026-03-15', 'GA', ARRAY['GA','FL','SC'], 1650, 'company', 'nurturing', 'email', '1001002', 'Kofi Farkye', 'active'),
 ('c1000000-0000-0000-0000-000000000003', 'Julia Goelz', 'julia.goelz@email.com', '555-103-2003', 'RRT', 'NICU Respiratory', 'Registered Respiratory Therapist', 6, '2026-04-01', 'WA', ARRAY['WA','OR','CA'], 2100, 'stipend', 'data_driven', 'text', '1001003', 'Kofi Farkye', 'active'),
 ('c1000000-0000-0000-0000-000000000004', 'Vonderrica Martin', 'vonderrica.martin@email.com', '555-104-2004', 'RN ICU', 'Stepdown', 'Registered Nurse', 10, '2026-03-20', 'TX', ARRAY['TX','LA','OK'], 2200, 'stipend', 'direct', 'phone', '1001004', 'Kofi Farkye', 'active'),
-('c1000000-0000-0000-0000-000000000005', 'Maria Felipe', 'maria.felipe@email.com', '555-105-2005', 'RN Stepdown', NULL, 'Registered Nurse', 4, '2026-04-10', 'MD', ARRAY['MD','VA','DC'], 1900, 'no_preference', 'nurturing', 'email', '1001005', 'Kofi Farkye', 'active');
+('c1000000-0000-0000-0000-000000000005', 'Maria Felipe', 'maria.felipe@email.com', '555-105-2005', 'RN Stepdown', NULL, 'Registered Nurse', 4, '2026-04-10', 'MD', ARRAY['MD','VA','DC'], 1900, 'no_preference', 'nurturing', 'email', '1001005', 'Kofi Farkye', 'active')
+ON CONFLICT (id) DO NOTHING;
 
 -- ── Licenses ────────────────────────────────────────────────────────────────
 
-INSERT INTO w_licenses (candidate_id, state, license_number, is_compact, expiration_date, status, verification) VALUES
+INSERT INTO licenses (candidate_id, state, license_number, is_compact, expiration_date, status, verification) VALUES
 -- Adrienne Bristow (CST)
 ('c1000000-0000-0000-0000-000000000001', 'NJ', 'NJ-CST-88421', false, '2027-06-30', 'active', 'https://newjersey.mylicense.com/verification'),
 ('c1000000-0000-0000-0000-000000000001', 'NY', 'NY-CST-44210', false, '2027-03-15', 'active', NULL),
@@ -52,7 +55,7 @@ INSERT INTO w_licenses (candidate_id, state, license_number, is_compact, expirat
 
 -- ── Certifications ──────────────────────────────────────────────────────────
 
-INSERT INTO w_certifications (candidate_id, name, issuer, expiration_date, status) VALUES
+INSERT INTO certifications (candidate_id, name, issuer, expiration_date, status) VALUES
 -- Adrienne
 ('c1000000-0000-0000-0000-000000000001', 'CST', 'NBSTSA', '2027-12-31', 'active'),
 ('c1000000-0000-0000-0000-000000000001', 'BLS', 'AHA', '2026-09-15', 'active'),
@@ -75,7 +78,7 @@ INSERT INTO w_certifications (candidate_id, name, issuer, expiration_date, statu
 
 -- ── Assignments (past and active) ───────────────────────────────────────────
 
-INSERT INTO w_assignments (candidate_id, facility_id, job_id, specialty, start_date, end_date, status, bill_rate, pay_rate, stipend_weekly, gross_weekly, end_reason, would_rehire) VALUES
+INSERT INTO assignments (candidate_id, facility_id, job_id, specialty, start_date, end_date, status, bill_rate, pay_rate, stipend_weekly, gross_weekly, end_reason, would_rehire) VALUES
 -- Adrienne: active assignment at RWJ
 ('c1000000-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000001', NULL, 'CST', '2025-12-15', '2026-03-15', 'active', 95, 42, 1200, 1880, NULL, NULL),
 -- Kenneth: completed assignment at Piedmont
@@ -85,7 +88,7 @@ INSERT INTO w_assignments (candidate_id, facility_id, job_id, specialty, start_d
 
 -- ── Submittals ──────────────────────────────────────────────────────────────
 
-INSERT INTO w_submittals (candidate_id, job_id, facility_id, status, submitted_at) VALUES
+INSERT INTO submittals (candidate_id, job_id, facility_id, status, submitted_at) VALUES
 -- Julia submitted to Valley Medical
 ('c1000000-0000-0000-0000-000000000003', 'j1000000-0000-0000-0000-000000000003', 'f1000000-0000-0000-0000-000000000003', 'under_review', '2026-02-10'),
 -- Maria submitted to Johns Hopkins
@@ -97,7 +100,7 @@ INSERT INTO w_submittals (candidate_id, job_id, facility_id, status, submitted_a
 
 -- ── Contact Log ─────────────────────────────────────────────────────────────
 
-INSERT INTO w_contact_log (candidate_id, channel, direction, outcome, subject, body_preview, created_at) VALUES
+INSERT INTO contact_log (candidate_id, channel, direction, outcome, subject, body_preview, created_at) VALUES
 ('c1000000-0000-0000-0000-000000000001', 'phone', 'outbound', 'connected', 'Extension discussion', 'Discussed extending at RWJ through June. Interested if rate bumps.', '2026-02-17 14:30:00+00'),
 ('c1000000-0000-0000-0000-000000000001', 'email', 'outbound', 'sent', 'Piedmont GI/Endo Opportunity', 'Sent pay package for Piedmont opening.', '2026-02-15 09:00:00+00'),
 ('c1000000-0000-0000-0000-000000000002', 'phone', 'outbound', 'voicemail', 'Check-in re: availability', 'Left VM about March availability.', '2026-02-14 11:00:00+00'),
@@ -111,7 +114,7 @@ INSERT INTO w_contact_log (candidate_id, channel, direction, outcome, subject, b
 
 -- ── Notes ───────────────────────────────────────────────────────────────────
 
-INSERT INTO w_notes (note_type, content, candidate_id) VALUES
+INSERT INTO notes (note_type, content, candidate_id) VALUES
 -- Adrienne
 ('preference', 'Prefers day shift 5x8. Will consider 4x10 if pay is right.', 'c1000000-0000-0000-0000-000000000001'),
 ('relationship', 'Husband works in Trenton — needs to stay within commuting distance of central NJ.', 'c1000000-0000-0000-0000-000000000001'),
@@ -134,6 +137,6 @@ INSERT INTO w_notes (note_type, content, candidate_id) VALUES
 ('preference', 'Prefers east coast. Interested in DC metro or Baltimore. Would consider Philly.', 'c1000000-0000-0000-0000-000000000005');
 
 -- Notes attached to facilities
-INSERT INTO w_notes (note_type, content, facility_id) VALUES
+INSERT INTO notes (note_type, content, facility_id) VALUES
 ('general', 'Excellent traveler reviews. Strong orientation program. Known for retaining travelers.', 'f1000000-0000-0000-0000-000000000001'),
 ('compliance', 'Strict credentialing timeline — 6 weeks lead time minimum for new travelers.', 'f1000000-0000-0000-0000-000000000005');

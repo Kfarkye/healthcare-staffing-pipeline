@@ -1,13 +1,24 @@
 -- ============================================================================
 -- WEISSACH PIPELINE SCHEMA
 -- Rich, structured clinical pipeline data for the Weissach AI command center.
--- Coexists with the legacy "prospects" schema. Tools are prefixed weissach_*.
+-- Tools are prefixed weissach_* in the application layer.
+--
+-- NOTE: Some table names (facilities, jobs, certifications, pay_packages)
+-- overlap with the legacy schema. This migration uses CREATE TABLE IF NOT
+-- EXISTS so it will not clobber existing tables. If the legacy tables exist
+-- with a different column set, you must either drop them first or run this
+-- migration against a clean database.
 -- ============================================================================
 
 -- --------------------------------------------------------------------------
--- 1. w_candidates — Rich candidate profiles
+-- Enable trigram extension for fuzzy name search (idempotent)
 -- --------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS w_candidates (
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- --------------------------------------------------------------------------
+-- 1. candidates — Rich candidate profiles
+-- --------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS candidates (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name            text NOT NULL,
     email           text,
@@ -31,14 +42,14 @@ CREATE TABLE IF NOT EXISTS w_candidates (
     updated_at      timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_w_candidates_name ON w_candidates USING gin (name gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_w_candidates_specialty ON w_candidates (specialty);
-CREATE INDEX IF NOT EXISTS idx_w_candidates_status ON w_candidates (status);
+CREATE INDEX IF NOT EXISTS idx_candidates_name ON candidates USING gin (name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_candidates_specialty ON candidates (specialty);
+CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates (status);
 
 -- --------------------------------------------------------------------------
--- 2. w_facilities — Hospital/facility directory
+-- 2. facilities — Hospital/facility directory
 -- --------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS w_facilities (
+CREATE TABLE IF NOT EXISTS facilities (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name                text NOT NULL,
     system_name         text,
@@ -55,14 +66,14 @@ CREATE TABLE IF NOT EXISTS w_facilities (
     updated_at          timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_w_facilities_name ON w_facilities USING gin (name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_facilities_name_trgm ON facilities USING gin (name gin_trgm_ops);
 
 -- --------------------------------------------------------------------------
--- 3. w_jobs — Open job requisitions
+-- 3. jobs — Open job requisitions
 -- --------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS w_jobs (
+CREATE TABLE IF NOT EXISTS jobs (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    facility_id     uuid REFERENCES w_facilities(id),
+    facility_id     uuid REFERENCES facilities(id),
     title           text NOT NULL,
     specialty       text,
     bill_rate       numeric,
@@ -77,11 +88,11 @@ CREATE TABLE IF NOT EXISTS w_jobs (
 );
 
 -- --------------------------------------------------------------------------
--- 4. w_licenses — Per-candidate, per-state license records
+-- 4. licenses — Per-candidate, per-state license records
 -- --------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS w_licenses (
+CREATE TABLE IF NOT EXISTS licenses (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    candidate_id    uuid NOT NULL REFERENCES w_candidates(id) ON DELETE CASCADE,
+    candidate_id    uuid NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
     state           text NOT NULL,
     license_number  text,
     is_compact      boolean DEFAULT false,
@@ -92,15 +103,15 @@ CREATE TABLE IF NOT EXISTS w_licenses (
     updated_at      timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_w_licenses_candidate ON w_licenses (candidate_id);
-CREATE INDEX IF NOT EXISTS idx_w_licenses_state ON w_licenses (state);
+CREATE INDEX IF NOT EXISTS idx_licenses_candidate ON licenses (candidate_id);
+CREATE INDEX IF NOT EXISTS idx_licenses_state ON licenses (state);
 
 -- --------------------------------------------------------------------------
--- 5. w_certifications — Per-candidate credentials
+-- 5. certifications — Per-candidate credentials
 -- --------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS w_certifications (
+CREATE TABLE IF NOT EXISTS certifications (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    candidate_id    uuid NOT NULL REFERENCES w_candidates(id) ON DELETE CASCADE,
+    candidate_id    uuid NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
     name            text NOT NULL,
     issuer          text,
     expiration_date date,
@@ -109,16 +120,16 @@ CREATE TABLE IF NOT EXISTS w_certifications (
     updated_at      timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_w_certifications_candidate ON w_certifications (candidate_id);
+CREATE INDEX IF NOT EXISTS idx_certifications_candidate ON certifications (candidate_id);
 
 -- --------------------------------------------------------------------------
--- 6. w_submittals — Candidate → Job → Facility pipeline
+-- 6. submittals — Candidate → Job → Facility pipeline
 -- --------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS w_submittals (
+CREATE TABLE IF NOT EXISTS submittals (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    candidate_id    uuid NOT NULL REFERENCES w_candidates(id) ON DELETE CASCADE,
-    job_id          uuid NOT NULL REFERENCES w_jobs(id) ON DELETE CASCADE,
-    facility_id     uuid NOT NULL REFERENCES w_facilities(id),
+    candidate_id    uuid NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    job_id          uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    facility_id     uuid NOT NULL REFERENCES facilities(id),
     status          text NOT NULL DEFAULT 'submitted',
     -- Status progression: submitted → under_review → interview_scheduled →
     -- offer_pending → offer_extended → offer_accepted | offer_declined
@@ -126,17 +137,17 @@ CREATE TABLE IF NOT EXISTS w_submittals (
     updated_at      timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_w_submittals_candidate ON w_submittals (candidate_id);
-CREATE INDEX IF NOT EXISTS idx_w_submittals_status ON w_submittals (status);
+CREATE INDEX IF NOT EXISTS idx_submittals_candidate ON submittals (candidate_id);
+CREATE INDEX IF NOT EXISTS idx_submittals_status ON submittals (status);
 
 -- --------------------------------------------------------------------------
--- 7. w_assignments — Active/completed contracts
+-- 7. assignments — Active/completed contracts
 -- --------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS w_assignments (
+CREATE TABLE IF NOT EXISTS assignments (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    candidate_id    uuid NOT NULL REFERENCES w_candidates(id) ON DELETE CASCADE,
-    facility_id     uuid NOT NULL REFERENCES w_facilities(id),
-    job_id          uuid REFERENCES w_jobs(id),
+    candidate_id    uuid NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    facility_id     uuid NOT NULL REFERENCES facilities(id),
+    job_id          uuid REFERENCES jobs(id),
     specialty       text,
     start_date      date,
     end_date        date,
@@ -151,16 +162,16 @@ CREATE TABLE IF NOT EXISTS w_assignments (
     updated_at      timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_w_assignments_candidate ON w_assignments (candidate_id);
-CREATE INDEX IF NOT EXISTS idx_w_assignments_status ON w_assignments (status);
+CREATE INDEX IF NOT EXISTS idx_assignments_candidate ON assignments (candidate_id);
+CREATE INDEX IF NOT EXISTS idx_assignments_status ON assignments (status);
 
 -- --------------------------------------------------------------------------
--- 8. w_pay_packages — Proposed pay packages with feedback
+-- 8. pay_packages — Proposed pay packages with feedback
 -- --------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS w_pay_packages (
+CREATE TABLE IF NOT EXISTS pay_packages (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    candidate_id    uuid NOT NULL REFERENCES w_candidates(id) ON DELETE CASCADE,
-    job_id          uuid REFERENCES w_jobs(id),
+    candidate_id    uuid NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    job_id          uuid REFERENCES jobs(id),
     bill_rate       numeric,
     pay_rate        numeric,
     stipend_weekly  numeric,
@@ -174,72 +185,87 @@ CREATE TABLE IF NOT EXISTS w_pay_packages (
 );
 
 -- --------------------------------------------------------------------------
--- 9. w_contact_log — Every touchpoint with a candidate
+-- 9. contact_log — Every touchpoint with a candidate
 -- --------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS w_contact_log (
+CREATE TABLE IF NOT EXISTS contact_log (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    candidate_id    uuid NOT NULL REFERENCES w_candidates(id) ON DELETE CASCADE,
+    candidate_id    uuid NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
     channel         text NOT NULL,              -- 'phone' | 'email' | 'text' | 'teams' | 'voicemail' | 'ringcentral'
     direction       text NOT NULL,              -- 'outbound' | 'inbound'
     outcome         text,                        -- 'connected' | 'voicemail' | 'no_answer' | 'sent' | 'received' | 'opened' | 'replied' | 'bounced'
     subject         text,
     body_preview    text,
-    related_job_id  uuid REFERENCES w_jobs(id),
-    related_submittal_id uuid REFERENCES w_submittals(id),
+    related_job_id  uuid REFERENCES jobs(id),
+    related_submittal_id uuid REFERENCES submittals(id),
     created_at      timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_w_contact_log_candidate ON w_contact_log (candidate_id);
-CREATE INDEX IF NOT EXISTS idx_w_contact_log_created ON w_contact_log (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_contact_log_candidate ON contact_log (candidate_id);
+CREATE INDEX IF NOT EXISTS idx_contact_log_created ON contact_log (created_at DESC);
 
 -- --------------------------------------------------------------------------
--- 10. w_notes — Polymorphic notes (attached to any entity)
+-- 10. notes — Polymorphic notes (attached to any entity)
 -- --------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS w_notes (
+CREATE TABLE IF NOT EXISTS notes (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     note_type       text NOT NULL DEFAULT 'general',
     -- note_type: 'general' | 'clinical' | 'preference' | 'red_flag' | 'relationship' | 'compliance'
     content         text NOT NULL,
-    candidate_id    uuid REFERENCES w_candidates(id) ON DELETE CASCADE,
-    facility_id     uuid REFERENCES w_facilities(id) ON DELETE CASCADE,
-    job_id          uuid REFERENCES w_jobs(id) ON DELETE CASCADE,
-    submittal_id    uuid REFERENCES w_submittals(id) ON DELETE CASCADE,
-    assignment_id   uuid REFERENCES w_assignments(id) ON DELETE CASCADE,
+    candidate_id    uuid REFERENCES candidates(id) ON DELETE CASCADE,
+    facility_id     uuid REFERENCES facilities(id) ON DELETE CASCADE,
+    job_id          uuid REFERENCES jobs(id) ON DELETE CASCADE,
+    submittal_id    uuid REFERENCES submittals(id) ON DELETE CASCADE,
+    assignment_id   uuid REFERENCES assignments(id) ON DELETE CASCADE,
     author_id       uuid,
     created_at      timestamptz DEFAULT now(),
     updated_at      timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_w_notes_candidate ON w_notes (candidate_id);
-CREATE INDEX IF NOT EXISTS idx_w_notes_facility ON w_notes (facility_id);
-CREATE INDEX IF NOT EXISTS idx_w_notes_type ON w_notes (note_type);
-
--- --------------------------------------------------------------------------
--- Enable trigram extension for fuzzy name search (idempotent)
--- --------------------------------------------------------------------------
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS idx_notes_candidate ON notes (candidate_id);
+CREATE INDEX IF NOT EXISTS idx_notes_facility ON notes (facility_id);
+CREATE INDEX IF NOT EXISTS idx_notes_type ON notes (note_type);
 
 -- --------------------------------------------------------------------------
 -- RLS: Allow service role full access (tools use service_role key)
 -- --------------------------------------------------------------------------
-ALTER TABLE w_candidates      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE w_facilities      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE w_jobs            ENABLE ROW LEVEL SECURITY;
-ALTER TABLE w_licenses        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE w_certifications  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE w_submittals      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE w_assignments     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE w_pay_packages    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE w_contact_log     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE w_notes           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE candidates      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE facilities      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE jobs            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE licenses        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE certifications  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE submittals      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE assignments     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pay_packages    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE contact_log     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notes           ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "service_role_all" ON w_candidates      FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_all" ON w_facilities      FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_all" ON w_jobs            FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_all" ON w_licenses        FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_all" ON w_certifications  FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_all" ON w_submittals      FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_all" ON w_assignments     FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_all" ON w_pay_packages    FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_all" ON w_contact_log     FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_all" ON w_notes           FOR ALL USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  CREATE POLICY "weissach_service_all" ON candidates      FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "weissach_service_all" ON facilities      FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "weissach_service_all" ON jobs            FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "weissach_service_all" ON licenses        FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "weissach_service_all" ON certifications  FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "weissach_service_all" ON submittals      FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "weissach_service_all" ON assignments     FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "weissach_service_all" ON pay_packages    FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "weissach_service_all" ON contact_log     FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "weissach_service_all" ON notes           FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
