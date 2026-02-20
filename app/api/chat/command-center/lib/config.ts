@@ -96,6 +96,13 @@ export const INTENT_CONFIG: Record<string, IntentConfig> = {
         requiresExtraction: false,
         requiresTools: true,
     },
+    [Intent.PIPELINE_QUERY]: {
+        intent: Intent.PIPELINE_QUERY,
+        templateType: null,
+        handler: 'tools',
+        requiresExtraction: false,
+        requiresTools: true,
+    },
     [Intent.CAMPAIGN_WORKFLOW]: {
         intent: Intent.CAMPAIGN_WORKFLOW,
         templateType: null,

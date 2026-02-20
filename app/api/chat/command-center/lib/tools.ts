@@ -529,5 +529,628 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
         return { ok: true, entry: data };
       },
     },
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Weissach Pipeline Query Tools (read-only)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    weissach_get_candidate: {
+      description:
+        'Get a detailed candidate profile including assignments, notes, certifications, and DNA. Search by candidate_id or name.',
+      parameters: z.object({
+        candidate_id: z.number().int().positive().optional(),
+        name: z.string().optional(),
+      }),
+      execute: async (args: any) => {
+        if (!args.candidate_id && !args.name) {
+          return { ok: false, error: 'Provide candidate_id or name.' };
+        }
+
+        try {
+          let query = supabase
+            .from('prospects')
+            .select(`
+              id, candidate_id, name, email, phone, specialty, profession,
+              recruiter, status, home_state, licenses, nova_url,
+              target_gross, target_take_home, is_diamond_verified, rto_requested,
+              available_start_date, profile_complete, references_verified,
+              engagement_level, facility, created_at, updated_at,
+              engagements(id, status, start_date, end_date, facility_name, specialty, bill_rate, actual_margin, extension_stage, is_looking_for_new_facility, is_exiting),
+              candidate_notes(id, note_type, content, created_at)
+            `);
+
+          if (args.candidate_id) {
+            query = query.eq('candidate_id', args.candidate_id);
+          } else {
+            query = query.ilike('name', `%${String(args.name).trim()}%`);
+          }
+
+          const { data, error } = await query.limit(10);
+
+          if (error) {
+            return { ok: false, error: 'Database query failed', detail: error.message };
+          }
+
+          if (!data || data.length === 0) {
+            return {
+              ok: false,
+              error: args.candidate_id
+                ? `No candidate found with candidate_id ${args.candidate_id}`
+                : `No candidate found matching "${args.name}"`,
+            };
+          }
+
+          // Multiple matches → disambiguation
+          if (data.length > 1) {
+            return {
+              ok: true,
+              multiple: true,
+              matches: data.map((c: any) => ({
+                candidate_id: c.candidate_id,
+                name: c.name,
+                specialty: c.specialty,
+                status: c.status,
+                home_state: c.home_state,
+                recruiter: c.recruiter,
+              })),
+              message: `Multiple candidates match "${args.name}". Be more specific or use candidate_id.`,
+            };
+          }
+
+          // Single match — enrich with certifications and DNA (separate FK path via candidate_id)
+          const candidate = data[0];
+
+          const [certsResult, dnaResult] = await Promise.all([
+            supabase
+              .from('certifications')
+              .select('id, cert_name, hspa_id, issued_at, expires_at, is_verified, verification_url')
+              .eq('candidate_id', candidate.candidate_id),
+            supabase
+              .from('candidate_dna')
+              .select('*')
+              .eq('candidate_id', candidate.candidate_id)
+              .maybeSingle(),
+          ]);
+
+          return {
+            ok: true,
+            candidate: {
+              ...candidate,
+              engagements: candidate.engagements || [],
+              candidate_notes: candidate.candidate_notes || [],
+            },
+            certifications: certsResult.data || [],
+            dna: dnaResult.data || null,
+          };
+        } catch (err: any) {
+          return { ok: false, error: 'Database query failed', detail: err?.message || String(err) };
+        }
+      },
+    },
+
+    weissach_search_candidates: {
+      description:
+        'Search candidates with filters. At least one filter is required. Specialty searches both specialty and profession columns.',
+      parameters: z.object({
+        specialty: z.string().optional(),
+        status: z.string().optional(),
+        home_state: z.string().optional(),
+        recruiter: z.string().optional(),
+        profession: z.string().optional(),
+        available: z.boolean().optional(),
+        limit: z.number().int().positive().max(50).optional(),
+      }),
+      execute: async (args: any) => {
+        const hasFilter =
+          args.specialty || args.status || args.home_state ||
+          args.recruiter || args.profession || args.available !== undefined;
+
+        if (!hasFilter) {
+          return {
+            ok: false,
+            error: 'Provide at least one search filter (specialty, status, home_state, recruiter, profession, or available).',
+          };
+        }
+
+        try {
+          const limit = Math.min(Number(args.limit || 20), 50);
+          const filters: string[] = [];
+
+          let query = supabase
+            .from('prospects')
+            .select(
+              'id, candidate_id, name, email, phone, specialty, profession, recruiter, status, home_state, licenses, nova_url, engagement_level, available_start_date',
+              { count: 'exact' },
+            );
+
+          if (args.status) {
+            query = query.ilike('status', String(args.status).trim());
+            filters.push(`status=${args.status}`);
+          }
+          if (args.home_state) {
+            query = query.ilike('home_state', String(args.home_state).trim());
+            filters.push(`home_state=${args.home_state}`);
+          }
+          if (args.recruiter) {
+            query = query.ilike('recruiter', `%${String(args.recruiter).trim()}%`);
+            filters.push(`recruiter~=${args.recruiter}`);
+          }
+          if (args.specialty) {
+            // Search BOTH specialty and profession with OR so "RRT" matches either column
+            const term = String(args.specialty).trim();
+            query = query.or(`specialty.ilike.%${term}%,profession.ilike.%${term}%`);
+            filters.push(`specialty/profession~=${term}`);
+          }
+          if (args.profession && !args.specialty) {
+            // Standalone profession filter only when specialty wasn't already searching both
+            query = query.ilike('profession', `%${String(args.profession).trim()}%`);
+            filters.push(`profession~=${args.profession}`);
+          }
+          if (args.available === true) {
+            query = query.not('available_start_date', 'is', null);
+            filters.push('has_available_date');
+          }
+
+          const { data, error, count } = await query
+            .order('updated_at', { ascending: false })
+            .limit(limit);
+
+          if (error) {
+            return { ok: false, error: 'Database query failed', detail: error.message };
+          }
+
+          return {
+            ok: true,
+            results: data || [],
+            total_matched: count ?? (data || []).length,
+            query_summary: `Searched with filters: ${filters.join(', ')}`,
+          };
+        } catch (err: any) {
+          return { ok: false, error: 'Database query failed', detail: err?.message || String(err) };
+        }
+      },
+    },
+
+    weissach_get_facility: {
+      description:
+        'Get facility details including jobs and active assignments. Search by facility_id or name.',
+      parameters: z.object({
+        facility_id: z.number().int().positive().optional(),
+        name: z.string().optional(),
+      }),
+      execute: async (args: any) => {
+        if (!args.facility_id && !args.name) {
+          return { ok: false, error: 'Provide facility_id or name.' };
+        }
+
+        try {
+          let query = supabase
+            .from('facilities')
+            .select(`
+              id, name, city, state, created_at, updated_at,
+              jobs(id, job_id, specialty, shift, hours_per_week, start_date, duration_weeks)
+            `);
+
+          if (args.facility_id) {
+            query = query.eq('id', args.facility_id);
+          } else {
+            query = query.ilike('name', `%${String(args.name).trim()}%`);
+          }
+
+          const { data, error } = await query.limit(10);
+
+          if (error) {
+            return { ok: false, error: 'Database query failed', detail: error.message };
+          }
+
+          if (!data || data.length === 0) {
+            return {
+              ok: false,
+              error: args.facility_id
+                ? `No facility found with id ${args.facility_id}`
+                : `No facility found matching "${args.name}"`,
+            };
+          }
+
+          // Multiple matches → disambiguation
+          if (data.length > 1) {
+            return {
+              ok: true,
+              multiple: true,
+              matches: data.map((f: any) => ({
+                id: f.id,
+                name: f.name,
+                city: f.city,
+                state: f.state,
+              })),
+              message: `Multiple facilities match "${args.name}". Be more specific or use facility_id.`,
+            };
+          }
+
+          const facility = data[0];
+
+          // Get active engagements at this facility (matched by facility_name text)
+          const { data: engagements } = await supabase
+            .from('engagements')
+            .select(
+              'id, prospect_id, status, start_date, end_date, specialty, bill_rate, actual_margin, extension_stage, prospects(candidate_id, name)',
+            )
+            .ilike('facility_name', `%${facility.name}%`)
+            .in('status', [
+              'Active', 'ACTIVE', 'Pre-Start (New)', 'Pre-Start (Extension)',
+              'Submitted', 'Offer Extended', 'Signed',
+            ]);
+
+          return {
+            ok: true,
+            facility: {
+              ...facility,
+              jobs: facility.jobs || [],
+            },
+            active_engagements: engagements || [],
+          };
+        } catch (err: any) {
+          return { ok: false, error: 'Database query failed', detail: err?.message || String(err) };
+        }
+      },
+    },
+
+    weissach_get_active_pipeline: {
+      description:
+        'Get active pipeline overview: submittals in progress and assignments ending soon.',
+      parameters: z.object({
+        recruiter: z.string().optional(),
+        days_ahead: z.number().int().positive().max(90).optional(),
+        limit: z.number().int().positive().max(50).optional(),
+      }),
+      execute: async (args: any) => {
+        try {
+          const limit = Math.min(Number(args.limit || 25), 50);
+          const daysAhead = Math.min(Number(args.days_ahead || 30), 90);
+          const now = new Date();
+          const cutoff = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+          const nowISO = now.toISOString().split('T')[0];
+          const cutoffISO = cutoff.toISOString().split('T')[0];
+
+          // Active submittals: prospects in submittal-related statuses
+          let submittalQuery = supabase
+            .from('prospects')
+            .select('id, candidate_id, name, specialty, profession, status, recruiter, home_state, facility, updated_at')
+            .in('status', ['Submitted', 'Submittal Ready', 'Interested', 'Profile Updates'])
+            .order('updated_at', { ascending: false })
+            .limit(limit);
+
+          if (args.recruiter) {
+            submittalQuery = submittalQuery.ilike('recruiter', `%${String(args.recruiter).trim()}%`);
+          }
+
+          // Ending assignments: active engagements with end_date within the window
+          let endingQuery = supabase
+            .from('engagements')
+            .select(
+              'id, prospect_id, status, start_date, end_date, facility_name, specialty, bill_rate, actual_margin, extension_stage, is_looking_for_new_facility, is_exiting, prospects(candidate_id, name, recruiter)',
+            )
+            .in('status', ['Active', 'ACTIVE'])
+            .lte('end_date', cutoffISO)
+            .gte('end_date', nowISO)
+            .order('end_date', { ascending: true })
+            .limit(limit);
+
+          const [submittalResult, endingResult] = await Promise.all([
+            submittalQuery,
+            endingQuery,
+          ]);
+
+          if (submittalResult.error) {
+            return { ok: false, error: 'Database query failed', detail: submittalResult.error.message };
+          }
+          if (endingResult.error) {
+            return { ok: false, error: 'Database query failed', detail: endingResult.error.message };
+          }
+
+          return {
+            ok: true,
+            active_submittals: submittalResult.data || [],
+            ending_assignments: endingResult.data || [],
+            summary: {
+              total_submittals: (submittalResult.data || []).length,
+              total_ending: (endingResult.data || []).length,
+              window_days: daysAhead,
+              as_of: nowISO,
+            },
+          };
+        } catch (err: any) {
+          return { ok: false, error: 'Database query failed', detail: err?.message || String(err) };
+        }
+      },
+    },
+
+    weissach_check_compliance: {
+      description:
+        'Check compliance status: expiring certifications and license gaps. Optionally scope to a specific candidate.',
+      parameters: z.object({
+        candidate_id: z.number().int().positive().optional(),
+        name: z.string().optional(),
+        days_ahead: z.number().int().positive().max(90).optional(),
+      }),
+      execute: async (args: any) => {
+        try {
+          const daysAhead = Math.min(Number(args.days_ahead || 30), 90);
+          const now = new Date();
+          const cutoff = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+          const nowISO = now.toISOString().split('T')[0];
+          const cutoffISO = cutoff.toISOString().split('T')[0];
+
+          // Scoped to a specific candidate
+          if (args.candidate_id || args.name) {
+            let prospectQuery = supabase
+              .from('prospects')
+              .select('id, candidate_id, name, licenses, specialty, profession, home_state');
+
+            if (args.candidate_id) {
+              prospectQuery = prospectQuery.eq('candidate_id', args.candidate_id);
+            } else {
+              prospectQuery = prospectQuery.ilike('name', `%${String(args.name).trim()}%`);
+            }
+
+            const { data: prospects, error: pErr } = await prospectQuery.limit(10);
+
+            if (pErr) {
+              return { ok: false, error: 'Database query failed', detail: pErr.message };
+            }
+            if (!prospects || prospects.length === 0) {
+              return {
+                ok: false,
+                error: args.candidate_id
+                  ? `No candidate found with candidate_id ${args.candidate_id}`
+                  : `No candidate found matching "${args.name}"`,
+              };
+            }
+
+            // Multiple matches → disambiguation
+            if (prospects.length > 1) {
+              return {
+                ok: true,
+                multiple: true,
+                matches: prospects.map((c: any) => ({
+                  candidate_id: c.candidate_id,
+                  name: c.name,
+                  specialty: c.specialty,
+                })),
+                message: 'Multiple candidates match. Be more specific or use candidate_id.',
+              };
+            }
+
+            const candidate = prospects[0];
+
+            const { data: certs, error: cErr } = await supabase
+              .from('certifications')
+              .select('id, cert_name, issued_at, expires_at, is_verified')
+              .eq('candidate_id', candidate.candidate_id)
+              .order('expires_at', { ascending: true });
+
+            if (cErr) {
+              return { ok: false, error: 'Database query failed', detail: cErr.message };
+            }
+
+            const allCerts = certs || [];
+            const expiringSoon = allCerts.filter(
+              (c: any) => c.expires_at && c.expires_at >= nowISO && c.expires_at <= cutoffISO,
+            );
+            const alreadyExpired = allCerts.filter(
+              (c: any) => c.expires_at && c.expires_at < nowISO,
+            );
+
+            return {
+              ok: true,
+              candidate: {
+                candidate_id: candidate.candidate_id,
+                name: candidate.name,
+                licenses: candidate.licenses || [],
+                home_state: candidate.home_state,
+              },
+              certifications: allCerts,
+              expiring_within_window: expiringSoon,
+              already_expired: alreadyExpired,
+              compliance_summary: {
+                total_certs: allCerts.length,
+                expiring_soon: expiringSoon.length,
+                expired: alreadyExpired.length,
+                window_days: daysAhead,
+                checked_at: nowISO,
+              },
+            };
+          }
+
+          // Board-wide compliance scan (no candidate specified)
+          const { data: expiring, error } = await supabase
+            .from('certifications')
+            .select('id, candidate_id, cert_name, expires_at, is_verified')
+            .not('expires_at', 'is', null)
+            .lte('expires_at', cutoffISO)
+            .gte('expires_at', nowISO)
+            .order('expires_at', { ascending: true })
+            .limit(50);
+
+          if (error) {
+            return { ok: false, error: 'Database query failed', detail: error.message };
+          }
+
+          return {
+            ok: true,
+            expiring_certifications: expiring || [],
+            compliance_summary: {
+              total_expiring: (expiring || []).length,
+              window_days: daysAhead,
+              checked_at: nowISO,
+            },
+          };
+        } catch (err: any) {
+          return { ok: false, error: 'Database query failed', detail: err?.message || String(err) };
+        }
+      },
+    },
+
+    weissach_get_engagement: {
+      description:
+        'Get assignment/engagement details by engagement_id or candidate_id, with related prospect and job info.',
+      parameters: z.object({
+        engagement_id: z.number().int().positive().optional(),
+        candidate_id: z.number().int().positive().optional(),
+        status: z.string().optional(),
+      }),
+      execute: async (args: any) => {
+        if (!args.engagement_id && !args.candidate_id) {
+          return { ok: false, error: 'Provide engagement_id or candidate_id.' };
+        }
+
+        try {
+          let query = supabase
+            .from('engagements')
+            .select(`
+              id, prospect_id, status, start_date, end_date, facility_name,
+              specialty, bill_rate, actual_margin, notes, extension_stage,
+              is_looking_for_new_facility, is_exiting, created_at, updated_at,
+              prospects(candidate_id, name, email, phone, recruiter, home_state, nova_url),
+              jobs(id, job_id, specialty, shift, hours_per_week, start_date, duration_weeks, facilities(name, city, state))
+            `);
+
+          if (args.engagement_id) {
+            query = query.eq('id', args.engagement_id);
+          } else {
+            // Resolve prospect_id from candidate_id
+            const { data: prospect } = await supabase
+              .from('prospects')
+              .select('id')
+              .eq('candidate_id', args.candidate_id)
+              .maybeSingle();
+
+            if (!prospect) {
+              return { ok: false, error: `No candidate found with candidate_id ${args.candidate_id}` };
+            }
+            query = query.eq('prospect_id', prospect.id);
+          }
+
+          if (args.status) {
+            query = query.ilike('status', String(args.status).trim());
+          }
+
+          const { data, error } = await query
+            .order('start_date', { ascending: false })
+            .limit(10);
+
+          if (error) {
+            return { ok: false, error: 'Database query failed', detail: error.message };
+          }
+
+          if (!data || data.length === 0) {
+            return {
+              ok: false,
+              error: args.engagement_id
+                ? `No engagement found with id ${args.engagement_id}`
+                : `No engagements found for candidate_id ${args.candidate_id}${args.status ? ` with status "${args.status}"` : ''}`,
+            };
+          }
+
+          return {
+            ok: true,
+            engagements: data.map((e: any) => ({
+              ...e,
+              prospects: e.prospects || null,
+              jobs: e.jobs || null,
+            })),
+            total: data.length,
+          };
+        } catch (err: any) {
+          return { ok: false, error: 'Database query failed', detail: err?.message || String(err) };
+        }
+      },
+    },
+
+    weissach_search_jobs: {
+      description:
+        'Search open job positions by specialty, state, or facility name. At least one filter is required.',
+      parameters: z.object({
+        specialty: z.string().optional(),
+        state: z.string().optional(),
+        facility_name: z.string().optional(),
+        limit: z.number().int().positive().max(50).optional(),
+      }),
+      execute: async (args: any) => {
+        const hasFilter = args.specialty || args.state || args.facility_name;
+        if (!hasFilter) {
+          return {
+            ok: false,
+            error: 'Provide at least one search filter (specialty, state, or facility_name).',
+          };
+        }
+
+        try {
+          const limit = Math.min(Number(args.limit || 20), 50);
+          const filters: string[] = [];
+
+          let query = supabase
+            .from('jobs')
+            .select(
+              'id, job_id, specialty, shift, hours_per_week, start_date, duration_weeks, created_at, updated_at, facilities(id, name, city, state)',
+              { count: 'exact' },
+            );
+
+          if (args.specialty) {
+            query = query.ilike('specialty', `%${String(args.specialty).trim()}%`);
+            filters.push(`specialty~=${args.specialty}`);
+          }
+
+          // State and facility_name filter via the facilities table
+          if (args.state || args.facility_name) {
+            let facilityQuery = supabase.from('facilities').select('id');
+            if (args.state) {
+              facilityQuery = facilityQuery.ilike('state', String(args.state).trim());
+              filters.push(`state=${args.state}`);
+            }
+            if (args.facility_name) {
+              facilityQuery = facilityQuery.ilike('name', `%${String(args.facility_name).trim()}%`);
+              filters.push(`facility~=${args.facility_name}`);
+            }
+
+            const { data: facilities, error: fErr } = await facilityQuery;
+            if (fErr) {
+              return { ok: false, error: 'Database query failed', detail: fErr.message };
+            }
+
+            const facilityIds = (facilities || []).map((f: any) => f.id);
+            if (facilityIds.length === 0) {
+              return {
+                ok: true,
+                results: [],
+                total_matched: 0,
+                query_summary: `No facilities match the filter: ${filters.join(', ')}`,
+              };
+            }
+            query = query.in('facility_id', facilityIds);
+          }
+
+          const { data, error, count } = await query
+            .order('start_date', { ascending: false })
+            .limit(limit);
+
+          if (error) {
+            return { ok: false, error: 'Database query failed', detail: error.message };
+          }
+
+          return {
+            ok: true,
+            results: (data || []).map((j: any) => ({
+              ...j,
+              facilities: j.facilities || null,
+            })),
+            total_matched: count ?? (data || []).length,
+            query_summary: `Jobs matching: ${filters.join(', ')}`,
+          };
+        } catch (err: any) {
+          return { ok: false, error: 'Database query failed', detail: err?.message || String(err) };
+        }
+      },
+    },
   };
 }

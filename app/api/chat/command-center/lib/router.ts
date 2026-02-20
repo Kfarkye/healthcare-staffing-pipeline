@@ -74,6 +74,13 @@ const PATTERNS = {
     novaLink: /\b(nova\s+(link|url|page|deal|deals|jobs|job\s+openings|live|search|tickets|margins|contract\s+requests))\b/i,
     credentialVerify: /\b(verify|verification|check|confirm)\b.*\b(certification|credential|license|csfa|cst|nbstsa)\b|\b(csfa|cst|nbstsa)\b.*\b(verify|verification|check)\b/i,
 
+    // Pipeline query (Weissach read-only tools)
+    pipelineInfo: /\b(tell\s+me\s+about|info\s+(?:on|about)|details?\s+(?:for|on|about)|profile\s+(?:for|of)|show\s+(?:me\s+)?(?:the\s+)?(?:profile|details?|info)\s+(?:for|on|of|about))\b/i,
+    pipelineStatus: /\b(active\s+pipeline|pipeline\s+(?:status|overview|summary|report)|active\s+submittals?|ending\s+(?:assignments?|contracts?)|assignments?\s+ending|contracts?\s+ending)\b/i,
+    complianceCheck: /\b(compliance\s+(?:status|check|report|scan|review)|check\s+compliance|expiring\s+(?:certifications?|certs?|licenses?)|cert(?:ification)?s?\s+expir)/i,
+    facilityQuery: /\b(facility\s+(?:info|details?|profile)|(?:jobs?|positions?|openings?)\s+at)\b/i,
+    assignmentQuery: /\b(assignment\s+(?:details?|info|status)|engagement\s+(?:details?|info|status))\b/i,
+
     // Negation
     negation: /\b(don't|do not|cancel|stop|no)\b/i,
 
@@ -91,6 +98,7 @@ const ClassificationSchema = z.object({
         Intent.DRAFT_OUTREACH,
         Intent.DRAFT_EMAIL,
         Intent.DATABASE_ACTION,
+        Intent.PIPELINE_QUERY,
         Intent.CAMPAIGN_WORKFLOW,
         Intent.GENERAL_CHAT,
         Intent.UNKNOWN,
@@ -236,6 +244,19 @@ function isCredentialVerifyRequest(text: string): boolean {
     const t = text.toLowerCase();
     if (PATTERNS.negation.test(t)) return false;
     return PATTERNS.credentialVerify.test(t);
+}
+
+function isPipelineQuery(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    // Explicit pipeline/compliance/facility/assignment terms
+    if (PATTERNS.pipelineStatus.test(t)) return true;
+    if (PATTERNS.complianceCheck.test(t)) return true;
+    if (PATTERNS.facilityQuery.test(t)) return true;
+    if (PATTERNS.assignmentQuery.test(t)) return true;
+    // "Tell me about X" / "details for X" — informational candidate/facility lookup
+    if (PATTERNS.pipelineInfo.test(t)) return true;
+    return false;
 }
 
 function getLastAssistantEmailScan(history: NormalizedMessage[], scanLimit: number = 6): { found: boolean; scanned: number } {
@@ -675,6 +696,23 @@ export async function classify(
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // TIER 2.5: Pipeline Query (Weissach read-only tools)
+    // "Tell me about Julia Goelz", "active pipeline", "check compliance", etc.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    if (isPipelineQuery(text)) {
+        return {
+            ...createResult(Intent.PIPELINE_QUERY, null, 'Pipeline query (Weissach)'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // TIER 3: Mode-Locked Routing
     // ══════════════════════════════════════════════════════════════════════════
 
@@ -983,7 +1021,7 @@ export async function classify(
                 model: googleClient(model, { structuredOutputs: true }),
                 schema: ClassificationSchema,
                 messages: [{ role: 'user', content: text }],
-                system: `Classify the user's intent. Options: DRAFT_OUTREACH (cold emails), DRAFT_EMAIL (specific requests), DATABASE_ACTION (lookups), CAMPAIGN_WORKFLOW (automation), GENERAL_CHAT (other).`,
+                system: `Classify the user's intent. Options: DRAFT_OUTREACH (cold emails), DRAFT_EMAIL (specific requests), DATABASE_ACTION (add/update/lookup by ID), PIPELINE_QUERY (candidate profiles, active pipeline, compliance, facility info, assignments), CAMPAIGN_WORKFLOW (automation), GENERAL_CHAT (other).`,
                 temperature: 0,
             });
             let response;
