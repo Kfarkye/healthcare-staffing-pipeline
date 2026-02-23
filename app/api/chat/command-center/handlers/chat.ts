@@ -746,11 +746,6 @@ export async function handleChatIntent(
             tools?.lookup_candidate?.execute;
         if (isLookup) {
             const rawText = input.inputText || '';
-            // URL context grounding: if the frontend sent a candidate ID from the
-            // page URL, use it directly — no name extraction needed.
-            const urlCandidateId = input.userContext?.candidateId
-                ? Number(input.userContext.candidateId)
-                : null;
 
             // Try to extract a name: strip the verb phrase and common filler words
             let nameCandidate = rawText
@@ -766,7 +761,7 @@ export async function handleChatIntent(
                 nameCandidate = nameCandidate.replace(/s$/i, '');
             }
 
-            const candidateId = urlCandidateId || extractCandidateIdFromText(rawText);
+            const candidateId = extractCandidateIdFromText(rawText);
             const email = extractEmailFromText(rawText);
 
             let lookupArgs: Record<string, any> = {};

@@ -1,10 +1,14 @@
 /**
  * Command Center Tools
  * Server-side tool definitions for LLM actions.
+ *
+ * Uses the shared admin client from /api/data/_shared (same connection
+ * as all /api/data/* endpoints) instead of creating a separate client.
  */
 
 import { z } from 'zod';
 import { CONFIG } from './config';
+import { getAdminClient } from '@/lib/supabase/admin';
 
 const NOVA_SECTION_PATHS: Record<string, string> = {
   about: '/new-profile/about',
@@ -64,12 +68,12 @@ function normalizeStateAbbr(state?: string | null): string | null {
 }
 
 async function resolveProspectId(
-  supabase: any,
+  client: any,
   input: { prospect_id?: number; candidate_id?: number; email?: string }
 ): Promise<number | null> {
   if (input.prospect_id) return input.prospect_id;
   if (input.candidate_id) {
-    const { data } = await supabase
+    const { data } = await client
       .from('prospects')
       .select('id')
       .eq('candidate_id', input.candidate_id)
@@ -77,7 +81,7 @@ async function resolveProspectId(
     return data?.id ?? null;
   }
   if (input.email) {
-    const { data } = await supabase
+    const { data } = await client
       .from('prospects')
       .select('id')
       .ilike('email', input.email)
@@ -87,7 +91,10 @@ async function resolveProspectId(
   return null;
 }
 
-export function createCommandCenterTools(supabase: any, logger?: { info?: Function; warn?: Function; error?: Function }) {
+export function createCommandCenterTools(supabase?: any, logger?: { info?: Function; warn?: Function; error?: Function }) {
+  // Use the shared admin client (same as /api/data/* endpoints)
+  // Falls back to passed-in client for backwards compatibility
+  const db = supabase || getAdminClient();
   return {
     lookup_candidate: {
       description:
@@ -100,7 +107,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
       }),
       execute: async (args: any) => {
         const limit = Math.min(Number(args.limit || 5), 20);
-        let query = supabase
+        let query = db
           .from('prospects')
           .select('id, candidate_id, name, email, phone, status, nova_url, recruiter, specialty, profession, home_state, licenses, engagement_level')
           .limit(limit);
@@ -157,7 +164,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           return { ok: false, error: 'name is required.' };
         }
 
-        const { data: existing, error: lookupErr } = await supabase
+        const { data: existing, error: lookupErr } = await db
           .from('prospects')
           .select('id, candidate_id, name, email')
           .eq('candidate_id', candidateId)
@@ -199,7 +206,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
             };
           }
 
-          const { data: updated, error: updErr } = await supabase
+          const { data: updated, error: updErr } = await db
             .from('prospects')
             .update(payload)
             .eq('id', existing.id)
@@ -216,7 +223,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           return { ok: true, action: 'updated', prospect: updated };
         }
 
-        const { data, error } = await supabase
+        const { data, error } = await db
           .from('prospects')
           .insert([payload])
           .select('*')
@@ -256,7 +263,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
         nova_url: z.string().url().optional(),
       }),
       execute: async (args: any) => {
-        const prospectId = await resolveProspectId(supabase, {
+        const prospectId = await resolveProspectId(db, {
           prospect_id: args.prospect_id,
           candidate_id: args.candidate_id,
           email: args.email,
@@ -291,7 +298,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           return { ok: false, error: 'No update fields provided.' };
         }
 
-        const { data, error } = await supabase
+        const { data, error } = await db
           .from('prospects')
           .update(cleaned)
           .eq('id', prospectId)
@@ -324,7 +331,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
         }
 
         if (!prospectId && candidateId) {
-          const { data: prospect, error: lookupErr } = await supabase
+          const { data: prospect, error: lookupErr } = await db
             .from('prospects')
             .select('id, candidate_id, name')
             .eq('candidate_id', candidateId)
@@ -342,7 +349,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           content: String(args.content).trim(),
         };
 
-        const { data, error } = await supabase
+        const { data, error } = await db
           .from('candidate_notes')
           .insert([payload])
           .select('*')
@@ -351,7 +358,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
         if (error) return { ok: false, error: error.message };
 
         // Keep latest note visible in legacy UI (prospects.notes)
-        await supabase
+        await db
           .from('prospects')
           .update({ notes: payload.content })
           .eq('id', prospectId);
@@ -374,7 +381,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
         limit: z.number().int().positive().max(50).optional(),
       }),
       execute: async (args: any) => {
-        const prospectId = await resolveProspectId(supabase, {
+        const prospectId = await resolveProspectId(db, {
           prospect_id: args.prospect_id,
           candidate_id: args.candidate_id,
           email: args.email,
@@ -385,7 +392,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
         }
 
         const limit = Math.min(Number(args.limit || 10), 50);
-        const { data, error } = await supabase
+        const { data, error } = await db
           .from('candidate_notes')
           .select('id, prospect_id, author_id, note_type, content, created_at')
           .eq('prospect_id', prospectId)
@@ -474,7 +481,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
 
         const profession = args.profession ? String(args.profession).trim() : 'all';
 
-        const baseQuery = supabase
+        const baseQuery = db
           .from('state_board_links')
           .select('id, state, profession, url, notes, source')
           .eq('state', state);
@@ -519,7 +526,7 @@ export function createCommandCenterTools(supabase: any, logger?: { info?: Functi
           source: args.source ? String(args.source).trim() : null,
         };
 
-        const { data, error } = await supabase
+        const { data, error } = await db
           .from('state_board_links')
           .upsert(payload, { onConflict: 'state,profession' })
           .select('*')

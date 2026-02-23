@@ -120,7 +120,6 @@ import { useCommandCenterChat } from '../features/command-center-chat/hooks/useC
 import { useFileUpload, type Attachment } from '../features/command-center-chat/hooks/useFileUpload';
 import { usePinnedScroll } from '../features/command-center-chat/hooks/usePinnedScroll';
 import { useLayout } from '../context/LayoutContext';
-import { useUrlCandidateContext } from '../features/command-center-chat/hooks/useUrlCandidateContext';
 import {
     TEMPLATE_CATALOG,
     PICKER_CATEGORIES,
@@ -2877,17 +2876,6 @@ const InnerWeissach: FC<{
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const { showToast } = useToast();
 
-    // URL context grounding — send candidate ID from page URL with every request
-    const urlContext = useUrlCandidateContext();
-    const chatContext = useMemo(() => {
-        if (urlContext.source === 'none') return undefined;
-        return {
-            candidateId: urlContext.candidateId,
-            novaUrl: urlContext.novaUrl,
-            contextSource: urlContext.source,
-        };
-    }, [urlContext.candidateId, urlContext.novaUrl, urlContext.source]);
-
     const {
         containerRef: scrollRef,
         contentRef,
@@ -2962,7 +2950,6 @@ const InnerWeissach: FC<{
     const {
         messages, isLoading, isStreaming, error, sendMessage, clearChat, stop,
     } = useCommandCenterChat({
-        context: chatContext,
         onToolCall: useCallback((toolName: string, args: any) => {
             if (toolName === 'set_ui_state') {
                 window.dispatchEvent(new CustomEvent('set_dashboard_ui_state', { detail: args }));
