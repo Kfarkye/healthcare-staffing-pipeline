@@ -738,6 +738,76 @@ export async function handleChatIntent(
             };
         }
 
+        // ─── Direct lookup path ─────────────────────────────────────────────
+        // When the user asks to "pull info" / "look up" / "find" a candidate,
+        // execute lookup_candidate directly instead of hoping the LLM calls it.
+        const isLookup = intent === Intent.DATABASE_ACTION &&
+            /\b(pull|look\s*up|find|search|get|fetch|check)\b/i.test(input.inputText || '') &&
+            tools?.lookup_candidate?.execute;
+        if (isLookup) {
+            const rawText = input.inputText || '';
+            // Try to extract a name: strip the verb phrase and common filler words
+            let nameCandidate = rawText
+                .replace(/\b(can you|could you|please|pull|look\s*up|find|search|get|fetch|check)\b/gi, '')
+                .replace(/\b(info|information|profile|details?|record|data|candidate|prospect)\b/gi, '')
+                .replace(/[''`]/g, '')  // strip apostrophes
+                .replace(/\b(his|her|their|the|a|an|for|on|about|me)\b/gi, '')
+                .replace(/[^a-zA-Z\s-]/g, '')
+                .trim();
+
+            // Handle possessive-S: "JULIAS" → "JULIA" (user meant "Julia's")
+            // Only strip trailing S when it follows a name-like word (>2 chars)
+            if (nameCandidate.length > 2 && /s$/i.test(nameCandidate)) {
+                nameCandidate = nameCandidate.replace(/s$/i, '');
+            }
+
+            const candidateId = extractCandidateIdFromText(rawText);
+            const email = extractEmailFromText(rawText);
+
+            let lookupArgs: Record<string, any> = {};
+            if (candidateId) {
+                lookupArgs = { candidate_id: candidateId };
+            } else if (email) {
+                lookupArgs = { email };
+            } else if (nameCandidate.length >= 2) {
+                lookupArgs = { name: nameCandidate };
+            }
+
+            if (Object.keys(lookupArgs).length > 0) {
+                logger.info('direct_lookup_candidate', { traceId, lookupArgs });
+                let lookupResult = await tools.lookup_candidate.execute(lookupArgs);
+
+                // If name search returned nothing, retry with trailing S (e.g. "James")
+                if (lookupResult?.ok && !lookupResult.matches?.length && lookupArgs.name) {
+                    const retryName = lookupArgs.name + 's';
+                    logger.info('direct_lookup_retry_with_s', { traceId, retryName });
+                    const retryResult = await tools.lookup_candidate.execute({ name: retryName });
+                    if (retryResult?.ok && retryResult.matches?.length) {
+                        lookupResult = retryResult;
+                    }
+                }
+
+                if (!lookupResult?.ok) {
+                    return {
+                        type: 'chat',
+                        content: `Unable to complete that: ${lookupResult?.error || 'Unknown error'}`,
+                    };
+                }
+
+                if (!lookupResult.matches?.length) {
+                    const searchTerm = lookupArgs.name || lookupArgs.email || lookupArgs.candidate_id;
+                    return {
+                        type: 'chat',
+                        content: `No candidates found matching "${searchTerm}". Double-check the name or try an email/ID.`,
+                    };
+                }
+
+                let content = `Found ${lookupResult.matches.length} result${lookupResult.matches.length > 1 ? 's' : ''}:`;
+                content += emitFromLookupResult(lookupResult);
+                return { type: 'chat', content };
+            }
+        }
+
         const lastDraft = intent === Intent.EDIT_CONTENT ? getLastAssistantDraft(input.messages) : null;
         const usePreviousDraftContext = intent === Intent.EDIT_CONTENT && shouldUsePreviousDraftContext(input, lastDraft);
         const basePrompt = PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
@@ -769,6 +839,14 @@ export async function handleChatIntent(
             return {
                 type: 'chat',
                 content: 'How can I help you today? I can draft emails, search candidates, or answer recruiting questions.',
+            };
+        }
+
+        // Guard: Greetings get a quick, friendly reply — no need for an LLM call
+        if (intent === Intent.GENERAL_CHAT && /^(h[ae]llo|hi|hey|yo|sup|good\s*(morning|afternoon|evening)|greetings|howdy|what'?s?\s*up|gm)\b[!.\s]*$/i.test(input.inputText || '')) {
+            return {
+                type: 'chat',
+                content: 'Hey! What are we working on?',
             };
         }
 
@@ -868,6 +946,8 @@ export async function handleChatIntent(
                     text = `Found ${res.notes.length} note(s).`;
                 } else if (res?.ok && res?.link) {
                     text = `Here's the link: ${res.link}`;
+                } else if (res?.ok && Array.isArray(res?.matches) && res.matches.length === 0) {
+                    text = 'No candidates found matching that search. Double-check the name or try an email/ID.';
                 } else if (res?.ok) {
                     text = 'Done.';
                 } else if (res?.error) {
@@ -886,7 +966,12 @@ export async function handleChatIntent(
                 if (!res?.ok) continue;
 
                 if (tr.toolName === 'lookup_candidate') {
-                    text += emitFromLookupResult(res);
+                    if (Array.isArray(res.matches) && res.matches.length === 0) {
+                        // Override generic LLM prose ("Done.") with a useful message
+                        text = 'No candidates found matching that search. Double-check the name or try an email/ID.';
+                    } else {
+                        text += emitFromLookupResult(res);
+                    }
                 } else if (
                     (tr.toolName === 'add_candidate' || tr.toolName === 'update_candidate') &&
                     res.prospect

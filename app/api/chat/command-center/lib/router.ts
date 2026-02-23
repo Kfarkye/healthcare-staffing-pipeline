@@ -46,6 +46,9 @@ const PATTERNS = {
     novaId: /^#?\d{6,8}$/,
     novaUrl: /nova\.ayahealthcare\.com/i,
 
+    // Greetings / trivial input (must come before intent detection)
+    greeting: /^(h[ae]llo|hi|hey|yo|sup|good\s*(morning|afternoon|evening)|greetings|howdy|what'?s?\s*up|gm)\b[!.\s]*$/i,
+
     // Intent detection
     infoQuestion: /^(who|what|where|when|why|how)\b/i,
     draftVerb: /\b(draft|write|compose|create|generate)\b/i,
@@ -66,6 +69,7 @@ const PATTERNS = {
     reassign: /\breassign/i,
     licensing: /\blicensing?\b/i,
     addCandidate: /\b(?:add|create|new|save|enter|register|onboard)\s+(?:candidate|prospect)\b|\b(?:add|save|enter|register|onboard)\s+(?:him|her|them|this)\s*(?:to|in)\s+(?:the\s+)?system\b|\b(?:add|save|enter|register|onboard)\s+(?!note\b)(?:[a-z][a-z'.-]+(?:\s+[a-z][a-z'.-]+){0,3})\s+(?:to|in)\s+(?:the\s+)?system\b/i,
+    lookupCandidate: /\b(pull|look\s*up|find|search|get|fetch|check)\b.*\b(info|profile|details?|record|data|candidate|prospect)\b|\b(info|profile|details?|record|data)\b.*\b(for|on|about)\b/i,
     addNote: /\b(add|create|leave|log|write|save)\s+(a\s+)?note\b/i,
     noteFor: /\b(note\s+for|note\s+to)\b/i,
     updateCandidate: /\b(update|edit|change)\s+(candidate|prospect)\b/i,
@@ -212,6 +216,12 @@ function isUpdateCandidateRequest(text: string): boolean {
     const t = text.toLowerCase();
     if (PATTERNS.negation.test(t)) return false;
     return PATTERNS.updateCandidate.test(t);
+}
+
+function isLookupCandidateRequest(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    return PATTERNS.lookupCandidate.test(t);
 }
 
 function isNoteHistoryRequest(text: string): boolean {
@@ -481,6 +491,19 @@ export async function classify(
         };
     }
 
+    // Greetings / trivial social messages → always GENERAL_CHAT
+    if (PATTERNS.greeting.test(text)) {
+        return {
+            ...createResult(Intent.GENERAL_CHAT, null, 'Greeting detected'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
+    }
+
     // Follow-up after "email or text?" prompt:
     // treat channel-only replies as continuation of the prior drafting intent.
     if (askedForMessageType && messageTypeChoice) {
@@ -653,12 +676,13 @@ export async function classify(
         };
     }
 
-    // Explicit DB mutations: add/update candidate / leave note / note history / links
+    // Explicit DB mutations: add/update candidate / leave note / note history / links / lookups
     if (
         isAddCandidateRequest(text) ||
         isUpdateCandidateRequest(text) ||
         isAddNoteRequest(text) ||
         isNoteHistoryRequest(text) ||
+        isLookupCandidateRequest(text) ||
         isStateBoardRequest(text) ||
         isNovaLinkRequest(text) ||
         isCredentialVerifyRequest(text)
@@ -983,7 +1007,7 @@ export async function classify(
                 model: googleClient(model, { structuredOutputs: true }),
                 schema: ClassificationSchema,
                 messages: [{ role: 'user', content: text }],
-                system: `Classify the user's intent. Options: DRAFT_OUTREACH (cold emails), DRAFT_EMAIL (specific requests), DATABASE_ACTION (lookups), CAMPAIGN_WORKFLOW (automation), GENERAL_CHAT (other).`,
+                system: `Classify the user's intent. Options: DRAFT_OUTREACH (cold outreach emails with pay packages), DRAFT_EMAIL (specific email drafting requests), DATABASE_ACTION (candidate lookups/updates), CAMPAIGN_WORKFLOW (automation/campaign design), GENERAL_CHAT (greetings, questions, advice, anything that is NOT a request to draft or send something). When in doubt, choose GENERAL_CHAT.`,
                 temperature: 0,
             });
             let response;
