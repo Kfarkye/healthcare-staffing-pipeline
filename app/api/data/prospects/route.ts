@@ -1,5 +1,5 @@
 /**
- * /api/data/prospects
+ * /api/data/prospects  (v1)
  *
  * GET   — List / search prospects
  *         Query params: name, email, candidate_id, limit
@@ -7,18 +7,23 @@
  * POST  — Create a prospect  (action: "create")
  * PATCH — Update a prospect  (requires id)
  *
- * All data access goes through the shared prospect service layer.
+ * Responses include schema_version + entity metadata for
+ * deterministic Gemini grounding.
+ *
+ * Architecture: Route → Service → Repository → Postgres
  */
 
 import { NextRequest } from "next/server";
 import { json, error, safe, searchParam, searchParamInt } from "../_shared";
 import {
+    SCHEMA_VERSION,
     listProspects,
     findProspects,
-    findProspectBy,
     createProspect,
     updateProspect,
 } from "./service";
+
+export const dynamic = "force-dynamic";
 
 export const GET = safe(async (req: NextRequest) => {
     const name = searchParam(req, "name");
@@ -41,7 +46,12 @@ export const GET = safe(async (req: NextRequest) => {
             return error(result.error.message, 502);
         }
 
-        return json({ rows: result.data });
+        return json({
+            schema_version: SCHEMA_VERSION,
+            entity: "prospect",
+            count: result.data.length,
+            rows: result.data,
+        });
     }
 
     // No filter → list all
@@ -51,7 +61,12 @@ export const GET = safe(async (req: NextRequest) => {
         return error(result.error.message, 502);
     }
 
-    return json({ rows: result.data });
+    return json({
+        schema_version: SCHEMA_VERSION,
+        entity: "prospect",
+        count: result.data.length,
+        rows: result.data,
+    });
 });
 
 export const POST = safe(async (req: NextRequest) => {
@@ -68,7 +83,12 @@ export const POST = safe(async (req: NextRequest) => {
         return error(result.error.message, 502);
     }
 
-    return json({ data: result.data }, 201);
+    return json({
+        schema_version: SCHEMA_VERSION,
+        entity: "prospect",
+        action: "created",
+        data: result.data,
+    }, 201);
 });
 
 export const PATCH = safe(async (req: NextRequest) => {
@@ -85,5 +105,10 @@ export const PATCH = safe(async (req: NextRequest) => {
         return error(result.error.message, 502);
     }
 
-    return json({ data: result.data });
+    return json({
+        schema_version: SCHEMA_VERSION,
+        entity: "prospect",
+        action: "updated",
+        data: result.data,
+    });
 });

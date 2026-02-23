@@ -1,19 +1,21 @@
 /**
  * Prospect Service Layer
  *
- * Shared data-access functions for the prospects table.
+ * Business logic + response shaping for prospects.
+ * Calls the repository for raw DB access.
  * Used by BOTH /api/data/prospects route handlers AND
- * command-center tools — single source of truth, no
- * duplicate raw queries.
+ * command-center tools — single source of truth.
  *
  * @module app/api/data/prospects/service
  */
 
-import { db } from "../_shared";
+import * as repo from "./repository";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
+
+export const SCHEMA_VERSION = "1.0.0";
 
 export interface FindProspectsOptions {
     candidate_id?: number;
@@ -50,40 +52,42 @@ export type ProspectPayload = Omit<Partial<ProspectRecord>, "id">;
 /*  List / Search                                                      */
 /* ------------------------------------------------------------------ */
 
-/** List all prospects, newest first. Used by GET /api/data/prospects. */
+/** List all prospects, newest first. */
 export async function listProspects(): Promise<{ data: ProspectRecord[]; error: any }> {
-    const { data, error } = await db()
-        .from("prospects")
-        .select("*")
-        .order("created_at", { ascending: false });
+    const { data, error } = await repo.selectAll("created_at", false);
     return { data: data || [], error };
 }
 
 /**
  * Find prospects by candidate_id, email, or name (ILIKE).
- * Used by the lookup_candidate tool.
  */
 export async function findProspects(
     options: FindProspectsOptions
 ): Promise<{ data: ProspectRecord[]; error: any }> {
     const limit = Math.min(options.limit || 5, 20);
-    const columns =
-        "id, candidate_id, name, email, phone, status, nova_url, recruiter, specialty, profession, home_state, licenses, engagement_level";
-
-    let query = db().from("prospects").select(columns).limit(limit);
 
     if (options.candidate_id) {
-        query = query.eq("candidate_id", options.candidate_id);
-    } else if (options.email) {
-        query = query.ilike("email", String(options.email).trim());
-    } else if (options.name) {
-        query = query.ilike("name", `%${String(options.name).trim()}%`);
-    } else {
-        return { data: [], error: null };
+        const { data, error } = await repo.selectByField(
+            "candidate_id", options.candidate_id, { limit }
+        );
+        return { data: data || [], error };
     }
 
-    const { data, error } = await query;
-    return { data: data || [], error };
+    if (options.email) {
+        const { data, error } = await repo.selectByField(
+            "email", String(options.email).trim(), { ilike: true, limit }
+        );
+        return { data: data || [], error };
+    }
+
+    if (options.name) {
+        const { data, error } = await repo.selectByField(
+            "name", `%${String(options.name).trim()}%`, { ilike: true, limit }
+        );
+        return { data: data || [], error };
+    }
+
+    return { data: [], error: null };
 }
 
 /* ------------------------------------------------------------------ */
@@ -95,21 +99,14 @@ export async function findProspectBy(
     field: "id" | "candidate_id" | "email",
     value: number | string
 ): Promise<{ data: ProspectRecord | null; error: any }> {
-    let query = db().from("prospects").select("*");
-
-    if (field === "email") {
-        query = query.ilike("email", String(value));
-    } else {
-        query = query.eq(field, value);
-    }
-
-    const { data, error } = await query.maybeSingle();
+    const { data, error } = await repo.selectOneByField(
+        field, value, { ilike: field === "email" }
+    );
     return { data, error };
 }
 
 /**
  * Resolve a prospect's internal `id` from various identifiers.
- * Returns null if not found.
  */
 export async function resolveProspectId(input: {
     prospect_id?: number;
@@ -135,28 +132,19 @@ export async function resolveProspectId(input: {
 /*  Create / Update                                                    */
 /* ------------------------------------------------------------------ */
 
-/** Insert a new prospect. Used by POST /api/data/prospects & add_candidate tool. */
+/** Insert a new prospect. */
 export async function createProspect(
     payload: ProspectPayload
 ): Promise<{ data: ProspectRecord | null; error: any }> {
-    const { data, error } = await db()
-        .from("prospects")
-        .insert(payload)
-        .select("*")
-        .single();
+    const { data, error } = await repo.insertOne(payload);
     return { data, error };
 }
 
-/** Update an existing prospect by id. Used by PATCH /api/data/prospects & update_candidate tool. */
+/** Update an existing prospect by id. */
 export async function updateProspect(
     id: number,
     updates: ProspectPayload
 ): Promise<{ data: ProspectRecord | null; error: any }> {
-    const { data, error } = await db()
-        .from("prospects")
-        .update(updates)
-        .eq("id", id)
-        .select("*")
-        .single();
+    const { data, error } = await repo.updateById(id, updates);
     return { data, error };
 }
