@@ -772,6 +772,14 @@ export async function handleChatIntent(
             };
         }
 
+        // Guard: Greetings get a quick, friendly reply — no need for an LLM call
+        if (intent === Intent.GENERAL_CHAT && /^(h[ae]llo|hi|hey|yo|sup|good\s*(morning|afternoon|evening)|greetings|howdy|what'?s?\s*up|gm)\b[!.\s]*$/i.test(input.inputText || '')) {
+            return {
+                type: 'chat',
+                content: 'Hey! What are we working on?',
+            };
+        }
+
         if (intent === Intent.EDIT_CONTENT && !input.hasImage && !lastDraft) {
             return {
                 type: 'chat',
@@ -868,6 +876,8 @@ export async function handleChatIntent(
                     text = `Found ${res.notes.length} note(s).`;
                 } else if (res?.ok && res?.link) {
                     text = `Here's the link: ${res.link}`;
+                } else if (res?.ok && Array.isArray(res?.matches) && res.matches.length === 0) {
+                    text = 'No candidates found matching that search. Double-check the name or try an email/ID.';
                 } else if (res?.ok) {
                     text = 'Done.';
                 } else if (res?.error) {

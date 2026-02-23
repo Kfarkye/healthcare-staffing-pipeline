@@ -69,6 +69,7 @@ const PATTERNS = {
     reassign: /\breassign/i,
     licensing: /\blicensing?\b/i,
     addCandidate: /\b(?:add|create|new|save|enter|register|onboard)\s+(?:candidate|prospect)\b|\b(?:add|save|enter|register|onboard)\s+(?:him|her|them|this)\s*(?:to|in)\s+(?:the\s+)?system\b|\b(?:add|save|enter|register|onboard)\s+(?!note\b)(?:[a-z][a-z'.-]+(?:\s+[a-z][a-z'.-]+){0,3})\s+(?:to|in)\s+(?:the\s+)?system\b/i,
+    lookupCandidate: /\b(pull|look\s*up|find|search|get|fetch|check)\b.*\b(info|profile|details?|record|data|candidate|prospect)\b|\b(info|profile|details?|record|data)\b.*\b(for|on|about)\b/i,
     addNote: /\b(add|create|leave|log|write|save)\s+(a\s+)?note\b/i,
     noteFor: /\b(note\s+for|note\s+to)\b/i,
     updateCandidate: /\b(update|edit|change)\s+(candidate|prospect)\b/i,
@@ -215,6 +216,12 @@ function isUpdateCandidateRequest(text: string): boolean {
     const t = text.toLowerCase();
     if (PATTERNS.negation.test(t)) return false;
     return PATTERNS.updateCandidate.test(t);
+}
+
+function isLookupCandidateRequest(text: string): boolean {
+    const t = text.toLowerCase();
+    if (PATTERNS.negation.test(t)) return false;
+    return PATTERNS.lookupCandidate.test(t);
 }
 
 function isNoteHistoryRequest(text: string): boolean {
@@ -669,12 +676,13 @@ export async function classify(
         };
     }
 
-    // Explicit DB mutations: add/update candidate / leave note / note history / links
+    // Explicit DB mutations: add/update candidate / leave note / note history / links / lookups
     if (
         isAddCandidateRequest(text) ||
         isUpdateCandidateRequest(text) ||
         isAddNoteRequest(text) ||
         isNoteHistoryRequest(text) ||
+        isLookupCandidateRequest(text) ||
         isStateBoardRequest(text) ||
         isNovaLinkRequest(text) ||
         isCredentialVerifyRequest(text)
