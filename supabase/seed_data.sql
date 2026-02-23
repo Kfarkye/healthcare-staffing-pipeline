@@ -9,7 +9,8 @@ INSERT INTO public.prospects (candidate_id, name, email, phone, specialty, statu
 VALUES 
 (2588867, 'Belinda J.', 'belinda@example.com', '555-0101', 'ICU', 'New', 'CA', 'https://nova.aya.com/2588867'),
 (3001001, 'Cynthia Ononobi', 'cynthia.o@example.com', '555-0102', 'Med Surg', 'Interested', 'TX', 'https://nova.aya.com/3001001'),
-(3001002, 'Joi Ford', 'joi.ford@example.com', '555-0103', 'Phlebotomist', 'Interested', 'GA', 'https://nova.aya.com/3001002');
+(3001002, 'Joi Ford', 'joi.ford@example.com', '555-0103', 'Phlebotomist', 'Interested', 'GA', 'https://nova.aya.com/3001002'),
+(1551687, 'Julia Goelz', NULL, NULL, NULL, 'New', NULL, 'https://nova.ayahealthcare.com/#/recruiting/candidates/1551687/new-profile/about');
 
 -- Engagements
 INSERT INTO public.engagements (prospect_id, start_date, end_date, facility_name, specialty, status, bill_rate)
