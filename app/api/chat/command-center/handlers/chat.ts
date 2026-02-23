@@ -747,13 +747,19 @@ export async function handleChatIntent(
         if (isLookup) {
             const rawText = input.inputText || '';
             // Try to extract a name: strip the verb phrase and common filler words
-            const nameCandidate = rawText
+            let nameCandidate = rawText
                 .replace(/\b(can you|could you|please|pull|look\s*up|find|search|get|fetch|check)\b/gi, '')
                 .replace(/\b(info|information|profile|details?|record|data|candidate|prospect)\b/gi, '')
-                .replace(/[''`]/g, '')  // possessives
-                .replace(/\b(his|her|their|the|a|an|for|on|about|me|s)\b/gi, '')
+                .replace(/[''`]/g, '')  // strip apostrophes
+                .replace(/\b(his|her|their|the|a|an|for|on|about|me)\b/gi, '')
                 .replace(/[^a-zA-Z\s-]/g, '')
                 .trim();
+
+            // Handle possessive-S: "JULIAS" → "JULIA" (user meant "Julia's")
+            // Only strip trailing S when it follows a name-like word (>2 chars)
+            if (nameCandidate.length > 2 && /s$/i.test(nameCandidate)) {
+                nameCandidate = nameCandidate.replace(/s$/i, '');
+            }
 
             const candidateId = extractCandidateIdFromText(rawText);
             const email = extractEmailFromText(rawText);
@@ -769,7 +775,17 @@ export async function handleChatIntent(
 
             if (Object.keys(lookupArgs).length > 0) {
                 logger.info('direct_lookup_candidate', { traceId, lookupArgs });
-                const lookupResult = await tools.lookup_candidate.execute(lookupArgs);
+                let lookupResult = await tools.lookup_candidate.execute(lookupArgs);
+
+                // If name search returned nothing, retry with trailing S (e.g. "James")
+                if (lookupResult?.ok && !lookupResult.matches?.length && lookupArgs.name) {
+                    const retryName = lookupArgs.name + 's';
+                    logger.info('direct_lookup_retry_with_s', { traceId, retryName });
+                    const retryResult = await tools.lookup_candidate.execute({ name: retryName });
+                    if (retryResult?.ok && retryResult.matches?.length) {
+                        lookupResult = retryResult;
+                    }
+                }
 
                 if (!lookupResult?.ok) {
                     return {
