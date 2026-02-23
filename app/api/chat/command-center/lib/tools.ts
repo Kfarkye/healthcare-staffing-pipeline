@@ -3,10 +3,13 @@
  *
  * Server-side tool definitions for LLM actions.
  *
- * Prospect operations use the shared service layer from
- * /api/data/prospects/service — the exact same functions
- * that power the /api/data/prospects REST endpoint.
- * No separate Supabase client, no HTTP fetch to self.
+ * Architecture:
+ *   - Legacy tools use /api/data/prospects/service (v0)
+ *   - Grounding tools use /api/v1/prospects/service (deterministic envelope + lineage)
+ *
+ * HARD RULE: The LLM cannot draft outreach unless get_prospect_by_id
+ * succeeded and returned a schema-valid object. All facts must come
+ * from the grounded JSON, never from the model's memory.
  */
 
 import { z } from 'zod';
@@ -18,6 +21,20 @@ import {
   updateProspect,
   resolveProspectId,
 } from '../../../data/prospects/service';
+import {
+  getProspectById,
+  getProspectByCandidateId,
+  searchProspects as searchProspectsV1,
+  logEvent,
+  getProspectEvents,
+} from '../../../v1/prospects/service';
+import {
+  SearchFiltersSchema,
+  LogEventInputSchema,
+  EventType,
+  ActorType,
+  EventSource,
+} from '../../../v1/prospects/schemas';
 
 const NOVA_SECTION_PATHS: Record<string, string> = {
   about: '/new-profile/about',
@@ -417,6 +434,193 @@ export function createCommandCenterTools(config: { logger?: { info?: Function; w
         const state = normalizeStateAbbr(_args.state);
         if (!state) return { ok: false, error: 'State must be a 2-letter code.' };
         return { ok: false, error: 'State board link endpoint not available yet.' };
+      },
+    },
+
+    // ================================================================
+    // GROUNDING-FIRST TOOLS (v1)
+    //
+    // These tools return the deterministic envelope with lineage.
+    // The LLM MUST use these for any prospect data it presents.
+    // It cannot draft outreach, state facts about a candidate,
+    // or reference facility/status without first calling one of these.
+    // ================================================================
+
+    get_prospect_by_id: {
+      description:
+        'Get a prospect by their internal ID or candidate_id. Returns the full deterministic envelope with lineage (last event, last contacted, event count). ALWAYS call this before drafting outreach or stating facts about a candidate.',
+      parameters: z.object({
+        id: z.number().int().positive(),
+        lookup_by: z.enum(['id', 'candidate_id']).default('id'),
+      }),
+      execute: async (args: any) => {
+        const lookupFn = args.lookup_by === 'candidate_id'
+          ? getProspectByCandidateId
+          : getProspectById;
+
+        const { data, error } = await lookupFn(args.id);
+
+        if (error) return { ok: false, error };
+        if (!data) return { ok: false, error: 'Prospect not found.' };
+
+        logger?.info?.('tool_get_prospect_by_id', {
+          prospect_id: data.data.id,
+          lookup_by: args.lookup_by,
+        });
+
+        return { ok: true, ...data };
+      },
+    },
+
+    search_prospects: {
+      description:
+        'Search prospects with strict filters. No freeform queries. Filter by specialty, status, staleness, update date range, or name. Returns paginated results.',
+      parameters: z.object({
+        specialty: z.array(z.string()).optional(),
+        status: z.array(z.string()).optional(),
+        stale_after_days: z.number().int().positive().optional(),
+        updated_after: z.string().optional(),
+        updated_before: z.string().optional(),
+        name: z.string().optional(),
+        limit: z.number().int().positive().max(100).default(20),
+        cursor: z.number().int().optional(),
+      }),
+      execute: async (args: any) => {
+        const parsed = SearchFiltersSchema.safeParse(args);
+        if (!parsed.success) {
+          const issues = parsed.error.issues.map(
+            (i: any) => `${i.path.join('.')}: ${i.message}`
+          );
+          return { ok: false, error: `Invalid filters: ${issues.join('; ')}` };
+        }
+
+        const { data, error } = await searchProspectsV1(parsed.data);
+
+        if (error) return { ok: false, error };
+        if (!data) return { ok: false, error: 'Search failed.' };
+
+        logger?.info?.('tool_search_prospects', {
+          filters: args,
+          result_count: data.pagination.count,
+        });
+
+        return { ok: true, ...data };
+      },
+    },
+
+    log_event: {
+      description:
+        'Log a prospect lifecycle event. Use this to record outreach, status changes, responses, and other actions. This feeds the lineage system.',
+      parameters: z.object({
+        prospect_id: z.number().int().positive(),
+        event_type: z.enum([
+          'PROSPECT_CREATED', 'PROSPECT_UPDATED', 'OUTREACH_SENT',
+          'OUTREACH_FAILED', 'RESPONSE_RECEIVED', 'STATUS_CHANGED',
+          'SUBMITTED', 'INTERVIEW_SCHEDULED', 'OFFERED', 'DECLINED',
+          'HIRED', 'NOTE_ADDED', 'FOLLOWUP_SCHEDULED', 'FOLLOWUP_COMPLETED',
+        ]),
+        actor_type: z.enum(['RECRUITER', 'SYSTEM', 'CANDIDATE']).default('SYSTEM'),
+        actor_id: z.string().uuid().optional(),
+        payload: z.record(z.unknown()).default({}),
+        source: z.enum([
+          'MANUAL', 'COMMAND_CENTER', 'NOVA_SYNC',
+          'SMS_AUTOMATION', 'EMAIL_AUTOMATION', 'BULK_IMPORT', 'API',
+        ]).default('COMMAND_CENTER'),
+      }),
+      execute: async (args: any) => {
+        const parsed = LogEventInputSchema.safeParse(args);
+        if (!parsed.success) {
+          const issues = parsed.error.issues.map(
+            (i: any) => `${i.path.join('.')}: ${i.message}`
+          );
+          return { ok: false, error: `Invalid event: ${issues.join('; ')}` };
+        }
+
+        const { data, error } = await logEvent(parsed.data);
+
+        if (error) return { ok: false, error };
+
+        logger?.info?.('tool_log_event', {
+          prospect_id: args.prospect_id,
+          event_type: args.event_type,
+          event_id: data?.id,
+        });
+
+        return { ok: true, event: data };
+      },
+    },
+
+    get_prospect_events: {
+      description:
+        'Fetch the event history for a prospect. Returns the append-only event stream in reverse chronological order.',
+      parameters: z.object({
+        prospect_id: z.number().int().positive(),
+        limit: z.number().int().positive().max(100).default(20),
+        event_types: z.array(z.string()).optional(),
+      }),
+      execute: async (args: any) => {
+        const { data, error } = await getProspectEvents(
+          args.prospect_id,
+          { limit: args.limit, eventTypes: args.event_types }
+        );
+
+        if (error) return { ok: false, error };
+
+        return {
+          ok: true,
+          prospect_id: args.prospect_id,
+          count: data.length,
+          events: data,
+        };
+      },
+    },
+
+    create_outreach_draft: {
+      description:
+        'Generate an outreach draft for a prospect. HARD RULE: This tool REQUIRES a valid prospect_id. The system will fetch the prospect envelope first to ground the draft in real data. Never call this without a prospect_id.',
+      parameters: z.object({
+        prospect_id: z.number().int().positive(),
+        channel: z.enum(['EMAIL', 'SMS', 'LINKEDIN', 'PHONE']),
+        objective: z.string().min(1),
+        template_id: z.string().optional(),
+      }),
+      execute: async (args: any) => {
+        // Step 1: Fetch the grounded prospect data
+        const { data: envelope, error: lookupErr } = await getProspectById(args.prospect_id);
+
+        if (lookupErr) return { ok: false, error: lookupErr };
+        if (!envelope) return { ok: false, error: 'Prospect not found. Cannot draft outreach without grounded data.' };
+
+        // Step 2: Return the grounded context for the LLM to use in drafting
+        // The actual draft generation happens in the LLM layer using this data.
+        const prospect = envelope.data;
+        const lineage = envelope.lineage;
+
+        logger?.info?.('tool_create_outreach_draft', {
+          prospect_id: args.prospect_id,
+          channel: args.channel,
+        });
+
+        return {
+          ok: true,
+          grounding: {
+            prospect,
+            lineage,
+            channel: args.channel,
+            objective: args.objective,
+            template_id: args.template_id ?? null,
+          },
+          instructions: [
+            'Draft the outreach using ONLY the data in the "prospect" object above.',
+            'Do NOT reference any facility, title, or detail not present in the grounding data.',
+            `Candidate name: ${prospect.full_name}`,
+            prospect.current_facility ? `Current facility: ${prospect.current_facility}` : 'Current facility: unknown (do not guess)',
+            prospect.specialty ? `Specialty: ${prospect.specialty}` : 'Specialty: unknown (do not guess)',
+            lineage.last_contacted_at
+              ? `Last contacted: ${lineage.last_contacted_at}`
+              : 'Never contacted before.',
+          ],
+        };
       },
     },
   };
