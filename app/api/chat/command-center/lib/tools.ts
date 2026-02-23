@@ -3,13 +3,21 @@
  *
  * Server-side tool definitions for LLM actions.
  *
- * All prospect operations go through the /api/data/prospects REST
- * endpoint via fetch() — the tools are consumers of the endpoints,
- * not direct database clients.
+ * Prospect operations use the shared service layer from
+ * /api/data/prospects/service — the exact same functions
+ * that power the /api/data/prospects REST endpoint.
+ * No separate Supabase client, no HTTP fetch to self.
  */
 
 import { z } from 'zod';
 import { CONFIG } from './config';
+import {
+  findProspects,
+  findProspectBy,
+  createProspect,
+  updateProspect,
+  resolveProspectId,
+} from '../../../data/prospects/service';
 
 const NOVA_SECTION_PATHS: Record<string, string> = {
   about: '/new-profile/about',
@@ -69,107 +77,11 @@ function normalizeStateAbbr(state?: string | null): string | null {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Endpoint helpers                                                   */
-/* ------------------------------------------------------------------ */
-
-/**
- * GET /api/data/prospects with optional query params.
- * Returns { rows: ProspectRecord[] }
- */
-async function fetchProspects(
-  origin: string,
-  params?: Record<string, string>
-): Promise<{ rows: any[]; error?: string }> {
-  const url = new URL('/api/data/prospects', origin);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v) url.searchParams.set(k, v);
-    }
-  }
-  const res = await fetch(url.toString());
-  const body = await res.json();
-  if (!res.ok) return { rows: [], error: body?.error || `HTTP ${res.status}` };
-  return { rows: body?.rows || [] };
-}
-
-/**
- * POST /api/data/prospects  (action: "create")
- * Returns { data: ProspectRecord }
- */
-async function postProspect(
-  origin: string,
-  payload: Record<string, any>
-): Promise<{ data: any; error?: string }> {
-  const res = await fetch(`${origin}/api/data/prospects`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'create', ...payload }),
-  });
-  const body = await res.json();
-  if (!res.ok) return { data: null, error: body?.error || `HTTP ${res.status}` };
-  return { data: body?.data || null };
-}
-
-/**
- * PATCH /api/data/prospects  (requires id)
- * Returns { data: ProspectRecord }
- */
-async function patchProspect(
-  origin: string,
-  id: number,
-  updates: Record<string, any>
-): Promise<{ data: any; error?: string }> {
-  const res = await fetch(`${origin}/api/data/prospects`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, ...updates }),
-  });
-  const body = await res.json();
-  if (!res.ok) return { data: null, error: body?.error || `HTTP ${res.status}` };
-  return { data: body?.data || null };
-}
-
-/**
- * Resolve a prospect's internal id from candidate_id or email
- * by querying the endpoint.
- */
-async function resolveProspectId(
-  origin: string,
-  input: { prospect_id?: number; candidate_id?: number; email?: string }
-): Promise<number | null> {
-  if (input.prospect_id) return input.prospect_id;
-
-  if (input.candidate_id) {
-    const { rows } = await fetchProspects(origin, {
-      candidate_id: String(input.candidate_id),
-      limit: '1',
-    });
-    return rows[0]?.id ?? null;
-  }
-
-  if (input.email) {
-    const { rows } = await fetchProspects(origin, {
-      email: input.email,
-      limit: '1',
-    });
-    return rows[0]?.id ?? null;
-  }
-
-  return null;
-}
-
-/* ------------------------------------------------------------------ */
 /*  Tool factory                                                       */
 /* ------------------------------------------------------------------ */
 
-export interface ToolsConfig {
-  /** Origin URL for internal API calls (e.g. "http://localhost:3000") */
-  origin: string;
-  logger?: { info?: Function; warn?: Function; error?: Function };
-}
-
-export function createCommandCenterTools(config: ToolsConfig) {
-  const { origin, logger } = config;
+export function createCommandCenterTools(config: { logger?: { info?: Function; warn?: Function; error?: Function } }) {
+  const { logger } = config;
 
   return {
     lookup_candidate: {
@@ -186,15 +98,15 @@ export function createCommandCenterTools(config: ToolsConfig) {
           return { ok: false, error: 'Provide candidate_id, email, or name.' };
         }
 
-        const params: Record<string, string> = {};
-        if (args.candidate_id) params.candidate_id = String(args.candidate_id);
-        else if (args.email) params.email = String(args.email).trim();
-        else if (args.name) params.name = String(args.name).trim();
-        if (args.limit) params.limit = String(Math.min(Number(args.limit), 20));
+        const { data, error } = await findProspects({
+          candidate_id: args.candidate_id,
+          email: args.email ? String(args.email).trim() : undefined,
+          name: args.name ? String(args.name).trim() : undefined,
+          limit: args.limit,
+        });
 
-        const { rows, error } = await fetchProspects(origin, params);
-        if (error) return { ok: false, error };
-        return { ok: true, matches: rows };
+        if (error) return { ok: false, error: error.message };
+        return { ok: true, matches: data };
       },
     },
 
@@ -234,11 +146,9 @@ export function createCommandCenterTools(config: ToolsConfig) {
           return { ok: false, error: 'name is required.' };
         }
 
-        // Check for existing record via the endpoint
-        const { rows: existing } = await fetchProspects(origin, {
-          candidate_id: String(candidateId),
-          limit: '1',
-        });
+        // Check for existing record via the service
+        const { data: existing, error: lookupErr } = await findProspectBy('candidate_id', candidateId);
+        if (lookupErr) return { ok: false, error: lookupErr.message };
 
         const rawNovaUrl = args.nova_url ? String(args.nova_url).trim() : null;
         const normalizedNovaUrl = rawNovaUrl && /^https?:\/\//i.test(rawNovaUrl)
@@ -263,19 +173,17 @@ export function createCommandCenterTools(config: ToolsConfig) {
           nova_url: normalizedNovaUrl,
         };
 
-        if (existing.length > 0) {
+        if (existing) {
           if (!args.update_if_exists) {
-            const ex = existing[0];
             return {
               ok: false,
               error: 'Candidate already exists.',
-              existing: { id: ex.id, candidate_id: ex.candidate_id, name: ex.name, email: ex.email },
+              existing: { id: existing.id, candidate_id: existing.candidate_id, name: existing.name, email: existing.email },
             };
           }
 
-          // Update via PATCH endpoint
-          const { data: updated, error: updErr } = await patchProspect(origin, existing[0].id, payload);
-          if (updErr) return { ok: false, error: updErr };
+          const { data: updated, error: updErr } = await updateProspect(existing.id, payload);
+          if (updErr) return { ok: false, error: updErr.message };
 
           logger?.info?.('tool_add_candidate_updated', {
             candidate_id: candidateId,
@@ -285,9 +193,8 @@ export function createCommandCenterTools(config: ToolsConfig) {
           return { ok: true, action: 'updated', prospect: updated };
         }
 
-        // Create via POST endpoint
-        const { data, error } = await postProspect(origin, payload);
-        if (error) return { ok: false, error };
+        const { data, error } = await createProspect(payload);
+        if (error) return { ok: false, error: error.message };
 
         logger?.info?.('tool_add_candidate_created', {
           candidate_id: candidateId,
@@ -319,7 +226,7 @@ export function createCommandCenterTools(config: ToolsConfig) {
         nova_url: z.string().url().optional(),
       }),
       execute: async (args: any) => {
-        const prospectId = await resolveProspectId(origin, {
+        const prospectId = await resolveProspectId({
           prospect_id: args.prospect_id,
           candidate_id: args.candidate_id,
           email: args.email,
@@ -354,8 +261,8 @@ export function createCommandCenterTools(config: ToolsConfig) {
           return { ok: false, error: 'No update fields provided.' };
         }
 
-        const { data, error } = await patchProspect(origin, prospectId, cleaned);
-        if (error) return { ok: false, error };
+        const { data, error } = await updateProspect(prospectId, cleaned);
+        if (error) return { ok: false, error: error.message };
 
         logger?.info?.('tool_update_candidate', { prospect_id: prospectId });
         return { ok: true, prospect: data };
@@ -381,16 +288,14 @@ export function createCommandCenterTools(config: ToolsConfig) {
         }
 
         if (!prospectId && candidateId) {
-          const resolved = await resolveProspectId(origin, { candidate_id: candidateId });
+          const resolved = await resolveProspectId({ candidate_id: candidateId });
           if (!resolved) return { ok: false, error: 'Candidate not found.' };
           prospectId = resolved;
         }
 
-        // Note: candidate_notes don't have a dedicated endpoint yet,
-        // so we update the prospect's notes field via the PATCH endpoint.
         const noteContent = String(args.content).trim();
-        const { data, error } = await patchProspect(origin, prospectId!, { notes: noteContent });
-        if (error) return { ok: false, error };
+        const { data, error } = await updateProspect(prospectId!, { notes: noteContent });
+        if (error) return { ok: false, error: error.message };
 
         logger?.info?.('tool_add_candidate_note', { prospect_id: prospectId });
         return { ok: true, note: { content: noteContent, prospect_id: prospectId }, prospect_id: prospectId };
@@ -406,7 +311,7 @@ export function createCommandCenterTools(config: ToolsConfig) {
         limit: z.number().int().positive().max(50).optional(),
       }),
       execute: async (args: any) => {
-        const prospectId = await resolveProspectId(origin, {
+        const prospectId = await resolveProspectId({
           prospect_id: args.prospect_id,
           candidate_id: args.candidate_id,
           email: args.email,
@@ -416,14 +321,9 @@ export function createCommandCenterTools(config: ToolsConfig) {
           return { ok: false, error: 'Candidate not found (provide candidate_id, prospect_id, or email).' };
         }
 
-        // Fetch the prospect to get notes field via the endpoint
-        const { rows } = await fetchProspects(origin, {
-          candidate_id: String(args.candidate_id || ''),
-        });
-
-        const prospect = rows.find((r: any) => r.id === prospectId);
-        const notes = prospect?.notes ? [{ content: prospect.notes, prospect_id: prospectId }] : [];
-
+        // Fetch the prospect to get the notes field
+        const { data } = await findProspectBy('id', prospectId);
+        const notes = data?.notes ? [{ content: data.notes, prospect_id: prospectId }] : [];
         return { ok: true, prospect_id: prospectId, notes };
       },
     },
@@ -500,9 +400,6 @@ export function createCommandCenterTools(config: ToolsConfig) {
       execute: async (_args: any) => {
         const state = normalizeStateAbbr(_args.state);
         if (!state) return { ok: false, error: 'State must be a 2-letter code.' };
-
-        // State board links don't have a dedicated endpoint yet.
-        // Return a placeholder until the endpoint is created.
         return { ok: false, error: 'State board link endpoint not available yet.' };
       },
     },
@@ -519,7 +416,6 @@ export function createCommandCenterTools(config: ToolsConfig) {
       execute: async (_args: any) => {
         const state = normalizeStateAbbr(_args.state);
         if (!state) return { ok: false, error: 'State must be a 2-letter code.' };
-
         return { ok: false, error: 'State board link endpoint not available yet.' };
       },
     },
