@@ -1,25 +1,72 @@
 /**
- * /api/data/prospects
+ * /api/data/prospects  (v1)
  *
- * GET   — List all prospects (replaces DataService.getProspects)
- * POST  — Create a prospect (replaces DataService.createProspect)
- * PATCH — Update a prospect (replaces DataService.updateProspect)
+ * GET   — List / search prospects
+ *         Query params: name, email, candidate_id, limit
+ *         No params → returns all prospects (newest first)
+ * POST  — Create a prospect  (action: "create")
+ * PATCH — Update a prospect  (requires id)
+ *
+ * Responses include schema_version + entity metadata for
+ * deterministic Gemini grounding.
+ *
+ * Architecture: Route → Service → Repository → Postgres
  */
 
 import { NextRequest } from "next/server";
-import { db, json, error, safe } from "../_shared";
+import { json, error, safe, searchParam, searchParamInt } from "../_shared";
+import {
+    SCHEMA_VERSION,
+    listProspects,
+    findProspects,
+    createProspect,
+    updateProspect,
+} from "./service";
+
+export const dynamic = "force-dynamic";
 
 export const GET = safe(async (req: NextRequest) => {
-    const { data, error: queryError } = await db()
-        .from("prospects")
-        .select("*")
-        .order("created_at", { ascending: false });
+    const name = searchParam(req, "name");
+    const email = searchParam(req, "email");
+    const candidateIdRaw = searchParam(req, "candidate_id");
+    const limit = searchParamInt(req, "limit", 20);
 
-    if (queryError) {
-        return error(queryError.message, 502);
+    // If any filter is present, use findProspects (targeted query)
+    if (name || email || candidateIdRaw) {
+        const candidateId = candidateIdRaw ? parseInt(candidateIdRaw, 10) : undefined;
+
+        const result = await findProspects({
+            name: name || undefined,
+            email: email || undefined,
+            candidate_id: Number.isFinite(candidateId) ? candidateId : undefined,
+            limit,
+        });
+
+        if (result.error) {
+            return error(result.error.message, 502);
+        }
+
+        return json({
+            schema_version: SCHEMA_VERSION,
+            entity: "prospect",
+            count: result.data.length,
+            rows: result.data,
+        });
     }
 
-    return json({ rows: data || [] });
+    // No filter → list all
+    const result = await listProspects();
+
+    if (result.error) {
+        return error(result.error.message, 502);
+    }
+
+    return json({
+        schema_version: SCHEMA_VERSION,
+        entity: "prospect",
+        count: result.data.length,
+        rows: result.data,
+    });
 });
 
 export const POST = safe(async (req: NextRequest) => {
@@ -30,17 +77,18 @@ export const POST = safe(async (req: NextRequest) => {
         return error("Unknown action. Expected 'create'.", 400);
     }
 
-    const { data, error: insertError } = await db()
-        .from("prospects")
-        .insert(prospectData)
-        .select()
-        .single();
+    const result = await createProspect(prospectData);
 
-    if (insertError) {
-        return error(insertError.message, 502);
+    if (result.error) {
+        return error(result.error.message, 502);
     }
 
-    return json({ data }, 201);
+    return json({
+        schema_version: SCHEMA_VERSION,
+        entity: "prospect",
+        action: "created",
+        data: result.data,
+    }, 201);
 });
 
 export const PATCH = safe(async (req: NextRequest) => {
@@ -51,16 +99,16 @@ export const PATCH = safe(async (req: NextRequest) => {
         return error("Missing prospect id", 400);
     }
 
-    const { data, error: updateError } = await db()
-        .from("prospects")
-        .update(updates)
-        .eq("id", id)
-        .select()
-        .single();
+    const result = await updateProspect(id, updates);
 
-    if (updateError) {
-        return error(updateError.message, 502);
+    if (result.error) {
+        return error(result.error.message, 502);
     }
 
-    return json({ data });
+    return json({
+        schema_version: SCHEMA_VERSION,
+        entity: "prospect",
+        action: "updated",
+        data: result.data,
+    });
 });
