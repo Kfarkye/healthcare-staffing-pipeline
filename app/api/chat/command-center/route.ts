@@ -17,7 +17,6 @@
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
-import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 
@@ -53,8 +52,6 @@ export const maxDuration = 300;
 // ════════════════════════════════════════════════════════════════════════════════
 
 const EnvSchema = z.object({
-    SUPABASE_URL: z.string().url(),
-    SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
     GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1),
 });
 
@@ -267,22 +264,15 @@ export async function POST(request: Request) {
     // ══════════════════════════════════════════════════════════════════════════
 
     // Support multiple env var naming conventions
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
     const googleKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
 
     const envResult = EnvSchema.safeParse({
-        SUPABASE_URL: supabaseUrl,
-        SUPABASE_SERVICE_ROLE_KEY: supabaseKey,
         GOOGLE_GENERATIVE_AI_API_KEY: googleKey,
     });
 
     if (!envResult.success) {
         logger.error('env_validation_failed', new Error('Missing environment variables'), {
-            hasSupabaseUrl: !!supabaseUrl,
-            hasSupabaseKey: !!supabaseKey,
             hasGoogleKey: !!googleKey,
-            supabaseUrlPreview: supabaseUrl?.substring(0, 30),
             zodErrors: envResult.error.flatten().fieldErrors,
         });
         return createErrorResponse('Configuration error', traceId);
@@ -322,11 +312,6 @@ export async function POST(request: Request) {
     // ══════════════════════════════════════════════════════════════════════════
     // 3. Initialize Clients
     // ══════════════════════════════════════════════════════════════════════════
-
-    const supabase = createClient(
-        envResult.data.SUPABASE_URL,
-        envResult.data.SUPABASE_SERVICE_ROLE_KEY
-    );
 
     const google = createGoogleGenerativeAI({
         apiKey: envResult.data.GOOGLE_GENERATIVE_AI_API_KEY
@@ -444,7 +429,7 @@ export async function POST(request: Request) {
 
     const handlerContext: HandlerContext = {
         traceId,
-        supabase,
+        supabase: null, // No longer used — tools go through /api/data/* endpoints
         google,
         logger,
     };
@@ -466,7 +451,8 @@ export async function POST(request: Request) {
 
     try {
         const intentConfig = getIntentConfig(classification.intent);
-        const tools = intentConfig.requiresTools ? createCommandCenterTools(undefined, logger) : undefined;
+        const origin = new URL(request.url).origin;
+        const tools = intentConfig.requiresTools ? createCommandCenterTools({ origin, logger }) : undefined;
 
         // Email intents → Email Handler
         if (intentConfig.handler === 'email') {
