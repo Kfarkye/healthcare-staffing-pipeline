@@ -90,6 +90,8 @@ export const ProspectDataSchema = z
     recruiter: z.string().nullable(),
     nova_url: z.string().nullable(),
     engagement_level: z.string().nullable(),
+    facility_start_date: z.string().nullable(),
+    years_at_facility: z.number().nullable(),
     last_contacted_at: z.string().nullable(),
     created_at: z.string(),
     updated_at: z.string(),
@@ -97,6 +99,12 @@ export const ProspectDataSchema = z
   .strict();
 
 export type ProspectData = z.infer<typeof ProspectDataSchema>;
+
+/** Stale trigger signal — server-computed, not model-guessed */
+export const StaleTrigger = z.enum([
+  "THREE_YEAR_ITCH",
+  "GENERAL_STALE",
+]).nullable();
 
 /** Lineage block — computed from prospect_events */
 export const LineageSchema = z
@@ -110,7 +118,9 @@ export const LineageSchema = z
       })
       .nullable(),
     last_contacted_at: z.string().nullable(),
+    days_since_contact: z.number().int().nullable(),
     event_count: z.number().int(),
+    stale_trigger: StaleTrigger,
   })
   .strict();
 
@@ -146,6 +156,8 @@ export const SearchFiltersSchema = z
     specialty: z.array(z.string()).optional(),
     status: z.array(ProspectStatus).optional(),
     stale_after_days: z.number().int().positive().optional(),
+    min_years_at_facility: z.number().positive().optional(),
+    stale_trigger: z.enum(["THREE_YEAR_ITCH", "GENERAL_STALE"]).optional(),
     updated_after: z.string().datetime().optional(),
     updated_before: z.string().datetime().optional(),
     name: z.string().optional(),

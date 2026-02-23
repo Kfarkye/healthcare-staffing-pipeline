@@ -474,11 +474,13 @@ export function createCommandCenterTools(config: { logger?: { info?: Function; w
 
     search_prospects: {
       description:
-        'Search prospects with strict filters. No freeform queries. Filter by specialty, status, staleness, update date range, or name. Returns paginated results.',
+        'Search prospects with strict filters. No freeform queries. Filter by specialty, status, staleness, tenure, stale trigger (THREE_YEAR_ITCH or GENERAL_STALE), update date range, or name. Use stale_trigger=THREE_YEAR_ITCH to find candidates at a facility >= 2.8 years with stale contact.',
       parameters: z.object({
         specialty: z.array(z.string()).optional(),
         status: z.array(z.string()).optional(),
         stale_after_days: z.number().int().positive().optional(),
+        min_years_at_facility: z.number().positive().optional(),
+        stale_trigger: z.enum(['THREE_YEAR_ITCH', 'GENERAL_STALE']).optional(),
         updated_after: z.string().optional(),
         updated_before: z.string().optional(),
         name: z.string().optional(),
@@ -616,9 +618,17 @@ export function createCommandCenterTools(config: { logger?: { info?: Function; w
             `Candidate name: ${prospect.full_name}`,
             prospect.current_facility ? `Current facility: ${prospect.current_facility}` : 'Current facility: unknown (do not guess)',
             prospect.specialty ? `Specialty: ${prospect.specialty}` : 'Specialty: unknown (do not guess)',
+            prospect.years_at_facility !== null
+              ? `Years at facility: ${prospect.years_at_facility}`
+              : 'Tenure: unknown (do not guess)',
             lineage.last_contacted_at
-              ? `Last contacted: ${lineage.last_contacted_at}`
+              ? `Last contacted: ${lineage.last_contacted_at} (${lineage.days_since_contact} days ago)`
               : 'Never contacted before.',
+            lineage.stale_trigger === 'THREE_YEAR_ITCH'
+              ? 'TRIGGER: 3-year itch detected. Use tenure-based positioning (career progression, senior lead opportunities, new challenges).'
+              : lineage.stale_trigger === 'GENERAL_STALE'
+              ? 'TRIGGER: General stale. Re-engage with value-first message.'
+              : 'No stale trigger active.',
           ],
         };
       },

@@ -33,6 +33,8 @@ export interface ProspectSearchParams {
   specialty?: string[];
   status?: string[];
   stale_after_days?: number;
+  min_years_at_facility?: number;
+  stale_trigger?: string;
   updated_after?: string;
   updated_before?: string;
   name?: string;
@@ -41,8 +43,11 @@ export interface ProspectSearchParams {
 }
 
 export async function searchProspects(params: ProspectSearchParams) {
+  // Use stale_prospects view when stale_trigger is requested (pre-computed)
+  const table = params.stale_trigger ? "stale_prospects" : "prospects";
+
   let query = db()
-    .from("prospects")
+    .from(table)
     .select("*", { count: "exact" });
 
   if (params.specialty && params.specialty.length > 0) {
@@ -61,6 +66,16 @@ export async function searchProspects(params: ProspectSearchParams) {
     );
   }
 
+  // Filter by minimum years at facility (for tenure-based triggers)
+  if (params.min_years_at_facility && table === "stale_prospects") {
+    query = query.gte("years_at_facility", params.min_years_at_facility);
+  }
+
+  // Filter by stale trigger (THREE_YEAR_ITCH or GENERAL_STALE)
+  if (params.stale_trigger) {
+    query = query.eq("stale_trigger", params.stale_trigger);
+  }
+
   if (params.updated_after) {
     query = query.gte("updated_at", params.updated_after);
   }
@@ -70,7 +85,7 @@ export async function searchProspects(params: ProspectSearchParams) {
   }
 
   if (params.name) {
-    query = query.ilike("name", `%${params.name}%`);
+    query = query.ilike("name", params.name.includes("%") ? params.name : `%${params.name}%`);
   }
 
   if (params.cursor) {
