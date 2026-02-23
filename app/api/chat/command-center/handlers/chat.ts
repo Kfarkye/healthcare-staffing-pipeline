@@ -746,6 +746,12 @@ export async function handleChatIntent(
             tools?.lookup_candidate?.execute;
         if (isLookup) {
             const rawText = input.inputText || '';
+            // URL context grounding: if the frontend sent a candidate ID from the
+            // page URL, use it directly — no name extraction needed.
+            const urlCandidateId = input.userContext?.candidateId
+                ? Number(input.userContext.candidateId)
+                : null;
+
             // Try to extract a name: strip the verb phrase and common filler words
             let nameCandidate = rawText
                 .replace(/\b(can you|could you|please|pull|look\s*up|find|search|get|fetch|check)\b/gi, '')
@@ -756,12 +762,11 @@ export async function handleChatIntent(
                 .trim();
 
             // Handle possessive-S: "JULIAS" → "JULIA" (user meant "Julia's")
-            // Only strip trailing S when it follows a name-like word (>2 chars)
             if (nameCandidate.length > 2 && /s$/i.test(nameCandidate)) {
                 nameCandidate = nameCandidate.replace(/s$/i, '');
             }
 
-            const candidateId = extractCandidateIdFromText(rawText);
+            const candidateId = urlCandidateId || extractCandidateIdFromText(rawText);
             const email = extractEmailFromText(rawText);
 
             let lookupArgs: Record<string, any> = {};
