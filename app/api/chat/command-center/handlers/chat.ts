@@ -738,6 +738,60 @@ export async function handleChatIntent(
             };
         }
 
+        // ─── Direct lookup path ─────────────────────────────────────────────
+        // When the user asks to "pull info" / "look up" / "find" a candidate,
+        // execute lookup_candidate directly instead of hoping the LLM calls it.
+        const isLookup = intent === Intent.DATABASE_ACTION &&
+            /\b(pull|look\s*up|find|search|get|fetch|check)\b/i.test(input.inputText || '') &&
+            tools?.lookup_candidate?.execute;
+        if (isLookup) {
+            const rawText = input.inputText || '';
+            // Try to extract a name: strip the verb phrase and common filler words
+            const nameCandidate = rawText
+                .replace(/\b(can you|could you|please|pull|look\s*up|find|search|get|fetch|check)\b/gi, '')
+                .replace(/\b(info|information|profile|details?|record|data|candidate|prospect)\b/gi, '')
+                .replace(/[''`]/g, '')  // possessives
+                .replace(/\b(his|her|their|the|a|an|for|on|about|me|s)\b/gi, '')
+                .replace(/[^a-zA-Z\s-]/g, '')
+                .trim();
+
+            const candidateId = extractCandidateIdFromText(rawText);
+            const email = extractEmailFromText(rawText);
+
+            let lookupArgs: Record<string, any> = {};
+            if (candidateId) {
+                lookupArgs = { candidate_id: candidateId };
+            } else if (email) {
+                lookupArgs = { email };
+            } else if (nameCandidate.length >= 2) {
+                lookupArgs = { name: nameCandidate };
+            }
+
+            if (Object.keys(lookupArgs).length > 0) {
+                logger.info('direct_lookup_candidate', { traceId, lookupArgs });
+                const lookupResult = await tools.lookup_candidate.execute(lookupArgs);
+
+                if (!lookupResult?.ok) {
+                    return {
+                        type: 'chat',
+                        content: `Unable to complete that: ${lookupResult?.error || 'Unknown error'}`,
+                    };
+                }
+
+                if (!lookupResult.matches?.length) {
+                    const searchTerm = lookupArgs.name || lookupArgs.email || lookupArgs.candidate_id;
+                    return {
+                        type: 'chat',
+                        content: `No candidates found matching "${searchTerm}". Double-check the name or try an email/ID.`,
+                    };
+                }
+
+                let content = `Found ${lookupResult.matches.length} result${lookupResult.matches.length > 1 ? 's' : ''}:`;
+                content += emitFromLookupResult(lookupResult);
+                return { type: 'chat', content };
+            }
+        }
+
         const lastDraft = intent === Intent.EDIT_CONTENT ? getLastAssistantDraft(input.messages) : null;
         const usePreviousDraftContext = intent === Intent.EDIT_CONTENT && shouldUsePreviousDraftContext(input, lastDraft);
         const basePrompt = PROMPTS[intent] || PROMPTS[Intent.GENERAL_CHAT];
