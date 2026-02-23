@@ -466,7 +466,7 @@ export async function POST(request: Request) {
 
     try {
         const intentConfig = getIntentConfig(classification.intent);
-        const tools = intentConfig.requiresTools ? createCommandCenterTools(supabase, logger) : undefined;
+        const tools = intentConfig.requiresTools ? createCommandCenterTools(undefined, logger) : undefined;
 
         // Email intents → Email Handler
         if (intentConfig.handler === 'email') {

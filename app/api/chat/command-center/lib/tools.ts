@@ -1,14 +1,23 @@
 /**
  * Command Center Tools
+ *
  * Server-side tool definitions for LLM actions.
  *
- * Uses the shared admin client from /api/data/_shared (same connection
- * as all /api/data/* endpoints) instead of creating a separate client.
+ * All prospect operations go through the shared service layer
+ * at /api/data/prospects/service — the same data path used by
+ * the /api/data/prospects REST endpoints. No direct table queries.
  */
 
 import { z } from 'zod';
 import { CONFIG } from './config';
-import { getAdminClient } from '@/lib/supabase/admin';
+import {
+  findProspects,
+  findProspectBy,
+  createProspect,
+  updateProspect,
+  resolveProspectId,
+} from '../../../data/prospects/service';
+import { db } from '../../../data/_shared';
 
 const NOVA_SECTION_PATHS: Record<string, string> = {
   about: '/new-profile/about',
@@ -67,34 +76,7 @@ function normalizeStateAbbr(state?: string | null): string | null {
   return cleaned.length === 2 ? cleaned : null;
 }
 
-async function resolveProspectId(
-  client: any,
-  input: { prospect_id?: number; candidate_id?: number; email?: string }
-): Promise<number | null> {
-  if (input.prospect_id) return input.prospect_id;
-  if (input.candidate_id) {
-    const { data } = await client
-      .from('prospects')
-      .select('id')
-      .eq('candidate_id', input.candidate_id)
-      .maybeSingle();
-    return data?.id ?? null;
-  }
-  if (input.email) {
-    const { data } = await client
-      .from('prospects')
-      .select('id')
-      .ilike('email', input.email)
-      .maybeSingle();
-    return data?.id ?? null;
-  }
-  return null;
-}
-
-export function createCommandCenterTools(supabase?: any, logger?: { info?: Function; warn?: Function; error?: Function }) {
-  // Use the shared admin client (same as /api/data/* endpoints)
-  // Falls back to passed-in client for backwards compatibility
-  const db = supabase || getAdminClient();
+export function createCommandCenterTools(_supabase?: any, logger?: { info?: Function; warn?: Function; error?: Function }) {
   return {
     lookup_candidate: {
       description:
@@ -106,25 +88,19 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
         limit: z.number().int().positive().max(20).optional(),
       }),
       execute: async (args: any) => {
-        const limit = Math.min(Number(args.limit || 5), 20);
-        let query = db
-          .from('prospects')
-          .select('id, candidate_id, name, email, phone, status, nova_url, recruiter, specialty, profession, home_state, licenses, engagement_level')
-          .limit(limit);
-
-        if (args.candidate_id) {
-          query = query.eq('candidate_id', args.candidate_id);
-        } else if (args.email) {
-          query = query.ilike('email', String(args.email).trim());
-        } else if (args.name) {
-          query = query.ilike('name', `%${String(args.name).trim()}%`);
-        } else {
+        if (!args.candidate_id && !args.email && !args.name) {
           return { ok: false, error: 'Provide candidate_id, email, or name.' };
         }
 
-        const { data, error } = await query;
+        const { data, error } = await findProspects({
+          candidate_id: args.candidate_id,
+          email: args.email ? String(args.email).trim() : undefined,
+          name: args.name ? String(args.name).trim() : undefined,
+          limit: args.limit,
+        });
+
         if (error) return { ok: false, error: error.message };
-        return { ok: true, matches: data || [] };
+        return { ok: true, matches: data };
       },
     },
 
@@ -164,11 +140,8 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
           return { ok: false, error: 'name is required.' };
         }
 
-        const { data: existing, error: lookupErr } = await db
-          .from('prospects')
-          .select('id, candidate_id, name, email')
-          .eq('candidate_id', candidateId)
-          .maybeSingle();
+        // Check for existing record via the service layer
+        const { data: existing, error: lookupErr } = await findProspectBy('candidate_id', candidateId);
 
         if (lookupErr) {
           return { ok: false, error: lookupErr.message };
@@ -202,16 +175,11 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
             return {
               ok: false,
               error: 'Candidate already exists.',
-              existing,
+              existing: { id: existing.id, candidate_id: existing.candidate_id, name: existing.name, email: existing.email },
             };
           }
 
-          const { data: updated, error: updErr } = await db
-            .from('prospects')
-            .update(payload)
-            .eq('id', existing.id)
-            .select('*')
-            .single();
+          const { data: updated, error: updErr } = await updateProspect(existing.id, payload);
 
           if (updErr) return { ok: false, error: updErr.message };
 
@@ -223,11 +191,7 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
           return { ok: true, action: 'updated', prospect: updated };
         }
 
-        const { data, error } = await db
-          .from('prospects')
-          .insert([payload])
-          .select('*')
-          .single();
+        const { data, error } = await createProspect(payload);
 
         if (error) {
           return { ok: false, error: error.message };
@@ -263,7 +227,7 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
         nova_url: z.string().url().optional(),
       }),
       execute: async (args: any) => {
-        const prospectId = await resolveProspectId(db, {
+        const prospectId = await resolveProspectId({
           prospect_id: args.prospect_id,
           candidate_id: args.candidate_id,
           email: args.email,
@@ -298,12 +262,7 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
           return { ok: false, error: 'No update fields provided.' };
         }
 
-        const { data, error } = await db
-          .from('prospects')
-          .update(cleaned)
-          .eq('id', prospectId)
-          .select('*')
-          .single();
+        const { data, error } = await updateProspect(prospectId, cleaned);
 
         if (error) return { ok: false, error: error.message };
 
@@ -331,15 +290,9 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
         }
 
         if (!prospectId && candidateId) {
-          const { data: prospect, error: lookupErr } = await db
-            .from('prospects')
-            .select('id, candidate_id, name')
-            .eq('candidate_id', candidateId)
-            .maybeSingle();
-
-          if (lookupErr) return { ok: false, error: lookupErr.message };
-          if (!prospect) return { ok: false, error: 'Candidate not found.' };
-          prospectId = prospect.id;
+          const resolved = await resolveProspectId({ candidate_id: candidateId });
+          if (!resolved) return { ok: false, error: 'Candidate not found.' };
+          prospectId = resolved;
         }
 
         const payload = {
@@ -349,7 +302,7 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
           content: String(args.content).trim(),
         };
 
-        const { data, error } = await db
+        const { data, error } = await db()
           .from('candidate_notes')
           .insert([payload])
           .select('*')
@@ -358,10 +311,7 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
         if (error) return { ok: false, error: error.message };
 
         // Keep latest note visible in legacy UI (prospects.notes)
-        await db
-          .from('prospects')
-          .update({ notes: payload.content })
-          .eq('id', prospectId);
+        await updateProspect(prospectId!, { notes: payload.content });
 
         logger?.info?.('tool_add_candidate_note', {
           prospect_id: prospectId,
@@ -381,7 +331,7 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
         limit: z.number().int().positive().max(50).optional(),
       }),
       execute: async (args: any) => {
-        const prospectId = await resolveProspectId(db, {
+        const prospectId = await resolveProspectId({
           prospect_id: args.prospect_id,
           candidate_id: args.candidate_id,
           email: args.email,
@@ -392,7 +342,7 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
         }
 
         const limit = Math.min(Number(args.limit || 10), 50);
-        const { data, error } = await db
+        const { data, error } = await db()
           .from('candidate_notes')
           .select('id, prospect_id, author_id, note_type, content, created_at')
           .eq('prospect_id', prospectId)
@@ -420,7 +370,6 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
         const sectionKey = normalizeNovaKey(args.section);
         const pageKey = normalizeNovaKey(args.page);
 
-        // If candidate info is present, build candidate-scoped link.
         if (candidateId) {
           let path = '';
           if (args.custom_path) {
@@ -440,7 +389,6 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
           };
         }
 
-        // Otherwise, build a global Nova page link.
         let pagePath = '';
         if (args.custom_path) {
           pagePath = normalizeNovaPath(args.custom_path);
@@ -481,7 +429,7 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
 
         const profession = args.profession ? String(args.profession).trim() : 'all';
 
-        const baseQuery = db
+        const baseQuery = db()
           .from('state_board_links')
           .select('id, state, profession, url, notes, source')
           .eq('state', state);
@@ -494,8 +442,14 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
         if (exactErr) return { ok: false, error: exactErr.message };
         if (exact) return { ok: true, link: exact.url, data: exact };
 
-        // Fallback to state-wide "all" entry
-        const { data, error } = await baseQuery.eq('profession', 'all').limit(1).maybeSingle();
+        const { data, error } = await db()
+          .from('state_board_links')
+          .select('id, state, profession, url, notes, source')
+          .eq('state', state)
+          .eq('profession', 'all')
+          .limit(1)
+          .maybeSingle();
+
         if (error) return { ok: false, error: error.message };
         if (!data) {
           return { ok: false, error: 'No state board link found.' };
@@ -526,7 +480,7 @@ export function createCommandCenterTools(supabase?: any, logger?: { info?: Funct
           source: args.source ? String(args.source).trim() : null,
         };
 
-        const { data, error } = await db
+        const { data, error } = await db()
           .from('state_board_links')
           .upsert(payload, { onConflict: 'state,profession' })
           .select('*')

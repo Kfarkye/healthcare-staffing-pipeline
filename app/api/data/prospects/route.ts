@@ -4,22 +4,22 @@
  * GET   — List all prospects (replaces DataService.getProspects)
  * POST  — Create a prospect (replaces DataService.createProspect)
  * PATCH — Update a prospect (replaces DataService.updateProspect)
+ *
+ * All data access goes through the shared prospect service layer.
  */
 
 import { NextRequest } from "next/server";
-import { db, json, error, safe } from "../_shared";
+import { json, error, safe } from "../_shared";
+import { listProspects, createProspect, updateProspect } from "./service";
 
-export const GET = safe(async (req: NextRequest) => {
-    const { data, error: queryError } = await db()
-        .from("prospects")
-        .select("*")
-        .order("created_at", { ascending: false });
+export const GET = safe(async (_req: NextRequest) => {
+    const result = await listProspects();
 
-    if (queryError) {
-        return error(queryError.message, 502);
+    if (result.error) {
+        return error(result.error.message, 502);
     }
 
-    return json({ rows: data || [] });
+    return json({ rows: result.data });
 });
 
 export const POST = safe(async (req: NextRequest) => {
@@ -30,17 +30,13 @@ export const POST = safe(async (req: NextRequest) => {
         return error("Unknown action. Expected 'create'.", 400);
     }
 
-    const { data, error: insertError } = await db()
-        .from("prospects")
-        .insert(prospectData)
-        .select()
-        .single();
+    const result = await createProspect(prospectData);
 
-    if (insertError) {
-        return error(insertError.message, 502);
+    if (result.error) {
+        return error(result.error.message, 502);
     }
 
-    return json({ data }, 201);
+    return json({ data: result.data }, 201);
 });
 
 export const PATCH = safe(async (req: NextRequest) => {
@@ -51,16 +47,11 @@ export const PATCH = safe(async (req: NextRequest) => {
         return error("Missing prospect id", 400);
     }
 
-    const { data, error: updateError } = await db()
-        .from("prospects")
-        .update(updates)
-        .eq("id", id)
-        .select()
-        .single();
+    const result = await updateProspect(id, updates);
 
-    if (updateError) {
-        return error(updateError.message, 502);
+    if (result.error) {
+        return error(result.error.message, 502);
     }
 
-    return json({ data });
+    return json({ data: result.data });
 });
