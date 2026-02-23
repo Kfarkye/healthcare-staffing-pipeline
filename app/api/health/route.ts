@@ -14,11 +14,31 @@ import { db } from "../data/_shared";
 
 export const dynamic = "force-dynamic";
 
+// Core tables — must exist for the app to function
 const REQUIRED_TABLES = [
     "prospects",
     "engagements",
     "facilities",
     "jobs",
+    "actions",
+    "exits",
+    "follow_ups",
+    "interested_clicks",
+    "pay_packages",
+    "knowledge_base",
+    "communication_templates",
+    "chat_history",
+    "ai_audit_logs",
+    "candidate_dna",
+    "certifications",
+    "candidate_activities",
+    "travel_candidates",
+    "candidate_notes",
+    "state_board_links",
+    "cold_outreach_campaigns",
+    "cold_outreach_recipients",
+    "credential_packs",
+    "email_templates",
 ];
 
 export async function GET() {
@@ -36,37 +56,32 @@ export async function GET() {
         checks.db_connection = { ok: false, error: err?.message || "Connection failed" };
     }
 
-    // 2. Required tables exist
+    // 2. Required tables exist in PostgREST schema cache
     try {
         const t0 = Date.now();
-        const { data, error } = await db()
-            .from("information_schema.tables" as any)
-            .select("table_name")
-            .eq("table_schema", "public")
-            .in("table_name", REQUIRED_TABLES);
+        const found: string[] = [];
+        const missing: string[] = [];
 
-        if (error) {
-            // Fallback: try each table individually
-            const found: string[] = [];
-            for (const table of REQUIRED_TABLES) {
-                const { error: tableErr } = await db().from(table).select("id").limit(0);
-                if (!tableErr) found.push(table);
-            }
-            const missing = REQUIRED_TABLES.filter((t) => !found.includes(t));
-            checks.schema = {
-                ok: missing.length === 0,
-                ms: Date.now() - t0,
-                ...(missing.length > 0 && { error: `Missing tables: ${missing.join(", ")}` }),
-            };
-        } else {
-            const found = (data || []).map((r: any) => r.table_name);
-            const missing = REQUIRED_TABLES.filter((t) => !found.includes(t));
-            checks.schema = {
-                ok: missing.length === 0,
-                ms: Date.now() - t0,
-                ...(missing.length > 0 && { error: `Missing tables: ${missing.join(", ")}` }),
-            };
-        }
+        // Probe each table — a zero-row SELECT will succeed if the table
+        // exists in the schema cache, and fail with 404 if it doesn't
+        await Promise.all(
+            REQUIRED_TABLES.map(async (table) => {
+                const { error: tableErr } = await db().from(table).select("*").limit(0);
+                if (tableErr) {
+                    missing.push(table);
+                } else {
+                    found.push(table);
+                }
+            })
+        );
+
+        checks.schema = {
+            ok: missing.length === 0,
+            ms: Date.now() - t0,
+            found_count: found.length,
+            total_expected: REQUIRED_TABLES.length,
+            ...(missing.length > 0 && { error: `Missing tables: ${missing.join(", ")}` }),
+        };
     } catch (err: any) {
         checks.schema = { ok: false, error: err?.message || "Schema check failed" };
     }
