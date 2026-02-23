@@ -43,7 +43,7 @@ const REQUIRED_TABLES = [
 
 export async function GET() {
     const start = Date.now();
-    const checks: Record<string, { ok: boolean; ms?: number; error?: string }> = {};
+    const checks: Record<string, { ok: boolean; ms?: number; error?: string; [key: string]: any }> = {};
 
     // 1. DB connection
     try {

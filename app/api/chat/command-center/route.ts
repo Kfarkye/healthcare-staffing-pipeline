@@ -38,6 +38,7 @@ import { createCommandCenterTools } from './lib/tools';
 import { handleEmailIntent } from './handlers/email';
 import { handleChatIntent } from './handlers/chat';
 import { getCatalogEntry } from '@/lib/template-catalog';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 // ════════════════════════════════════════════════════════════════════════════════
 // Runtime Configuration
@@ -411,6 +412,21 @@ export async function POST(request: Request) {
                 explicitTemplate: templateType,
                 fallback: 'classification_unchanged',
             });
+        }
+    }
+
+    // Enforce internal-only templates server-side (requires authenticated user)
+    const resolvedTemplateId = classification.templateType || (templateType as TemplateTypeValue | undefined);
+    const resolvedCatalogEntry = resolvedTemplateId ? getCatalogEntry(resolvedTemplateId) : null;
+    if (resolvedCatalogEntry?.internalOnly) {
+        const authClient = await createServerSupabaseClient();
+        const { data, error } = await authClient.auth.getUser();
+        if (error || !data?.user) {
+            logger.warn('internal_template_blocked', {
+                templateType: resolvedTemplateId,
+                reason: error?.message || 'unauthenticated',
+            });
+            return createErrorResponse('Unauthorized for internal templates', traceId, 403);
         }
     }
 

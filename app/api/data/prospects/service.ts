@@ -70,21 +70,24 @@ export async function findProspects(
         const { data, error } = await repo.selectByField(
             "candidate_id", options.candidate_id, { limit }
         );
-        return { data: data || [], error };
+        const rows = Array.isArray(data) ? (data as unknown as ProspectRecord[]) : [];
+        return { data: rows, error };
     }
 
     if (options.email) {
         const { data, error } = await repo.selectByField(
             "email", String(options.email).trim(), { ilike: true, limit }
         );
-        return { data: data || [], error };
+        const rows = Array.isArray(data) ? (data as unknown as ProspectRecord[]) : [];
+        return { data: rows, error };
     }
 
     if (options.name) {
         const { data, error } = await repo.selectByField(
             "name", `%${String(options.name).trim()}%`, { ilike: true, limit }
         );
-        return { data: data || [], error };
+        const rows = Array.isArray(data) ? (data as unknown as ProspectRecord[]) : [];
+        return { data: rows, error };
     }
 
     return { data: [], error: null };
