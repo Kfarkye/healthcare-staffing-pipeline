@@ -896,7 +896,12 @@ export async function handleChatIntent(
                 if (!res?.ok) continue;
 
                 if (tr.toolName === 'lookup_candidate') {
-                    text += emitFromLookupResult(res);
+                    if (Array.isArray(res.matches) && res.matches.length === 0) {
+                        // Override generic LLM prose ("Done.") with a useful message
+                        text = 'No candidates found matching that search. Double-check the name or try an email/ID.';
+                    } else {
+                        text += emitFromLookupResult(res);
+                    }
                 } else if (
                     (tr.toolName === 'add_candidate' || tr.toolName === 'update_candidate') &&
                     res.prospect
