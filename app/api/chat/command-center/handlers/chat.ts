@@ -802,7 +802,25 @@ export async function handleChatIntent(
                     };
                 }
 
-                let content = `Found ${lookupResult.matches.length} result${lookupResult.matches.length > 1 ? 's' : ''}:`;
+                // Build human-readable text so the recruiter sees actual data
+                const matches = lookupResult.matches;
+                let content = `Found ${matches.length} result${matches.length > 1 ? 's' : ''}:\n\n`;
+                for (const m of matches) {
+                    content += `**${m.name}**`;
+                    if (m.candidate_id) content += ` (ID: ${m.candidate_id})`;
+                    content += `\n`;
+                    if (m.specialty || m.profession) content += `Role: ${[m.profession, m.specialty].filter(Boolean).join(' — ')}\n`;
+                    if (m.status) content += `Status: ${m.status}\n`;
+                    if (m.home_state) content += `Location: ${m.home_state}\n`;
+                    if (m.email) content += `Email: ${m.email}\n`;
+                    if (m.phone) content += `Phone: ${m.phone}\n`;
+                    if (m.recruiter) content += `Recruiter: ${m.recruiter}\n`;
+                    if (m.engagement_level) content += `Engagement: ${m.engagement_level}\n`;
+                    if (m.licenses?.length) content += `Licenses: ${m.licenses.join(', ')}\n`;
+                    if (m.nova_url) content += `Nova: ${m.nova_url}\n`;
+                    content += `\n`;
+                }
+                // Append structured block for frontend card rendering
                 content += emitFromLookupResult(lookupResult);
                 return { type: 'chat', content };
             }
@@ -948,6 +966,21 @@ export async function handleChatIntent(
                     text = `Here's the link: ${res.link}`;
                 } else if (res?.ok && Array.isArray(res?.matches) && res.matches.length === 0) {
                     text = 'No candidates found matching that search. Double-check the name or try an email/ID.';
+                } else if (res?.ok && Array.isArray(res?.matches) && res.matches.length > 0) {
+                    // Render candidate data as readable text
+                    text = `Found ${res.matches.length} result${res.matches.length > 1 ? 's' : ''}:\n\n`;
+                    for (const m of res.matches) {
+                        text += `**${m.name}**`;
+                        if (m.candidate_id) text += ` (ID: ${m.candidate_id})`;
+                        text += `\n`;
+                        if (m.specialty || m.profession) text += `Role: ${[m.profession, m.specialty].filter(Boolean).join(' — ')}\n`;
+                        if (m.status) text += `Status: ${m.status}\n`;
+                        if (m.home_state) text += `Location: ${m.home_state}\n`;
+                        if (m.email) text += `Email: ${m.email}\n`;
+                        if (m.phone) text += `Phone: ${m.phone}\n`;
+                        if (m.nova_url) text += `Nova: ${m.nova_url}\n`;
+                        text += `\n`;
+                    }
                 } else if (res?.ok) {
                     text = 'Done.';
                 } else if (res?.error) {
@@ -967,9 +1000,24 @@ export async function handleChatIntent(
 
                 if (tr.toolName === 'lookup_candidate') {
                     if (Array.isArray(res.matches) && res.matches.length === 0) {
-                        // Override generic LLM prose ("Done.") with a useful message
                         text = 'No candidates found matching that search. Double-check the name or try an email/ID.';
-                    } else {
+                    } else if (Array.isArray(res.matches) && res.matches.length > 0) {
+                        // Build readable text so candidate data is visible
+                        let readable = `\n\nFound ${res.matches.length} result${res.matches.length > 1 ? 's' : ''}:\n\n`;
+                        for (const m of res.matches) {
+                            readable += `**${m.name}**`;
+                            if (m.candidate_id) readable += ` (ID: ${m.candidate_id})`;
+                            readable += `\n`;
+                            if (m.specialty || m.profession) readable += `Role: ${[m.profession, m.specialty].filter(Boolean).join(' — ')}\n`;
+                            if (m.status) readable += `Status: ${m.status}\n`;
+                            if (m.home_state) readable += `Location: ${m.home_state}\n`;
+                            if (m.email) readable += `Email: ${m.email}\n`;
+                            if (m.phone) readable += `Phone: ${m.phone}\n`;
+                            if (m.recruiter) readable += `Recruiter: ${m.recruiter}\n`;
+                            if (m.nova_url) readable += `Nova: ${m.nova_url}\n`;
+                            readable += `\n`;
+                        }
+                        text += readable;
                         text += emitFromLookupResult(res);
                     }
                 } else if (
