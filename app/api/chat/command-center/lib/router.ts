@@ -46,6 +46,9 @@ const PATTERNS = {
     novaId: /^#?\d{6,8}$/,
     novaUrl: /nova\.ayahealthcare\.com/i,
 
+    // Greetings / trivial input (must come before intent detection)
+    greeting: /^(h[ae]llo|hi|hey|yo|sup|good\s*(morning|afternoon|evening)|greetings|howdy|what'?s?\s*up|gm)\b[!.\s]*$/i,
+
     // Intent detection
     infoQuestion: /^(who|what|where|when|why|how)\b/i,
     draftVerb: /\b(draft|write|compose|create|generate)\b/i,
@@ -472,6 +475,19 @@ export async function classify(
     if (!text && !hasImage) {
         return {
             ...createResult(Intent.GENERAL_CHAT, null, 'Empty input'),
+            debug: {
+                messageLength: text.length,
+                hasImage,
+                lastEmailFound,
+                lastEmailScanDepth: lastEmailScan.scanned,
+            },
+        };
+    }
+
+    // Greetings / trivial social messages → always GENERAL_CHAT
+    if (PATTERNS.greeting.test(text)) {
+        return {
+            ...createResult(Intent.GENERAL_CHAT, null, 'Greeting detected'),
             debug: {
                 messageLength: text.length,
                 hasImage,
@@ -983,7 +999,7 @@ export async function classify(
                 model: googleClient(model, { structuredOutputs: true }),
                 schema: ClassificationSchema,
                 messages: [{ role: 'user', content: text }],
-                system: `Classify the user's intent. Options: DRAFT_OUTREACH (cold emails), DRAFT_EMAIL (specific requests), DATABASE_ACTION (lookups), CAMPAIGN_WORKFLOW (automation), GENERAL_CHAT (other).`,
+                system: `Classify the user's intent. Options: DRAFT_OUTREACH (cold outreach emails with pay packages), DRAFT_EMAIL (specific email drafting requests), DATABASE_ACTION (candidate lookups/updates), CAMPAIGN_WORKFLOW (automation/campaign design), GENERAL_CHAT (greetings, questions, advice, anything that is NOT a request to draft or send something). When in doubt, choose GENERAL_CHAT.`,
                 temperature: 0,
             });
             let response;
