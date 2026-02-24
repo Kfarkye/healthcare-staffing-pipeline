@@ -55,7 +55,7 @@ export type ProspectPayload = Omit<Partial<ProspectRecord>, "id">;
 /** List all prospects, newest first. */
 export async function listProspects(): Promise<{ data: ProspectRecord[]; error: any }> {
     const { data, error } = await repo.selectAll("created_at", false);
-    return { data: (data as ProspectRecord[] | null) || [], error };
+    return { data: (data as unknown as ProspectRecord[] | null) || [], error };
 }
 
 /**
@@ -70,21 +70,21 @@ export async function findProspects(
         const { data, error } = await repo.selectByField(
             "candidate_id", options.candidate_id, { limit }
         );
-        return { data: (data as ProspectRecord[] | null) || [], error };
+        return { data: (data as unknown as ProspectRecord[] | null) || [], error };
     }
 
     if (options.email) {
         const { data, error } = await repo.selectByField(
             "email", String(options.email).trim(), { ilike: true, limit }
         );
-        return { data: (data as ProspectRecord[] | null) || [], error };
+        return { data: (data as unknown as ProspectRecord[] | null) || [], error };
     }
 
     if (options.name) {
         const { data, error } = await repo.selectByField(
             "name", `%${String(options.name).trim()}%`, { ilike: true, limit }
         );
-        return { data: (data as ProspectRecord[] | null) || [], error };
+        return { data: (data as unknown as ProspectRecord[] | null) || [], error };
     }
 
     return { data: [], error: null };
