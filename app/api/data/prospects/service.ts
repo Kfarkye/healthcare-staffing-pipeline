@@ -49,13 +49,34 @@ export interface ProspectRecord {
 export type ProspectPayload = Omit<Partial<ProspectRecord>, "id">;
 
 /* ------------------------------------------------------------------ */
+/*  Type guard                                                         */
+/* ------------------------------------------------------------------ */
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+    return typeof v === "object" && v !== null && !("error" in v && (v as any).error === true);
+}
+
+function isProspectRecord(v: unknown): v is ProspectRecord {
+    return isRecord(v) && typeof (v as any).id === "number";
+}
+
+/**
+ * Normalize any Supabase select/RPC result into a clean ProspectRecord[].
+ * Filters out GenericStringError entries and non-record values — no unsafe casts.
+ */
+function normalizeRecords(data: unknown): ProspectRecord[] {
+    if (!Array.isArray(data)) return [];
+    return data.filter(isProspectRecord);
+}
+
+/* ------------------------------------------------------------------ */
 /*  List / Search                                                      */
 /* ------------------------------------------------------------------ */
 
 /** List all prospects, newest first. */
 export async function listProspects(): Promise<{ data: ProspectRecord[]; error: any }> {
     const { data, error } = await repo.selectAll("created_at", false);
-    return { data: (data as unknown as ProspectRecord[] | null) || [], error };
+    return { data: normalizeRecords(data), error };
 }
 
 /**
@@ -70,21 +91,21 @@ export async function findProspects(
         const { data, error } = await repo.selectByField(
             "candidate_id", options.candidate_id, { limit }
         );
-        return { data: (data as unknown as ProspectRecord[] | null) || [], error };
+        return { data: normalizeRecords(data), error };
     }
 
     if (options.email) {
         const { data, error } = await repo.selectByField(
             "email", String(options.email).trim(), { ilike: true, limit }
         );
-        return { data: (data as unknown as ProspectRecord[] | null) || [], error };
+        return { data: normalizeRecords(data), error };
     }
 
     if (options.name) {
         const { data, error } = await repo.selectByField(
             "name", `%${String(options.name).trim()}%`, { ilike: true, limit }
         );
-        return { data: (data as unknown as ProspectRecord[] | null) || [], error };
+        return { data: normalizeRecords(data), error };
     }
 
     return { data: [], error: null };
